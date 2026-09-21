@@ -23,6 +23,10 @@ jobs:
       deploy_path: /home/sisadmin/sis-web
       health_check_url: https://sis-administration.com
       node_version: '22'
+      # Passenger cPanel : ne pas écraser le .htaccess ni tmp/ du premier setup.
+      protect_paths: |
+        .htaccess
+        tmp
       # NEXT_PUBLIC_* figé au build CI — jamais relu au runtime cPanel.
       build_env: |
         NEXT_PUBLIC_API_URL=https://v1.sis-administration.com/api/v1

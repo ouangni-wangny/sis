@@ -28,6 +28,12 @@ jobs:
       # CloudLinux : vérifier avec `ls -d /opt/alt/php*/usr/bin/php`
       php_bin: /opt/alt/php83/usr/bin/php
       composer_bin: /opt/alt/php83/usr/bin/composer
+      # Premier deploy manuel : ne pas écraser .env / médias / uploads.
+      # (.env et storage/ sont déjà exclus par le kit ; on le répète ici.)
+      protect_paths: |
+        .env
+        storage
+        public/storage
     secrets:
       SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
       SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
