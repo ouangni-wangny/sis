@@ -43,8 +43,7 @@ Détail de la génération de clé : README du kit, section *Onboarding*.
 | Frontend | `/home/sisadmin/sis-web` | cPanel Setup Node.js App (protège `.htaccess`, `tmp/`) |
 | Backend | `/home/sisadmin/public_html/v1.sis-administration.com` | sous-domaine API (protège `.env`, `storage/`) |
 
-PHP CloudLinux : les workflows pointent vers `/opt/alt/php83/usr/bin/php`.
-Si le compte utilise 8.4, remplacer par `php84` comme sur PECI.
+PHP CloudLinux (API) : `/opt/alt/php84/usr/bin/php` (`ea-php84` côté web cPanel).
 
 ### Premier déploiement automatisé
 
