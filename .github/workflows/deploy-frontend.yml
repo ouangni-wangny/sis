@@ -18,7 +18,7 @@ jobs:
 
   deploy:
     needs: ci
-    uses: ouangni-wangny/xsel-deploy-mutualise/.github/workflows/deploy.yml@v1.3.0
+    uses: ouangni-wangny/xsel-deploy-mutualise/.github/workflows/deploy.yml@v1.3.1
     with:
       app_path: frontend
       # cPanel Setup Node.js App — utilisateur sisadmin, racine sis-web.

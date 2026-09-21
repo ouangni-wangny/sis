@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   backend:
-    uses: ouangni-wangny/xsel-deploy-mutualise/.github/workflows/doctor.yml@v1.3.0
+    uses: ouangni-wangny/xsel-deploy-mutualise/.github/workflows/doctor.yml@v1.3.1
     with:
       app_path: backend
       deploy_path: /home/sisadmin/public_html/v1.sis-administration.com
@@ -20,7 +20,7 @@ jobs:
       SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
       SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
   frontend:
-    uses: ouangni-wangny/xsel-deploy-mutualise/.github/workflows/doctor.yml@v1.3.0
+    uses: ouangni-wangny/xsel-deploy-mutualise/.github/workflows/doctor.yml@v1.3.1
     with:
       app_path: frontend
       deploy_path: /home/sisadmin/sis-web
