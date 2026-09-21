@@ -1,6 +1,4 @@
 version: 1
-deploy_branch: kit-v1.4-test   # TEMPORAIRE (essai) : redevient main après validation
-
 apps:
   backend:
     deploy_path: /home/sisadmin/public_html/v1.sis-administration.com
