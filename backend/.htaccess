@@ -1,0 +1,11 @@
+# BEGIN Laravel Rewrite Rules
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # Rediriger toutes les demandes vers le répertoire public
+    RewriteRule ^(.*)$ public/$1 [L]
+
+    # Autres règles de réécriture pour Laravel (si nécessaire)
+</IfModule>
+# END Laravel Rewrite Rules

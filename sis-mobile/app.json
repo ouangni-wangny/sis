@@ -1,0 +1,71 @@
+{
+  "expo": {
+    "name": "S.I.S Terrain",
+    "slug": "sis-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "sis",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0F6B5C"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "ci.sis.terrain",
+      "infoPlist": {
+        "NSCameraUsageDescription": "S.I.S utilise la caméra pour photographier l’agent lors du contrôle de présence.",
+        "NSLocationWhenInUseUsageDescription": "S.I.S utilise la localisation pour valider que le contrôle a lieu sur le site/poste.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true
+        }
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0F6B5C"
+      },
+      "package": "ci.sis.terrain",
+      "usesCleartextTraffic": true,
+      "permissions": [
+        "CAMERA",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "INTERNET"
+      ],
+      "edgeToEdgeEnabled": true
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Autoriser S.I.S à photographier l’agent contrôlé au poste."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Autoriser S.I.S à utiliser votre position pour valider la présence au poste."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "apiUrl": ""
+    }
+  }
+}

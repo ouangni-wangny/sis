@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#2F3A24" />
+    <title>Hors ligne — S.I.S</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #141a10;
+        --muted: #4a5340;
+        --teal: #2f3a24;
+        --paper: #f4f5f2;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        font-family: Manrope, ui-sans-serif, system-ui, sans-serif;
+        background:
+          radial-gradient(circle at 1px 1px, rgba(20, 26, 16, 0.05) 1px, transparent 0)
+            0 0 / 18px 18px,
+          linear-gradient(180deg, #eef0ea, var(--paper));
+        color: var(--ink);
+      }
+      .card {
+        width: 100%;
+        max-width: 24rem;
+        background: #fff;
+        border: 1px solid #d2d6cc;
+        border-radius: 1.25rem;
+        padding: 1.75rem;
+        text-align: center;
+        box-shadow: 0 20px 50px -28px rgba(30, 39, 20, 0.45);
+      }
+      img {
+        width: 72px;
+        height: 72px;
+        object-fit: contain;
+        margin: 0 auto 1rem;
+        display: block;
+      }
+      h1 {
+        margin: 0 0 0.5rem;
+        font-size: 1.35rem;
+        letter-spacing: -0.02em;
+      }
+      p {
+        margin: 0 0 1.25rem;
+        color: var(--muted);
+        font-size: 0.95rem;
+        line-height: 1.5;
+      }
+      button {
+        appearance: none;
+        border: 0;
+        border-radius: 0.65rem;
+        background: var(--teal);
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        padding: 0.75rem 1.1rem;
+        width: 100%;
+        cursor: pointer;
+      }
+      button:active {
+        opacity: 0.9;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <img src="/icons/icon-192.png" alt="S.I.S" width="72" height="72" />
+      <h1>Vous êtes hors ligne</h1>
+      <p>
+        Impossible de joindre S.I.S pour le moment. Vérifiez votre connexion,
+        puis réessayez.
+      </p>
+      <button type="button" onclick="location.reload()">Réessayer</button>
+    </div>
+  </body>
+</html>

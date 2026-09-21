@@ -1,0 +1,10 @@
+.DS_Store
+*.zip
+.next.zip
+node_modules/
+vendor/
+.env
+.env.local
+.env.production
+*.sqlite
+*.sqlite3

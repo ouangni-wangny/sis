@@ -1,0 +1,36 @@
+name: Deploy backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+      - '.github/workflows/ci-backend.yml'
+  workflow_dispatch:
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci-backend.yml
+
+  deploy:
+    needs: ci
+    uses: ouangni-wangny/xsel-deploy-mutualise/.github/workflows/deploy.yml@v1.0.1
+    with:
+      stack: laravel
+      app_path: backend
+      # À confirmer sur le serveur (pwd du Laravel de prod). Hypothèse :
+      # même convention que le front (`sis-web` → `sis-api`).
+      deploy_path: /home/notaires/sis-api
+      health_check_url: https://v1.sis-administration.com/up
+      php_version: '8.3'
+      # API JSON : pas d’assets Vite à builder en CI.
+      build_frontend_assets: false
+      # CloudLinux : vérifier avec `ls -d /opt/alt/php*/usr/bin/php`
+      php_bin: /opt/alt/php83/usr/bin/php
+      composer_bin: /opt/alt/php83/usr/bin/composer
+    secrets:
+      SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+      SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+      SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}

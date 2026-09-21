@@ -1,0 +1,14 @@
+name: Monitor
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  check:
+    uses: ouangni-wangny/xsel-deploy-mutualise/.github/workflows/monitor.yml@v1.0.1
+    with:
+      urls: |
+        https://v1.sis-administration.com/up
+        https://sis-administration.com
