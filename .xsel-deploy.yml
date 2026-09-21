@@ -1,0 +1,14 @@
+version: 1
+deploy_branch: kit-v1.4-test   # TEMPORAIRE (essai) : redevient main après validation
+
+apps:
+  backend:
+    deploy_path: /home/sisadmin/public_html/v1.sis-administration.com
+    health_check_url: https://v1.sis-administration.com/up
+    database: mysql
+
+  frontend:
+    deploy_path: /home/sisadmin/sis-web
+    health_check_url: https://sis-administration.com
+    build_env:
+      NEXT_PUBLIC_API_URL: https://v1.sis-administration.com/api/v1
