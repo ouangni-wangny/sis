@@ -1,0 +1,24 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [kit-v1.4-test]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Que faire ?"
+        type: choice
+        options: [deploy, doctor]
+        default: deploy
+      apps:
+        description: "Apps concernées (noms séparés par des virgules ; vide = toutes)"
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    uses: ouangni-wangny/xsel-deploy-mutualise/.github/workflows/pipeline.yml@wave2
+    secrets: inherit
