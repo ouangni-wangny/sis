@@ -50,6 +50,10 @@ beforeEach(function () {
         'statut' => 'disponible',
     ]);
 
+    ensureContratActif($this->agentA);
+    ensureContratActif($this->agentB);
+    ensureContratActif($this->agentC);
+
     $client = Client::query()->create([
         'type' => 'entreprise',
         'raison_sociale' => 'Client Upd',

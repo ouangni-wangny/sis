@@ -29,6 +29,8 @@ beforeEach(function () {
         'matricule' => 'AG-3001',
         'statut' => 'disponible',
     ]);
+
+    Contrat::query()->where('agent_id', $this->agent->id)->forceDelete();
 });
 
 it('rejects a second overlapping active contract for the same agent', function () {

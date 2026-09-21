@@ -2,6 +2,7 @@
 
 use App\Domain\Shared\Enums\TypeAgent;
 use App\Models\Agent;
+use App\Models\Contrat;
 use App\Models\Grade;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
@@ -28,6 +29,8 @@ beforeEach(function () {
         'matricule' => 'AG-CTR-RULES',
         'statut' => 'disponible',
     ]);
+
+    Contrat::query()->where('agent_id', $this->agent->id)->forceDelete();
 });
 
 it('rejects a CDD longer than 24 months', function () {
@@ -105,6 +108,7 @@ it('accepts a stage of 3 or 6 months', function () {
         'matricule' => 'AG-CTR-STG6',
         'statut' => 'disponible',
     ]);
+    Contrat::query()->where('agent_id', $other->id)->forceDelete();
 
     $this->actingAs($this->admin)->postJson('/api/v1/contrats', [
         'agent_id' => $other->id,

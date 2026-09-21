@@ -83,9 +83,9 @@ class ContratController extends Controller
             $contrat->addMediaFromRequest('document')->toMediaCollection('document');
         }
 
-        $activation->execute($contrat->fresh());
+        $activation->execute($contrat->refresh());
 
-        return new ContratResource($contrat->fresh()->load(['media', 'agent']));
+        return new ContratResource($contrat->load(['media', 'agent']));
     }
 
     public function storeAvenant(
@@ -117,9 +117,9 @@ class ContratController extends Controller
             $avenant->addMediaFromRequest('document')->toMediaCollection('document');
         }
 
-        $activation->execute($avenant->fresh());
+        $activation->execute($avenant->refresh());
 
-        return new ContratResource($avenant->fresh()->load(['media', 'agent', 'contratParent']));
+        return new ContratResource($avenant->load(['media', 'agent', 'contratParent']));
     }
 
     public function show(Request $request, Contrat $contrat): ContratResource
