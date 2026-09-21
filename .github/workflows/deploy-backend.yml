@@ -18,25 +18,14 @@ jobs:
 
   deploy:
     needs: ci
-    uses: ouangni-wangny/xsel-deploy-mutualise/.github/workflows/deploy.yml@v1.2.0
+    uses: ouangni-wangny/xsel-deploy-mutualise/.github/workflows/deploy.yml@wave1
     with:
-      stack: laravel
       app_path: backend
       # cPanel : sous-domaine v1 sous public_html du compte sisadmin.
       deploy_path: /home/sisadmin/public_html/v1.sis-administration.com
       health_check_url: https://v1.sis-administration.com/up
-      php_version: '8.4'
       # API JSON : pas d’assets Vite à builder en CI.
       build_frontend_assets: false
-      # CloudLinux / cPanel MultiPHP : sous-domaine API en ea-php84.
-      php_bin: /opt/alt/php84/usr/bin/php
-      composer_bin: /opt/alt/php84/usr/bin/composer
-      # Premier deploy manuel : ne pas écraser .env / médias / uploads.
-      # (.env et storage/ sont déjà exclus par le kit ; on le répète ici.)
-      protect_paths: |
-        .env
-        storage
-        public/storage
     secrets:
       SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
       SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}

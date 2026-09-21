@@ -1,0 +1,33 @@
+name: Doctor
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [kit-v1.3-test]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    uses: ouangni-wangny/xsel-deploy-mutualise/.github/workflows/doctor.yml@wave1
+    with:
+      app_path: backend
+      deploy_path: /home/sisadmin/public_html/v1.sis-administration.com
+      health_check_url: https://v1.sis-administration.com/up
+    secrets:
+      SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+      SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+      SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+  frontend:
+    uses: ouangni-wangny/xsel-deploy-mutualise/.github/workflows/doctor.yml@wave1
+    with:
+      app_path: frontend
+      deploy_path: /home/sisadmin/sis-web
+      health_check_url: https://sis-administration.com
+    secrets:
+      SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+      SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
+      SSH_USER: ${{ secrets.DEPLOY_SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
