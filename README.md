@@ -22,15 +22,15 @@ Déploiement CI/CD via le kit
 (même schéma que PECI) : push sur `main` → tests → rsync SSH vers cPanel.
 
 Un premier déploiement **manuel** a déjà été fait sur le serveur
-(`notaires@champagne`, app Node racine `/home/notaires/sis-web`). Le CI/CD
-reprend ces chemins : il n’y a **pas** à relancer `bootstrap-app.sh`.
+(`sisadmin@paloma`, home `/home/sisadmin`). Le CI/CD reprend ces chemins :
+il n’y a **pas** à relancer `bootstrap-app.sh`.
 
 ### Secrets GitHub Actions (une fois)
 
 ```bash
-gh secret set DEPLOY_SSH_HOST --repo ouangni-wangny/sis --body "<hôte SSH cPanel>"
-gh secret set DEPLOY_SSH_PORT --repo ouangni-wangny/sis --body "<port, souvent 21098>"
-gh secret set DEPLOY_SSH_USER --repo ouangni-wangny/sis --body "notaires"
+gh secret set DEPLOY_SSH_HOST --repo ouangni-wangny/sis --body "91.204.209.51"
+gh secret set DEPLOY_SSH_PORT --repo ouangni-wangny/sis --body "22"
+gh secret set DEPLOY_SSH_USER --repo ouangni-wangny/sis --body "sisadmin"
 gh secret set DEPLOY_SSH_PRIVATE_KEY --repo ouangni-wangny/sis < ~/chemin/vers/cle-privee
 ```
 
@@ -40,8 +40,8 @@ Détail de la génération de clé : README du kit, section *Onboarding*.
 
 | App | `deploy_path` | À vérifier |
 |---|---|---|
-| Frontend | `/home/notaires/sis-web` | Confirmé (cPanel Setup Node.js App) |
-| Backend | `/home/notaires/sis-api` | `pwd` du Laravel de prod ; ajuster `deploy-backend.yml` si différent |
+| Frontend | `/home/sisadmin/sis-web` | cPanel Setup Node.js App |
+| Backend | `/home/sisadmin/public_html/v1.sis-administration.com` | sous-domaine API |
 
 PHP CloudLinux : les workflows pointent vers `/opt/alt/php83/usr/bin/php`.
 Si le compte utilise 8.4, remplacer par `php84` comme sur PECI.

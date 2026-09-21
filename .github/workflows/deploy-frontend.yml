@@ -19,8 +19,8 @@ jobs:
     with:
       stack: nextjs-passenger
       app_path: frontend
-      # Premier déploiement manuel : cPanel Setup Node.js App, racine `sis-web`.
-      deploy_path: /home/notaires/sis-web
+      # cPanel Setup Node.js App — utilisateur sisadmin, racine sis-web.
+      deploy_path: /home/sisadmin/sis-web
       health_check_url: https://sis-administration.com
       node_version: '22'
       # NEXT_PUBLIC_* figé au build CI — jamais relu au runtime cPanel.

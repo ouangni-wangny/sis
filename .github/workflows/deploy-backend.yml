@@ -19,9 +19,8 @@ jobs:
     with:
       stack: laravel
       app_path: backend
-      # À confirmer sur le serveur (pwd du Laravel de prod). Hypothèse :
-      # même convention que le front (`sis-web` → `sis-api`).
-      deploy_path: /home/notaires/sis-api
+      # cPanel : sous-domaine v1 sous public_html du compte sisadmin.
+      deploy_path: /home/sisadmin/public_html/v1.sis-administration.com
       health_check_url: https://v1.sis-administration.com/up
       php_version: '8.3'
       # API JSON : pas d’assets Vite à builder en CI.
