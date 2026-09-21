@@ -13,7 +13,7 @@ on:
       action:
         description: "Que faire ?"
         type: choice
-        options: [deploy, doctor]
+        options: [deploy, doctor, provision]
         default: deploy
       apps:
         description: "Apps concernées (noms séparés par des virgules ; vide = toutes)"
