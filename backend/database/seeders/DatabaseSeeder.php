@@ -47,6 +47,12 @@ class DatabaseSeeder extends Seeder
                 'prenom' => 'SIS',
                 'role' => 'commercial',
             ],
+            [
+                'email' => 'comptable@sis.ci',
+                'nom' => 'Comptable',
+                'prenom' => 'SIS',
+                'role' => 'comptable',
+            ],
         ];
 
         $seedDeveloper = (bool) config('sis.developer.seed');

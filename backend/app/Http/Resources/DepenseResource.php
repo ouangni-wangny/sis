@@ -19,6 +19,7 @@ class DepenseResource extends JsonResource
             'mode' => $this->mode,
             'reference' => $this->reference,
             'notes' => $this->notes,
+            'statut' => $this->statut,
             'user_id' => $this->user_id,
             'created_at' => $this->created_at,
             'categorie' => $this->whenLoaded('categorie', fn () => $this->categorie ? [

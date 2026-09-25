@@ -19,7 +19,6 @@ final class ReglerBulletinPaieAction
 
     /**
      * @param  array{
-     *   salaire_net: float|int|string,
      *   mode: string,
      *   compte_tresorerie_id: string,
      *   reference?: string|null,
@@ -45,22 +44,25 @@ final class ReglerBulletinPaieAction
             ]);
         }
 
-        $net = round((float) $data['salaire_net'], 2);
-        if ($net <= 0) {
+        $details = is_array($bulletin->details) ? $bulletin->details : [];
+        $net = round((float) ($details['salaire_percu'] ?? $bulletin->salaire_net ?? 0), 2);
+        $renseigne = array_key_exists('salaire_percu', $details)
+            || array_key_exists('salaire_renseigne_le', $details);
+
+        if (! $renseigne || $net <= 0) {
             throw ValidationException::withMessages([
-                'salaire_net' => 'Le salaire perçu doit être supérieur à 0.',
+                'salaire_net' => 'La RH doit d’abord saisir le salaire perçu pour ce bulletin.',
             ]);
         }
 
-        return DB::transaction(function () use ($bulletin, $data, $net) {
+        return DB::transaction(function () use ($bulletin, $data, $net, $details) {
             $payeLe = $data['paye_le'] ?? now()->toDateTimeString();
             $reference = trim((string) ($data['reference'] ?? ''));
             if ($reference === '') {
                 $reference = 'PAIE-'.now()->format('Ymd').'-'.Str::upper(Str::random(5));
             }
 
-            $details = is_array($bulletin->details) ? $bulletin->details : [];
-            $details['salaire_calcule_net'] = $bulletin->salaire_net;
+            $details['salaire_calcule_net'] = $details['salaire_calcule_net'] ?? $bulletin->salaire_net;
             $details['salaire_percu'] = $net;
 
             $bulletin->update([

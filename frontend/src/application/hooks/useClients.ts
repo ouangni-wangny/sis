@@ -50,3 +50,10 @@ export function useDeleteClient() {
     onSuccess: () => invalidateClients(qc),
   });
 }
+
+export function useExportClientsPdf() {
+  return useMutation({
+    mutationFn: (params?: ListParams & { type?: string; statut?: string }) =>
+      clientsApi.exportPdf(params),
+  });
+}

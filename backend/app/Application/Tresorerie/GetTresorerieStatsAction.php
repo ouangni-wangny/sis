@@ -3,6 +3,7 @@
 namespace App\Application\Tresorerie;
 
 use App\Models\CompteTresorerie;
+use App\Domain\Shared\Enums\StatutDepense;
 use App\Models\Depense;
 use App\Models\MouvementTresorerie;
 use App\Domain\Shared\Enums\SourceMouvementTresorerie;
@@ -34,6 +35,7 @@ final class GetTresorerieStatsAction
         $soldeConsolide = round($comptes->sum('solde'), 2);
 
         $depensesMois = Depense::query()
+            ->where('statut', StatutDepense::Validee)
             ->whereBetween('date_depense', [$debut->toDateString(), $fin->toDateString()])
             ->with('categorie')
             ->get();

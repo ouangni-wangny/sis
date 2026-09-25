@@ -63,6 +63,14 @@ export const STATUT_CONTRAT_FILTER_OPTIONS = [
   { value: "resilie", label: "Résilié" },
 ] as const;
 
+export const TYPE_CONTRAT_FILTER_OPTIONS = [
+  { value: "", label: "Tous les types" },
+  { value: "cdi", label: "CDI" },
+  { value: "cdd", label: "CDD" },
+  { value: "prestation", label: "Prestation" },
+  { value: "stage", label: "Stage" },
+] as const;
+
 /** Aperçu client des calculs RH CI (aligné sur le backend). */
 export function previewRemunerationCi(input: {
   salaire_base?: string | number | null;

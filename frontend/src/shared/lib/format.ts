@@ -78,6 +78,7 @@ const ROLE_LABELS: Record<string, string> = {
   superviseur: "Opération",
   rh: "RH",
   commercial: "Commercial",
+  comptable: "Comptable",
   agent: "Agent",
   controleur: "Contrôleur",
   administration: "Administration",

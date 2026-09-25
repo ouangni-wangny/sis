@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Application\Contrat\GenerateContratReferenceAction;
+use App\Application\Contrat\GenererListeContratsPdfAction;
 use App\Application\Contrat\HandleContratActivationAction;
 use App\Application\Contrat\HandleContratClotureAction;
 use App\Application\Contrat\SyncContratRemunerationAction;
@@ -19,6 +20,7 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class ContratController extends Controller
 {
@@ -26,30 +28,19 @@ class ContratController extends Controller
     {
         abort_unless(RhAuthorization::canViewContrats($request->user()), 403);
 
-        $items = Contrat::query()
+        $items = GenererListeContratsPdfAction::filteredQuery($request)
             ->with(['agent', 'media', 'contratParent'])
-            ->when($request->agent_id, fn ($q, $v) => $q->where('agent_id', $v))
-            ->when($request->filled('type'), fn ($q) => $q->where('type', $request->string('type')))
-            ->when($request->filled('statut'), fn ($q) => $q->where('statut', $request->string('statut')))
-            ->when($request->boolean('valide'), fn ($q) => $q->valide())
-            ->when($request->boolean('surveillance'), fn ($q) => $q->aSurveiller())
-            ->when($request->filled('q'), function ($q) use ($request) {
-                $term = '%'.$request->string('q').'%';
-                $q->where(function ($qq) use ($term) {
-                    $qq->where('reference', 'like', $term)
-                        ->orWhere('type', 'like', $term)
-                        ->orWhere('statut', 'like', $term)
-                        ->orWhereHas('agent', function ($agent) use ($term) {
-                            $agent->where('nom', 'like', $term)
-                                ->orWhere('prenom', 'like', $term)
-                                ->orWhere('matricule', 'like', $term);
-                        });
-                });
-            })
             ->latest()
             ->paginate($request->integer('per_page', 15));
 
         return ContratResource::collection($items);
+    }
+
+    public function exportPdf(Request $request, GenererListeContratsPdfAction $action): SymfonyResponse
+    {
+        abort_unless(RhAuthorization::canViewContrats($request->user()), 403);
+
+        return $action->execute($request);
     }
 
     public function alerts(Request $request, GetContratsAlertsAction $action): JsonResponse

@@ -10,7 +10,6 @@ use App\Models\Depense;
 use App\Support\ModePaiementRules;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
-use Illuminate\Http\Response;
 
 class DepenseController extends Controller
 {
@@ -22,6 +21,7 @@ class DepenseController extends Controller
             ->with(['categorie', 'compte', 'media'])
             ->when($request->filled('categorie_id'), fn ($q) => $q->where('categorie_depense_id', $request->string('categorie_id')))
             ->when($request->filled('compte_id'), fn ($q) => $q->where('compte_tresorerie_id', $request->string('compte_id')))
+            ->when($request->filled('statut'), fn ($q) => $q->where('statut', $request->string('statut')))
             ->when($request->filled('from'), fn ($q) => $q->whereDate('date_depense', '>=', $request->string('from')))
             ->when($request->filled('to'), fn ($q) => $q->whereDate('date_depense', '<=', $request->string('to')))
             ->when($request->filled('q'), function ($q) use ($request) {
@@ -64,11 +64,10 @@ class DepenseController extends Controller
         return new DepenseResource($depense->load(['categorie', 'compte', 'media']));
     }
 
-    public function destroy(Depense $depense, DeleteDepenseAction $action): Response
+    public function destroy(Depense $depense, DeleteDepenseAction $action): DepenseResource
     {
         $this->authorize('delete', $depense);
-        $action->execute($depense);
 
-        return response()->noContent();
+        return new DepenseResource($action->execute($depense));
     }
 }

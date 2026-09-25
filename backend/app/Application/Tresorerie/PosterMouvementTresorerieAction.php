@@ -95,7 +95,10 @@ final class PosterMouvementTresorerieAction
             return null;
         }
 
-        $inverse = MouvementTresorerie::query()->create([
+        // Annulation comptable : on garde le mouvement d’origine et on poste l’inverse.
+        // Ne pas soft-deleter l’original — sinon le solde serait corrigé deux fois
+        // (disparition de l’original + entrée/sortie inverse).
+        return MouvementTresorerie::query()->create([
             'compte_tresorerie_id' => $original->compte_tresorerie_id,
             'direction' => $original->direction->inverse(),
             'montant' => $original->montant,
@@ -107,10 +110,21 @@ final class PosterMouvementTresorerieAction
             'notes' => $notes ?? 'Annulation '.$sourceType->label().' #'.substr($sourceId, 0, 8),
             'user_id' => Auth::id(),
         ]);
+    }
 
-        $original->delete();
-
-        return $inverse;
+    /**
+     * Retire le mouvement lié à une source (soft-delete) sans poster d’inverse.
+     * À utiliser avant un re-post (ex. correction d’encaissement).
+     */
+    public function retractForSource(
+        SourceMouvementTresorerie $sourceType,
+        string $sourceId,
+    ): void {
+        MouvementTresorerie::query()
+            ->where('source_type', $sourceType->value)
+            ->where('source_id', $sourceId)
+            ->get()
+            ->each(fn (MouvementTresorerie $m) => $m->delete());
     }
 
     public static function isModuleEnabled(): bool

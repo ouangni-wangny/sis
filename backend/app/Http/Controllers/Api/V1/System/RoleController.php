@@ -25,6 +25,7 @@ class RoleController extends Controller
         'operation',
         'rh',
         'commercial',
+        'comptable',
         'agent',
         'controleur',
         'administration',
@@ -34,8 +35,15 @@ class RoleController extends Controller
     {
         abort_unless($request->user()?->can('system.roles.manage'), 403);
 
-        $permissions = Permission::query()
-            ->where('guard_name', 'web')
+        $query = Permission::query()->where('guard_name', 'web');
+
+        // Les permissions system.* (hors gestion des rôles côté admin) restent
+        // réservées à la console développeur.
+        if (! $this->isDeveloppeur($request)) {
+            $query->where('name', 'not like', 'system.%');
+        }
+
+        $permissions = $query
             ->orderBy('name')
             ->get()
             ->map(function (Permission $permission) {
@@ -91,9 +99,11 @@ class RoleController extends Controller
             'name.regex' => 'Le nom du rôle doit être en minuscules, avec des tirets (ex : chef-projet).',
         ]);
 
-        $role = DB::transaction(function () use ($data) {
+        $permissions = $this->sanitizePermissions($request, $data['permissions'] ?? []);
+
+        $role = DB::transaction(function () use ($data, $permissions) {
             $role = Role::create(['name' => $data['name'], 'guard_name' => 'web']);
-            $role->syncPermissions($data['permissions'] ?? []);
+            $role->syncPermissions($permissions);
 
             return $role;
         });
@@ -109,6 +119,7 @@ class RoleController extends Controller
     {
         abort_unless($request->user()?->can('system.roles.manage'), 403);
         $this->ensureGuardMatches($role);
+        $this->ensureCanEditRole($request, $role);
 
         $protected = in_array($role->name, self::PROTECTED_ROLES, true);
 
@@ -135,12 +146,14 @@ class RoleController extends Controller
             ]);
         }
 
-        DB::transaction(function () use ($role, $data) {
+        DB::transaction(function () use ($request, $role, $data) {
             if (isset($data['name'])) {
                 $role->update(['name' => $data['name']]);
             }
             if (array_key_exists('permissions', $data)) {
-                $role->syncPermissions($data['permissions']);
+                $role->syncPermissions(
+                    $this->sanitizePermissions($request, $data['permissions'], $role)
+                );
             }
         });
 
@@ -178,6 +191,67 @@ class RoleController extends Controller
     private function ensureGuardMatches(Role $role): void
     {
         abort_unless($role->guard_name === 'web', 404);
+    }
+
+    private function isDeveloppeur(Request $request): bool
+    {
+        return (bool) $request->user()?->hasRole('developpeur');
+    }
+
+    private function ensureCanEditRole(Request $request, Role $role): void
+    {
+        if ($this->isDeveloppeur($request)) {
+            return;
+        }
+
+        if ($role->name === 'developpeur') {
+            throw ValidationException::withMessages([
+                'role' => 'Seul un développeur peut modifier le rôle développeur.',
+            ]);
+        }
+    }
+
+    /**
+     * Les non-développeurs ne peuvent ni assigner ni retirer les permissions system.*.
+     *
+     * @param  list<string>  $permissions
+     * @return list<string>
+     */
+    private function sanitizePermissions(Request $request, array $permissions, ?Role $existing = null): array
+    {
+        if ($this->isDeveloppeur($request)) {
+            return array_values($permissions);
+        }
+
+        $systemAttempt = array_values(array_filter(
+            $permissions,
+            fn (string $p) => str_starts_with($p, 'system.')
+        ));
+
+        if ($systemAttempt !== []) {
+            throw ValidationException::withMessages([
+                'permissions' => 'Les permissions système (system.*) sont réservées au développeur.',
+            ]);
+        }
+
+        $kept = array_values(array_filter(
+            $permissions,
+            fn (string $p) => ! str_starts_with($p, 'system.')
+        ));
+
+        // Préserver les system.* déjà présentes (ex. system.roles.manage sur super-admin)
+        // quand l’admin synchronise sans les voir dans le catalogue filtré.
+        if ($existing) {
+            $existingSystem = $existing->permissions
+                ->pluck('name')
+                ->filter(fn (string $p) => str_starts_with($p, 'system.'))
+                ->values()
+                ->all();
+
+            $kept = array_values(array_unique([...$kept, ...$existingSystem]));
+        }
+
+        return $kept;
     }
 
     /** @return array<string, mixed> */

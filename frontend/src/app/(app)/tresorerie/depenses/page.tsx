@@ -19,6 +19,7 @@ import { PermissionGate } from "@/presentation/components/auth/PermissionGate";
 import { DataTable } from "@/presentation/components/tables/DataTable";
 import { TableActions } from "@/presentation/components/tables/TableActions";
 import { Alert } from "@/presentation/components/ui/Alert";
+import { Badge, statusTone } from "@/presentation/components/ui/Badge";
 import { Button } from "@/presentation/components/ui/Button";
 import { ConfirmDialog } from "@/presentation/components/ui/ConfirmDialog";
 import { Input } from "@/presentation/components/ui/Input";
@@ -55,14 +56,30 @@ const emptyDefaults: DepenseForm = {
   notes: "",
 };
 
+const STATUT_LABELS: Record<string, string> = {
+  validee: "Validée",
+  annulee: "Annulée",
+};
+
+const STATUT_FILTER_OPTIONS = [
+  { value: "", label: "Tous les statuts" },
+  { value: "validee", label: "Validées" },
+  { value: "annulee", label: "Annulées" },
+];
+
 export default function DepensesPage() {
   const [page, setPage] = useState(1);
+  const [statutFilter, setStatutFilter] = useState("");
   const [open, setOpen] = useState(false);
   const [toDelete, setToDelete] = useState<Depense | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const { data, isLoading } = useDepenses({ page, per_page: 15 });
+  const { data, isLoading } = useDepenses({
+    page,
+    per_page: 15,
+    statut: statutFilter || undefined,
+  });
   const { data: categoriesRes } = useCategoriesDepense();
   const { data: comptesRes } = useComptesTresorerieOptions();
   const { data: modesRes } = useModesPaiementOptions();
@@ -115,19 +132,38 @@ export default function DepensesPage() {
       {
         accessorKey: "mode",
         header: "Mode",
-        cell: ({ getValue }) => labelize(String(getValue())),
+        cell: ({ getValue }) => String(getValue() ?? "—").toUpperCase(),
+      },
+      {
+        accessorKey: "statut",
+        header: "Statut",
+        cell: ({ row }) => {
+          const statut = row.original.statut ?? "validee";
+          return (
+            <Badge tone={statusTone(statut)}>
+              {STATUT_LABELS[statut] ?? labelize(statut)}
+            </Badge>
+          );
+        },
       },
       {
         id: "actions",
         header: "Actions",
         enableSorting: false,
-        cell: ({ row }) => (
-          <TableActions
-            canEdit={false}
-            canDelete
-            onDelete={() => setToDelete(row.original)}
-          />
-        ),
+        cell: ({ row }) => {
+          const isAnnulee = (row.original.statut ?? "validee") === "annulee";
+          if (isAnnulee) {
+            return <span className="text-xs text-ink-faint">—</span>;
+          }
+          return (
+            <TableActions
+              canEdit={false}
+              canDelete
+              deleteLabel="Annuler"
+              onDelete={() => setToDelete(row.original)}
+            />
+          );
+        },
       },
     ],
     [],
@@ -187,6 +223,17 @@ export default function DepensesPage() {
           data={data?.data ?? []}
           isLoading={isLoading}
           selectable={false}
+          toolbar={
+            <Select
+              className="min-w-[11rem]"
+              value={statutFilter}
+              options={STATUT_FILTER_OPTIONS}
+              onChange={(event) => {
+                setStatutFilter(event.target.value);
+                setPage(1);
+              }}
+            />
+          }
           pagination={{
             page,
             perPage: 15,
@@ -270,7 +317,7 @@ export default function DepensesPage() {
       <ConfirmDialog
         open={!!toDelete}
         title="Annuler cette dépense ?"
-        description="Un mouvement inverse sera créé en trésorerie."
+        description="La dépense restera visible avec le statut Annulée. Un mouvement inverse sera créé en trésorerie."
         confirmLabel="Annuler la dépense"
         onConfirm={async () => {
           if (!toDelete) return;

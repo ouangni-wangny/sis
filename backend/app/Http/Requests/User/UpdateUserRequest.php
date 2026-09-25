@@ -15,7 +15,7 @@ class UpdateUserRequest extends FormRequest
 
     public function rules(): array
     {
-        $allowedRoles = ['super-admin', 'operation', 'rh', 'commercial'];
+        $allowedRoles = ['super-admin', 'operation', 'rh', 'commercial', 'comptable'];
         if ($this->user()?->hasRole('developpeur')) {
             $allowedRoles[] = 'developpeur';
         }

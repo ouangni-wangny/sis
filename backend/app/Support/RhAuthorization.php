@@ -24,11 +24,8 @@ final class RhAuthorization
 
     public static function canSeeSalaire(?User $user): bool
     {
-        if (! $user) {
-            return false;
-        }
-
-        return $user->can('contrats.manage') || $user->can('paie.manage');
+        // Salaires réservés à la RH (gestion contrats), pas au règlement comptable.
+        return $user?->can('contrats.manage') ?? false;
     }
 
     public static function canManageAbsences(?User $user): bool
@@ -50,13 +47,21 @@ final class RhAuthorization
         return $user?->can('paie.manage') ?? false;
     }
 
+    /** Règlement (marquer payé) — typiquement le comptable. */
+    public static function canPayerPaie(?User $user): bool
+    {
+        return $user?->can('paie.payer') ?? false;
+    }
+
     public static function canViewPaie(?User $user): bool
     {
         if (! $user) {
             return false;
         }
 
-        return $user->can('paie.manage') || $user->can('paie.view');
+        return $user->can('paie.manage')
+            || $user->can('paie.view')
+            || $user->can('paie.payer');
     }
 
     public static function canManageDocuments(?User $user): bool

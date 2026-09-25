@@ -74,7 +74,7 @@ use Illuminate\Support\Facades\Hash;
  *   php artisan db:seed --class=DemoSeeder
  *
  * (nécessite RolePermissionSeeder + DatabaseSeeder pour rôles et comptes
- * admin@sis.ci / rh@sis.ci / operation@sis.ci / commercial@sis.ci)
+ * admin@sis.ci / rh@sis.ci / operation@sis.ci / commercial@sis.ci / comptable@sis.ci)
  *
  * PIN mobile uniforme pour la démo : 1234
  */
@@ -1462,7 +1462,7 @@ class DemoSeeder extends Seeder
                     'paye_le' => $bulletinStatut === StatutBulletinPaie::Paye->value
                         ? $fin->copy()->addDays($this->rand(1, 5))
                         : null,
-                    'details' => [
+                    'details' => array_filter([
                         'matricule' => $agent->matricule,
                         'agent' => trim($agent->prenom.' '.$agent->nom),
                         'contrat_reference' => $contrat->reference,
@@ -1470,7 +1470,19 @@ class DemoSeeder extends Seeder
                             ? $contrat->type->value
                             : (string) $contrat->type,
                         'parts_igr' => $contrat->parts_igr,
-                    ],
+                        'salaire_percu' => in_array($bulletinStatut, [
+                            StatutBulletinPaie::Paye->value,
+                            StatutBulletinPaie::Valide->value,
+                        ], true)
+                            ? (float) ($contrat->salaire_net ?? 0)
+                            : null,
+                        'salaire_renseigne_le' => in_array($bulletinStatut, [
+                            StatutBulletinPaie::Paye->value,
+                            StatutBulletinPaie::Valide->value,
+                        ], true)
+                            ? now()->toIso8601String()
+                            : null,
+                    ], fn ($v) => $v !== null),
                 ]);
             }
         }

@@ -4,6 +4,7 @@ namespace App\Application\Tresorerie;
 
 use App\Domain\Shared\Enums\DirectionMouvementTresorerie;
 use App\Domain\Shared\Enums\SourceMouvementTresorerie;
+use App\Domain\Shared\Enums\StatutDepense;
 use App\Models\Depense;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -29,6 +30,7 @@ final class CreateDepenseAction
 
             $depense = Depense::query()->create([
                 ...$data,
+                'statut' => StatutDepense::Validee,
                 'user_id' => Auth::id(),
             ]);
 

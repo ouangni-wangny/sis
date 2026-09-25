@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Application\Agent\CreateAgentWithMobileAccountAction;
+use App\Application\Agent\GenererListeAgentsPdfAction;
 use App\Application\Agent\SoftDeleteAgentAction;
 use App\Application\Agent\SyncRondierPerimetreAction;
 use App\Application\Agent\UpdateAgentAction;
@@ -11,7 +12,6 @@ use App\Application\Agent\UploadAgentPhotoAction;
 use App\Application\Rh\AjusterSoldeCongesAction;
 use App\Domain\Shared\Enums\StatutRonde;
 use App\Domain\Shared\Enums\StatutVacation;
-use App\Domain\Shared\Enums\TypeAgent;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Agent\StoreAgentRequest;
 use App\Http\Requests\Agent\SyncPerimetreRequest;
@@ -33,6 +33,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Response;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class AgentController extends Controller
 {
@@ -40,25 +41,18 @@ class AgentController extends Controller
     {
         $this->authorize('viewAny', Agent::class);
 
-        $agents = Agent::query()
+        $agents = GenererListeAgentsPdfAction::filteredQuery($request)
             ->with(['grade', 'villeRef', 'media', 'perimetres.zone', 'contratActif', 'user', 'posteSiege.site'])
-            ->when(
-                $request->user()->hasRole('operation'),
-                fn ($q) => $q->where('type', '!=', TypeAgent::Administration)
-            )
-            ->when($request->type, fn ($q, $v) => $q->where('type', $v))
-            ->when($request->statut, fn ($q, $v) => $q->where('statut', $v))
-            ->when($request->grade_id, fn ($q, $v) => $q->where('grade_id', $v))
-            ->when($request->ville_id, fn ($q, $v) => $q->where('ville_id', $v))
-            ->when($request->has('pool_siege'), fn ($q) => $q->where('pool_siege', $request->boolean('pool_siege')))
-            ->when($request->boolean('contrat_valide'), fn ($q) => $q->avecContratValide())
-            ->when($request->q, fn ($q, $v) => $q->where(fn ($qq) => $qq
-                ->where('nom', 'like', "%{$v}%")
-                ->orWhere('prenom', 'like', "%{$v}%")
-                ->orWhere('matricule', 'like', "%{$v}%")))
             ->latest();
 
         return AgentResource::collection(ListQuery::paginateOrAll($agents, $request));
+    }
+
+    public function exportPdf(Request $request, GenererListeAgentsPdfAction $action): SymfonyResponse
+    {
+        $this->authorize('viewAny', Agent::class);
+
+        return $action->execute($request);
     }
 
     public function store(StoreAgentRequest $request, CreateAgentWithMobileAccountAction $action): JsonResponse

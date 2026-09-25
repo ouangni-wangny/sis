@@ -45,6 +45,7 @@ class RolePermissionSeeder extends Seeder
             'absences.view',
             'paie.manage',
             'paie.view',
+            'paie.payer',
             'documents.manage',
             'grades.manage',
 
@@ -90,8 +91,17 @@ class RolePermissionSeeder extends Seeder
         $developpeur = Role::findOrCreate('developpeur', 'web');
         $developpeur->syncPermissions(Permission::query()->where('guard_name', 'web')->get());
 
+        // Super-admin : tous les droits métier + gestion des rôles/permissions
+        // (pas les autres system.* réservés au développeur).
         $superAdmin = Role::findOrCreate('super-admin', 'web');
-        $superAdmin->syncPermissions($metierPermissions);
+        $superAdmin->syncPermissions(
+            $metierPermissions->merge(
+                Permission::query()
+                    ->where('guard_name', 'web')
+                    ->where('name', 'system.roles.manage')
+                    ->get()
+            )
+        );
 
         $operation = Role::findOrCreate('operation', 'web');
         $operation->syncPermissions([
@@ -157,6 +167,25 @@ class RolePermissionSeeder extends Seeder
 
             // Compte pour encaissement
             'tresorerie.view',
+        ]);
+
+        // Comptabilité — trésorerie + règlement paie (sans voir les salaires)
+        $comptable = Role::findOrCreate('comptable', 'web');
+        $comptable->syncPermissions([
+            'dashboard.view',
+
+            // Paie : consultation + marquage payé (montants saisis par la RH)
+            'paie.view',
+            'paie.payer',
+
+            // Trésorerie & dépenses
+            'tresorerie.view',
+            'tresorerie.manage',
+            'depenses.view',
+            'depenses.manage',
+
+            // Consultation effectif (contexte paie / soldes)
+            'agents.view',
         ]);
 
         // Comptes mobile — agent posté

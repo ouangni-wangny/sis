@@ -50,6 +50,13 @@ final class GenerateBulletinsPaieAction
                     'parts_igr' => $contrat->parts_igr,
                 ]);
 
+                $salaireBase = CalculRemunerationCi::money(
+                    $contrat->salaire_base
+                        ?? $contrat->salaire_brut
+                        ?? $contrat->salaire
+                        ?? 0
+                );
+
                 BulletinPaie::query()->updateOrCreate(
                     [
                         'periode_paie_id' => $periode->id,
@@ -70,6 +77,15 @@ final class GenerateBulletinsPaieAction
                                 ? $contrat->type->value
                                 : (string) $contrat->type,
                             'parts_igr' => $calc['parts_igr'],
+                            'cnps_taux' => CalculRemunerationCi::CNPS_SALARIE_TAUX,
+                            'rubriques' => [
+                                'salaire_base' => $salaireBase,
+                                'indemnite_fonction' => CalculRemunerationCi::money($contrat->indemnite_fonction),
+                                'prime_responsabilite' => CalculRemunerationCi::money($contrat->prime_responsabilite),
+                                'prime_transport' => CalculRemunerationCi::money($contrat->prime_transport),
+                                'prime_entretien_tenue' => CalculRemunerationCi::money($contrat->prime_entretien_tenue),
+                                'sursalaire' => CalculRemunerationCi::money($contrat->sursalaire),
+                            ],
                         ],
                     ],
                 );

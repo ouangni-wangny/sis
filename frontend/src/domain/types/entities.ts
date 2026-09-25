@@ -320,6 +320,8 @@ export type BulletinPaie = {
   retenue_cnps: string | number | null;
   montant_igr: string | number | null;
   salaire_net: string | number | null;
+  /** True si la RH a saisi le salaire perçu (visible même sans voir le montant). */
+  salaire_renseigne?: boolean;
   statut: "brouillon" | "valide" | "paye" | string;
   paye_le: string | null;
   mode_paiement?: ModePaiement | string | null;
@@ -383,6 +385,7 @@ export type Depense = {
   mode: ModePaiement | string;
   reference: string | null;
   notes: string | null;
+  statut?: "validee" | "annulee" | string;
   categorie?: Pick<CategorieDepense, "id" | "libelle"> | null;
   compte?: Pick<CompteTresorerie, "id" | "libelle" | "type"> | null;
 };

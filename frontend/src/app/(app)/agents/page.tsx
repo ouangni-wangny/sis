@@ -7,13 +7,14 @@ import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { type ColumnDef } from "@tanstack/react-table";
 import { differenceInCalendarDays, parseISO } from "date-fns";
-import { Eye, Pencil, Plus, Trash2 } from "lucide-react";
+import { Eye, FileDown, Pencil, Plus, Trash2 } from "lucide-react";
 import { useDebouncedValue } from "@/application/hooks/useDebouncedValue";
 import {
   useAgent,
   useAgents,
   useCreateAgent,
   useDeleteAgent,
+  useExportAgentsPdf,
   useGrades,
   usePerimetres,
   usePostes,
@@ -38,7 +39,7 @@ import { Select } from "@/presentation/components/ui/Select";
 import { PermissionGate } from "@/presentation/components/auth/PermissionGate";
 import { useAuth } from "@/presentation/providers/AuthProvider";
 import { useToast } from "@/presentation/providers/ToastProvider";
-import { getApiErrorMessage } from "@/shared/lib/api-error";
+import { getApiErrorMessage, getApiErrorMessageAsync } from "@/shared/lib/api-error";
 import { can } from "@/shared/lib/can";
 import { labelAgentStatut, labelTypeAgent, labelize } from "@/shared/lib/format";
 
@@ -72,6 +73,13 @@ const statutOptions = [
   { value: "malade", label: "Malade" },
   { value: "suspendu", label: "Suspendu" },
   { value: "archive", label: "Archivé" },
+];
+
+const typeFilterOptions = [
+  { value: "", label: "Tous les types" },
+  { value: "agent", label: "Agent posté" },
+  { value: "controleur", label: "Contrôleur" },
+  { value: "administration", label: "Administration" },
 ];
 
 const civiliteOptions = [
@@ -124,10 +132,12 @@ export default function AgentsPage() {
   const [filterGradeId, setFilterGradeId] = useState("");
   const [filterStatut, setFilterStatut] = useState("");
   const [filterVilleId, setFilterVilleId] = useState("");
+  const [filterType, setFilterType] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Agent | null>(null);
   const [toDelete, setToDelete] = useState<Agent | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [pendingValues, setPendingValues] = useState<AgentFormValues | null>(
     null,
   );
@@ -136,16 +146,20 @@ export default function AgentsPage() {
   const canCreate = can(user, "agents.create");
   const canUpdate = can(user, "agents.update");
   const canDelete = can(user, "agents.delete");
+  const canView = can(user, "agents.view");
 
-  const { data, isLoading } = useAgents({
+  const listParams = {
     page,
     per_page: perPage,
     q: search || undefined,
     grade_id: filterGradeId || undefined,
     statut: filterStatut || undefined,
     ville_id: filterVilleId || undefined,
-    contrat_valide: true,
-  });
+    type: filterType || undefined,
+    contrat_valide: true as const,
+  };
+
+  const { data, isLoading } = useAgents(listParams);
   const { data: gradesData } = useGrades({ all: true });
   const { data: villesData } = useVilles({ all: true });
   const { data: perimetresData } = usePerimetres();
@@ -158,6 +172,7 @@ export default function AgentsPage() {
   const updateAgent = useUpdateAgent();
   const deleteAgent = useDeleteAgent();
   const syncPerimetre = useSyncPerimetre();
+  const exportPdf = useExportAgentsPdf();
 
   const {
     register,
@@ -263,6 +278,47 @@ export default function AgentsPage() {
     reset(emptyDefaults);
     setFormError(null);
     setOpen(true);
+  };
+
+  const handleExportPdf = async () => {
+    if (!canView) {
+      toast("Vous n’avez pas le droit d’exporter la liste.", "danger");
+      return;
+    }
+    setPdfLoading(true);
+    try {
+      const data = await exportPdf.mutateAsync({
+        q: search || undefined,
+        grade_id: filterGradeId || undefined,
+        statut: filterStatut || undefined,
+        ville_id: filterVilleId || undefined,
+        type: filterType || undefined,
+        contrat_valide: true,
+      });
+      const blob =
+        data instanceof Blob
+          ? data
+          : new Blob([data as BlobPart], { type: "application/pdf" });
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      const suffix =
+        [filterType, filterStatut].filter(Boolean).join("-") || "tous";
+      link.download = `personnel-${suffix}-${new Date().toISOString().slice(0, 10)}.pdf`;
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+      toast("PDF téléchargé.", "success");
+    } catch (err) {
+      toast(
+        await getApiErrorMessageAsync(err, "Échec de la génération du PDF."),
+        "danger",
+      );
+    } finally {
+      setPdfLoading(false);
+    }
   };
 
   const openEdit = useCallback(
@@ -523,6 +579,18 @@ export default function AgentsPage() {
             <>
               <div className="w-44 sm:w-52">
                 <Select
+                  aria-label="Filtrer par type"
+                  placeholder="Tous les types"
+                  options={typeFilterOptions}
+                  value={filterType}
+                  onChange={(e) => {
+                    setFilterType(e.target.value);
+                    setPage(1);
+                  }}
+                />
+              </div>
+              <div className="w-44 sm:w-52">
+                <Select
                   aria-label="Filtrer par grade"
                   placeholder="Tous les grades"
                   options={[
@@ -563,6 +631,17 @@ export default function AgentsPage() {
                   }}
                 />
               </div>
+              {canView ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => void handleExportPdf()}
+                  loading={pdfLoading || exportPdf.isPending}
+                >
+                  <FileDown className="size-4" />
+                  Exporter PDF
+                </Button>
+              ) : null}
               {canCreate ? (
                 <Button onClick={openCreate}>
                   <Plus className="size-4" />

@@ -54,6 +54,7 @@ final class PermissionCatalog
         'delete' => 'Supprimer',
         'manage' => 'Gérer',
         'generate' => 'Générer',
+        'payer' => 'Régler / marquer payé',
         'alerts' => 'Alertes',
     ];
 

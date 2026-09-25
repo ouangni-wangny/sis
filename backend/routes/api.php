@@ -116,6 +116,7 @@ Route::prefix('v1')->group(function () {
         });
 
         Route::middleware('feature:module.agents')->group(function () {
+            Route::get('agents/export-pdf', [AgentController::class, 'exportPdf']);
             Route::apiResource('agents', AgentController::class);
             Route::post('agents/{agent}/photo', [AgentController::class, 'storePhoto']);
             Route::put('agents/{agent}/perimetre', [AgentController::class, 'syncPerimetre']);
@@ -153,6 +154,7 @@ Route::prefix('v1')->group(function () {
 
         Route::middleware('feature:module.rh')->group(function () {
             Route::get('contrats/alerts', [ContratController::class, 'alerts']);
+            Route::get('contrats/export-pdf', [ContratController::class, 'exportPdf']);
             Route::get('contrats/{contrat}/document', [ContratController::class, 'downloadDocument']);
             Route::post('contrats/{contrat}/avenant', [ContratController::class, 'storeAvenant']);
             Route::apiResource('contrats', ContratController::class);
@@ -172,10 +174,14 @@ Route::prefix('v1')->group(function () {
             Route::get('bulletins-paie/{bulletinPaie}', [BulletinPaieController::class, 'show']);
             Route::post('bulletins-paie/{bulletinPaie}/generer-pdf', [BulletinPaieController::class, 'genererPdf']);
             Route::get('bulletins-paie/{bulletinPaie}/pdf', [BulletinPaieController::class, 'downloadPdf']);
+            Route::post('bulletins-paie/salaire-percu-bulk', [BulletinPaieController::class, 'renseignerSalaireBulk']);
+            Route::post('bulletins-paie/{bulletinPaie}/salaire-percu', [BulletinPaieController::class, 'renseignerSalaire']);
+            Route::post('bulletins-paie/marquer-paye-bulk', [BulletinPaieController::class, 'marquerPayeBulk']);
             Route::post('bulletins-paie/{bulletinPaie}/marquer-paye', [BulletinPaieController::class, 'marquerPaye']);
         });
 
         Route::middleware('feature:module.clients')->group(function () {
+            Route::get('clients/export-pdf', [ClientController::class, 'exportPdf']);
             Route::apiResource('clients', ClientController::class);
         });
 

@@ -10,7 +10,7 @@ final class GenererBulletinPaiePdfAction
 {
     public function execute(BulletinPaie $bulletin): BulletinPaie
     {
-        $bulletin->load(['agent', 'contrat', 'periodePaie']);
+        $bulletin->load(['agent.grade', 'contrat', 'periodePaie']);
 
         $html = view('pdf.bulletin-paie', [
             'bulletin' => $bulletin,

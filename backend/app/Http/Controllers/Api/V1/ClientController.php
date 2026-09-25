@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Application\Referentiel\CreateClientAction;
+use App\Application\Referentiel\GenererListeClientsPdfAction;
 use App\Application\Referentiel\SoftDeleteClientCascadeAction;
 use App\Application\Referentiel\UpdateClientAction;
 use App\Http\Controllers\Controller;
@@ -14,6 +15,7 @@ use App\Support\ListQuery;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class ClientController extends Controller
 {
@@ -29,6 +31,13 @@ class ClientController extends Controller
             ->latest();
 
         return ClientResource::collection(ListQuery::paginateOrAll($clients, $request));
+    }
+
+    public function exportPdf(Request $request, GenererListeClientsPdfAction $action): SymfonyResponse
+    {
+        $this->authorize('viewAny', Client::class);
+
+        return $action->execute($request);
     }
 
     public function store(StoreClientRequest $request, CreateClientAction $action): ClientResource

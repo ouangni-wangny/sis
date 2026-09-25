@@ -25,6 +25,9 @@ import {
   useGenererBulletinPdf,
   useGenererBulletinsPaie,
   useMarquerBulletinPaye,
+  useRenseignerSalairePercu,
+  useRenseignerSalairePercuBulk,
+  useMarquerBulletinPayeBulk,
   useComptesTresorerieOptions,
   usePeriodesPaie,
   useModesPaiementOptions,
@@ -51,9 +54,10 @@ import { useToast } from "@/presentation/providers/ToastProvider";
 import { apiClient } from "@/infrastructure/http/apiClient";
 import { bulletinsPaieApi, periodesPaieApi } from "@/infrastructure/http/resources";
 import { getApiErrorMessage } from "@/shared/lib/api-error";
-import { canManagePaie } from "@/shared/lib/can";
+import { canManagePaie, canPayerPaie, canSeeSalaire } from "@/shared/lib/can";
 import {
   formatDate,
+  formatFcfa,
   formatSalaire,
   labelize,
   labelMoisAnnee,
@@ -103,6 +107,8 @@ export default function PaiePage() {
   const { toast } = useToast();
   const { user } = useAuth();
   const canManage = canManagePaie(user);
+  const canPayer = canPayerPaie(user);
+  const showSalaire = canSeeSalaire(user);
 
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(15);
@@ -119,9 +125,11 @@ export default function PaiePage() {
   const bulletinsSearch = useDebouncedValue(bulletinsQ);
   const [periodeOpen, setPeriodeOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [salaireBulletin, setSalaireBulletin] = useState<BulletinPaie | null>(null);
+  const [salaireForm, setSalaireForm] = useState({ salaire_net: "" });
+  const [salaireError, setSalaireError] = useState<string | null>(null);
   const [payeBulletin, setPayeBulletin] = useState<BulletinPaie | null>(null);
   const [payeForm, setPayeForm] = useState({
-    salaire_net: "",
     mode: "virement",
     compte_tresorerie_id: "",
     reference: "",
@@ -134,11 +142,16 @@ export default function PaiePage() {
     null,
   );
   const [selectedBulletinIds, setSelectedBulletinIds] = useState<string[]>([]);
-  const [bulkPayOpen, setBulkPayOpen] = useState(false);
-  const [bulkPayBulletins, setBulkPayBulletins] = useState<BulletinPaie[]>([]);
-  const [bulkPayMontants, setBulkPayMontants] = useState<
+  const [bulkSalaireOpen, setBulkSalaireOpen] = useState(false);
+  const [bulkSalaireBulletins, setBulkSalaireBulletins] = useState<BulletinPaie[]>([]);
+  const [bulkSalaireMontants, setBulkSalaireMontants] = useState<
     Record<string, string>
   >({});
+  const [bulkSalaireError, setBulkSalaireError] = useState<string | null>(null);
+  const [bulkSalaireBusy, setBulkSalaireBusy] = useState(false);
+  const [bulkSalaireApplyAll, setBulkSalaireApplyAll] = useState("");
+  const [bulkPayOpen, setBulkPayOpen] = useState(false);
+  const [bulkPayBulletins, setBulkPayBulletins] = useState<BulletinPaie[]>([]);
   const [bulkPayForm, setBulkPayForm] = useState({
     mode: "virement",
     compte_tresorerie_id: "",
@@ -146,7 +159,6 @@ export default function PaiePage() {
   });
   const [bulkPayError, setBulkPayError] = useState<string | null>(null);
   const [bulkPayBusy, setBulkPayBusy] = useState(false);
-  const [bulkPayApplyAll, setBulkPayApplyAll] = useState("");
   const [bulkPayConfirmOpen, setBulkPayConfirmOpen] = useState(false);
 
   const anneeOptions = useMemo(() => {
@@ -193,10 +205,15 @@ export default function PaiePage() {
   const cloturerPeriode = useCloturerPeriodePaie();
   const deletePeriode = useDeletePeriodePaie();
   const genererPdf = useGenererBulletinPdf();
+  const renseignerSalaire = useRenseignerSalairePercu();
+  const renseignerSalaireBulk = useRenseignerSalairePercuBulk();
   const marquerPaye = useMarquerBulletinPaye();
-  const { data: comptesRes } = useComptesTresorerieOptions({ enabled: canManage });
+  const marquerPayeBulk = useMarquerBulletinPayeBulk();
+  const { data: comptesRes } = useComptesTresorerieOptions({
+    enabled: canPayer,
+  });
   const comptes = comptesRes?.data ?? [];
-  const { data: modesRes } = useModesPaiementOptions({ enabled: canManage });
+  const { data: modesRes } = useModesPaiementOptions({ enabled: canPayer });
   const modeOptions = useMemo(() => {
     const modes = modesRes?.data ?? [];
     return modes.map((m) => ({ value: m.code, label: m.libelle }));
@@ -248,20 +265,30 @@ export default function PaiePage() {
     [bulletinsList, selectedBulletinIds],
   );
 
+  const unpaidReadySelected = useMemo(
+    () => unpaidSelected.filter((b) => b.salaire_renseigne),
+    [unpaidSelected],
+  );
+
+  const unpaidNeedSalaireSelected = useMemo(
+    () => unpaidSelected.filter((b) => !b.salaire_renseigne),
+    [unpaidSelected],
+  );
+
   const unpaidTotalQuery = useBulletinsPaie(
     selectedPeriodeId ?? undefined,
     { non_payes: 1, per_page: 1 },
   );
   const unpaidTotal = unpaidTotalQuery.data?.meta.total ?? 0;
 
-  const openBulkPay = useCallback(
+  const openBulkSalaire = useCallback(
     (rows: BulletinPaie[]) => {
       if (!rows.length) {
-        toast("Aucun bulletin non payé à régler.", "danger");
+        toast("Aucun bulletin à renseigner.", "danger");
         return;
       }
-      setBulkPayBulletins(rows);
-      setBulkPayMontants(
+      setBulkSalaireBulletins(rows);
+      setBulkSalaireMontants(
         Object.fromEntries(
           rows.map((b) => {
             const net = Number(b.salaire_net);
@@ -272,12 +299,29 @@ export default function PaiePage() {
           }),
         ),
       );
+      setBulkSalaireApplyAll("");
+      setBulkSalaireError(null);
+      setBulkSalaireOpen(true);
+    },
+    [toast],
+  );
+
+  const openBulkPay = useCallback(
+    (rows: BulletinPaie[]) => {
+      const ready = rows.filter((b) => b.salaire_renseigne && b.statut !== "paye");
+      if (!ready.length) {
+        toast(
+          "Aucun bulletin prêt : la RH doit d’abord saisir les salaires perçus.",
+          "danger",
+        );
+        return;
+      }
+      setBulkPayBulletins(ready);
       setBulkPayForm({
         mode: modeOptions[0]?.value ?? "virement",
         compte_tresorerie_id: comptes[0]?.id ?? "",
         reference: "",
       });
-      setBulkPayApplyAll("");
       setBulkPayError(null);
       setBulkPayOpen(true);
     },
@@ -288,17 +332,17 @@ export default function PaiePage() {
     (amount: string | number) => {
       const value = String(amount).trim();
       if (!value) return;
-      setBulkPayApplyAll(value);
-      setBulkPayMontants(
-        Object.fromEntries(bulkPayBulletins.map((b) => [b.id, value])),
+      setBulkSalaireApplyAll(value);
+      setBulkSalaireMontants(
+        Object.fromEntries(bulkSalaireBulletins.map((b) => [b.id, value])),
       );
     },
-    [bulkPayBulletins],
+    [bulkSalaireBulletins],
   );
 
   const salaireProposes = useMemo(() => {
     const counts = new Map<number, number>();
-    for (const b of bulkPayBulletins) {
+    for (const b of bulkSalaireBulletins) {
       const net = Number(b.salaire_net);
       if (!Number.isFinite(net) || net <= 0) continue;
       const key = Math.round(net);
@@ -308,7 +352,30 @@ export default function PaiePage() {
       .sort((a, b) => b[1] - a[1] || b[0] - a[0])
       .slice(0, 12)
       .map(([montant, count]) => ({ montant, count }));
-  }, [bulkPayBulletins]);
+  }, [bulkSalaireBulletins]);
+
+  const openBulkSalaireAllUnpaid = useCallback(async () => {
+    if (!selectedPeriodeId) return;
+    setBulkSalaireBusy(true);
+    setBulkSalaireError(null);
+    try {
+      const res = await periodesPaieApi.bulletins(selectedPeriodeId, {
+        non_payes: 1,
+        all: 1,
+      });
+      const rows = (Array.isArray(res.data) ? res.data : []).filter(
+        (b) => !b.salaire_renseigne,
+      );
+      openBulkSalaire(rows);
+    } catch (err) {
+      toast(
+        getApiErrorMessage(err, "Impossible de charger les bulletins."),
+        "danger",
+      );
+    } finally {
+      setBulkSalaireBusy(false);
+    }
+  }, [openBulkSalaire, selectedPeriodeId, toast]);
 
   const openBulkPayAllUnpaid = useCallback(async () => {
     if (!selectedPeriodeId) return;
@@ -331,13 +398,32 @@ export default function PaiePage() {
     }
   }, [openBulkPay, selectedPeriodeId, toast]);
 
+  const closeBulkSalaire = () => {
+    if (bulkSalaireBusy) return;
+    setBulkSalaireOpen(false);
+    setBulkSalaireBulletins([]);
+    setBulkSalaireApplyAll("");
+    setBulkSalaireError(null);
+  };
+
   const closeBulkPay = () => {
     if (bulkPayBusy) return;
     setBulkPayOpen(false);
     setBulkPayConfirmOpen(false);
     setBulkPayBulletins([]);
-    setBulkPayApplyAll("");
     setBulkPayError(null);
+  };
+
+  const validateBulkSalaire = (): boolean => {
+    for (const b of bulkSalaireBulletins) {
+      const net = Number(bulkSalaireMontants[b.id]);
+      if (!Number.isFinite(net) || net <= 0) {
+        setBulkSalaireError("Chaque ligne doit avoir un salaire perçu > 0.");
+        return false;
+      }
+    }
+    setBulkSalaireError(null);
+    return true;
   };
 
   const validateBulkPay = (): boolean => {
@@ -349,15 +435,37 @@ export default function PaiePage() {
       setBulkPayError("Choisissez un compte de trésorerie.");
       return false;
     }
-    for (const b of bulkPayBulletins) {
-      const net = Number(bulkPayMontants[b.id]);
-      if (!Number.isFinite(net) || net <= 0) {
-        setBulkPayError("Chaque ligne doit avoir un salaire perçu > 0.");
-        return false;
-      }
-    }
     setBulkPayError(null);
     return true;
+  };
+
+  const executeBulkSalaire = async () => {
+    if (!validateBulkSalaire()) return;
+    setBulkSalaireBusy(true);
+    setBulkSalaireError(null);
+    try {
+      const items = bulkSalaireBulletins.map((b) => ({
+        id: b.id,
+        salaire_net: Number(bulkSalaireMontants[b.id]),
+      }));
+      const res = await renseignerSalaireBulk.mutateAsync(items);
+      const ok = res.data?.updated ?? items.length;
+      toast(
+        `${ok} salaire${ok > 1 ? "s" : ""} perçu${ok > 1 ? "s" : ""} enregistré${ok > 1 ? "s" : ""}.`,
+      );
+      setBulkSalaireOpen(false);
+      setBulkSalaireBulletins([]);
+      setBulkSalaireApplyAll("");
+      setBulkSalaireError(null);
+      setSelectedBulletinIds([]);
+    } catch (err) {
+      setBulkSalaireError(
+        getApiErrorMessage(err, "Échec de l’enregistrement groupé."),
+      );
+      toast(getApiErrorMessage(err, "Échec de l’enregistrement."), "danger");
+    } finally {
+      setBulkSalaireBusy(false);
+    }
   };
 
   const executeBulkPay = async () => {
@@ -366,46 +474,26 @@ export default function PaiePage() {
       return;
     }
     setBulkPayBusy(true);
-    let ok = 0;
-    let fail = 0;
-    const errors: string[] = [];
+    setBulkPayError(null);
     try {
-      for (const b of bulkPayBulletins) {
-        try {
-          await marquerPaye.mutateAsync({
-            id: b.id,
-            salaire_net: Number(bulkPayMontants[b.id]),
-            mode: bulkPayForm.mode,
-            compte_tresorerie_id: bulkPayForm.compte_tresorerie_id,
-            reference: bulkPayForm.reference || undefined,
-          });
-          ok += 1;
-        } catch (err) {
-          fail += 1;
-          const name = b.agent
-            ? `${b.agent.prenom} ${b.agent.nom}`
-            : b.id.slice(0, 8);
-          errors.push(`${name} : ${getApiErrorMessage(err, "échec")}`);
-        }
-      }
-      if (fail === 0) {
-        toast(
-          `${ok} bulletin${ok > 1 ? "s" : ""} marqué${ok > 1 ? "s" : ""} payé.`,
-        );
-        setBulkPayConfirmOpen(false);
-        setBulkPayOpen(false);
-        setBulkPayBulletins([]);
-        setSelectedBulletinIds([]);
-      } else {
-        setBulkPayConfirmOpen(false);
-        setBulkPayError(
-          `${ok} réussi(s), ${fail} échec(s). ${errors.slice(0, 3).join(" · ")}`,
-        );
-        toast(
-          `${ok} payé(s), ${fail} échec(s).`,
-          fail === bulkPayBulletins.length ? "danger" : "info",
-        );
-      }
+      const res = await marquerPayeBulk.mutateAsync({
+        bulletin_ids: bulkPayBulletins.map((b) => b.id),
+        mode: bulkPayForm.mode,
+        compte_tresorerie_id: bulkPayForm.compte_tresorerie_id,
+        reference: bulkPayForm.reference || undefined,
+      });
+      const ok = res.data?.updated ?? bulkPayBulletins.length;
+      toast(
+        `${ok} bulletin${ok > 1 ? "s" : ""} marqué${ok > 1 ? "s" : ""} payé.`,
+      );
+      setBulkPayConfirmOpen(false);
+      setBulkPayOpen(false);
+      setBulkPayBulletins([]);
+      setSelectedBulletinIds([]);
+    } catch (err) {
+      setBulkPayConfirmOpen(false);
+      setBulkPayError(getApiErrorMessage(err, "Échec du règlement groupé."));
+      toast(getApiErrorMessage(err, "Échec du règlement."), "danger");
     } finally {
       setBulkPayBusy(false);
     }
@@ -524,18 +612,48 @@ export default function PaiePage() {
         header: "Matricule",
         cell: ({ row }) => row.original.agent?.matricule ?? "—",
       },
-      {
-        accessorKey: "salaire_brut",
-        header: "Brut",
-        cell: ({ getValue }) =>
-          formatSalaire(getValue() as string | number | null, user),
-      },
-      {
-        accessorKey: "salaire_net",
-        header: "Net",
-        cell: ({ getValue }) =>
-          formatSalaire(getValue() as string | number | null, user),
-      },
+      ...(showSalaire
+        ? ([
+            {
+              accessorKey: "salaire_brut",
+              header: "Brut",
+              cell: ({ getValue }) =>
+                formatSalaire(getValue() as string | number | null, user),
+            },
+            {
+              accessorKey: "salaire_net",
+              header: "Net / perçu",
+              cell: ({ getValue, row }) => (
+                <span className="inline-flex flex-col gap-0.5">
+                  <span>
+                    {formatSalaire(
+                      getValue() as string | number | null,
+                      user,
+                    )}
+                  </span>
+                  {row.original.salaire_renseigne ? (
+                    <span className="text-[10px] font-medium uppercase text-teal">
+                      Perçu saisi
+                    </span>
+                  ) : null}
+                </span>
+              ),
+            },
+          ] as ColumnDef<BulletinPaie>[])
+        : ([
+            {
+              id: "salaire_renseigne",
+              header: "Salaire perçu",
+              cell: ({ row }) =>
+                row.original.statut === "paye" ? (
+                  <Badge tone="success">Payé</Badge>
+                ) : row.original.salaire_renseigne ? (
+                  <Badge tone="info">Saisi par RH</Badge>
+                ) : (
+                  <Badge tone="warning">En attente RH</Badge>
+                ),
+            },
+          ] as ColumnDef<BulletinPaie>[])),
       {
         accessorKey: "statut",
         header: "Statut",
@@ -570,7 +688,10 @@ export default function PaiePage() {
                 key: "pdf",
                 label: "Générer PDF",
                 icon: FileText,
-                hidden: !canManage || Boolean(row.original.pdf_url),
+                hidden:
+                  !canManage ||
+                  !showSalaire ||
+                  Boolean(row.original.pdf_url),
                 onClick: () =>
                   void runPeriodeAction(
                     () => genererPdf.mutateAsync(row.original.id),
@@ -581,7 +702,7 @@ export default function PaiePage() {
                 key: "download",
                 label: "Télécharger PDF",
                 icon: Download,
-                hidden: !row.original.pdf_url,
+                hidden: !showSalaire || !row.original.pdf_url,
                 onClick: async () => {
                   try {
                     await downloadBulletinPdf(row.original.id);
@@ -594,16 +715,35 @@ export default function PaiePage() {
                 },
               },
               {
+                key: "salaire",
+                label: row.original.salaire_renseigne
+                  ? "Modifier salaire perçu"
+                  : "Saisir salaire perçu",
+                hidden:
+                  !canManage ||
+                  !showSalaire ||
+                  row.original.statut === "paye",
+                onClick: () => {
+                  setSalaireBulletin(row.original);
+                  const net = Number(row.original.salaire_net);
+                  setSalaireForm({
+                    salaire_net:
+                      Number.isFinite(net) && net > 0 ? String(net) : "",
+                  });
+                  setSalaireError(null);
+                },
+              },
+              {
                 key: "paye",
                 label: "Marquer payé",
                 tone: "success",
-                hidden: !canManage || row.original.statut === "paye",
+                hidden:
+                  !canPayer ||
+                  row.original.statut === "paye" ||
+                  !row.original.salaire_renseigne,
                 onClick: () => {
                   setPayeBulletin(row.original);
-                  const net = Number(row.original.salaire_net);
                   setPayeForm({
-                    salaire_net:
-                      Number.isFinite(net) && net > 0 ? String(net) : "",
                     mode: modeOptions[0]?.value ?? "virement",
                     compte_tresorerie_id: comptes[0]?.id ?? "",
                     reference: "",
@@ -616,7 +756,17 @@ export default function PaiePage() {
         ),
       },
     ],
-    [canManage, comptes, genererPdf, modeOptions, runPeriodeAction, toast, user],
+    [
+      canManage,
+      canPayer,
+      comptes,
+      genererPdf,
+      modeOptions,
+      runPeriodeAction,
+      showSalaire,
+      toast,
+      user,
+    ],
   );
 
   const moisOptions = MOIS_LABELS.map((label, i) => ({
@@ -636,11 +786,11 @@ export default function PaiePage() {
   );
 
   return (
-    <PermissionGate permission={["paie.manage", "paie.view"]} title="Paie">
+    <PermissionGate permission={["paie.manage", "paie.view", "paie.payer"]} title="Paie">
       <div className="space-y-6">
         <PageHeader
           title="Paie"
-          description="Périodes mensuelles, génération des bulletins et suivi des paiements."
+          description="Périodes mensuelles : la RH saisit les salaires perçus, le comptable marque payé."
           actions={
             <div className="flex flex-wrap gap-2">
               <Link href="/rh">
@@ -923,8 +1073,11 @@ export default function PaiePage() {
                   </li>
                   <li className="flex gap-2">
                     <span className="font-mono font-semibold text-teal">4</span>
-                    Régler (sélection ou unitaire) : salaire perçu + mode, PDF,
-                    puis clôturer
+                    RH : saisir les salaires perçus (jours travaillés)
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="font-mono font-semibold text-teal">5</span>
+                    Comptable : marquer payé (mode + compte), puis clôturer
                   </li>
                 </ol>
               </CardBody>
@@ -986,25 +1139,46 @@ export default function PaiePage() {
                 }}
                 onSelectionChange={setSelectedBulletinIds}
                 toolbar={
-                  canManage ? (
+                  canManage || canPayer ? (
                     <div className="flex flex-wrap items-center gap-2">
-                      {unpaidSelected.length > 0 ? (
+                      {canManage && unpaidNeedSalaireSelected.length > 0 ? (
                         <Button
                           size="sm"
-                          onClick={() => openBulkPay(unpaidSelected)}
+                          variant="secondary"
+                          onClick={() =>
+                            openBulkSalaire(unpaidNeedSalaireSelected)
+                          }
                         >
-                          <Wallet className="size-4" />
-                          Marquer payé ({unpaidSelected.length})
+                          Saisir salaires ({unpaidNeedSalaireSelected.length})
                         </Button>
                       ) : null}
-                      {unpaidTotal > 0 ? (
+                      {canManage && unpaidTotal > 0 ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          loading={bulkSalaireBusy && !bulkSalaireOpen}
+                          onClick={() => void openBulkSalaireAllUnpaid()}
+                        >
+                          Saisir tous les salaires non renseignés
+                        </Button>
+                      ) : null}
+                      {canPayer && unpaidReadySelected.length > 0 ? (
+                        <Button
+                          size="sm"
+                          onClick={() => openBulkPay(unpaidReadySelected)}
+                        >
+                          <Wallet className="size-4" />
+                          Marquer payé ({unpaidReadySelected.length})
+                        </Button>
+                      ) : null}
+                      {canPayer && unpaidTotal > 0 ? (
                         <Button
                           size="sm"
                           variant="secondary"
                           loading={bulkPayBusy && !bulkPayOpen}
                           onClick={() => void openBulkPayAllUnpaid()}
                         >
-                          Régler tous les non payés ({unpaidTotal})
+                          Régler tous les prêts ({unpaidTotal})
                         </Button>
                       ) : null}
                     </div>
@@ -1103,6 +1277,89 @@ export default function PaiePage() {
         </Modal>
 
         <Modal
+          open={Boolean(salaireBulletin)}
+          onClose={() =>
+            !renseignerSalaire.isPending && setSalaireBulletin(null)
+          }
+          preventClose={renseignerSalaire.isPending}
+          title="Salaire perçu"
+          description={
+            salaireBulletin
+              ? `${
+                  salaireBulletin.agent
+                    ? `${salaireBulletin.agent.prenom} ${salaireBulletin.agent.nom} · `
+                    : ""
+                }Indiquez le salaire réellement perçu ce mois (jours travaillés). Le comptable réglera ensuite sans voir le montant.`
+              : undefined
+          }
+          footer={
+            <>
+              <Button
+                variant="secondary"
+                disabled={renseignerSalaire.isPending}
+                onClick={() => setSalaireBulletin(null)}
+              >
+                Annuler
+              </Button>
+              <Button
+                loading={renseignerSalaire.isPending}
+                onClick={async () => {
+                  if (!salaireBulletin) return;
+                  const net = Number(salaireForm.salaire_net);
+                  if (!Number.isFinite(net) || net <= 0) {
+                    setSalaireError("Indiquez le salaire perçu ce mois (> 0).");
+                    return;
+                  }
+                  setSalaireError(null);
+                  try {
+                    await renseignerSalaire.mutateAsync({
+                      id: salaireBulletin.id,
+                      salaire_net: net,
+                    });
+                    toast("Salaire perçu enregistré.");
+                    setSalaireBulletin(null);
+                  } catch (err) {
+                    setSalaireError(
+                      getApiErrorMessage(err, "Échec de l’enregistrement."),
+                    );
+                  }
+                }}
+              >
+                Enregistrer
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-3">
+            {salaireError ? <Alert tone="danger">{salaireError}</Alert> : null}
+            {salaireBulletin && Number(salaireBulletin.salaire_net) > 0 ? (
+              <p className="text-xs text-ink-faint">
+                Net calculé (contrat) :{" "}
+                {formatSalaire(salaireBulletin.salaire_net, user)} — à ajuster
+                si prorata jours travaillés.
+              </p>
+            ) : (
+              <Alert tone="info">
+                Le net calculé est à 0. Saisissez le salaire réellement perçu
+                ce mois (jours travaillés).
+              </Alert>
+            )}
+            <Input
+              label="Salaire perçu ce mois (FCFA)"
+              requiredMark
+              type="number"
+              min={1}
+              step={1}
+              value={salaireForm.salaire_net}
+              placeholder="Montant net versé"
+              onChange={(e) =>
+                setSalaireForm({ salaire_net: e.target.value })
+              }
+            />
+          </div>
+        </Modal>
+
+        <Modal
           open={Boolean(payeBulletin)}
           onClose={() =>
             !marquerPaye.isPending && setPayeBulletin(null)
@@ -1115,7 +1372,7 @@ export default function PaiePage() {
                   payeBulletin.agent
                     ? `${payeBulletin.agent.prenom} ${payeBulletin.agent.nom} · `
                     : ""
-                }Indiquez le salaire perçu ce mois (selon jours travaillés) et le moyen de paiement.`
+                }Choisissez le mode et le compte. Le salaire perçu a déjà été saisi par la RH.`
               : undefined
           }
           footer={
@@ -1131,11 +1388,6 @@ export default function PaiePage() {
                 loading={marquerPaye.isPending}
                 onClick={async () => {
                   if (!payeBulletin) return;
-                  const net = Number(payeForm.salaire_net);
-                  if (!Number.isFinite(net) || net <= 0) {
-                    setPayeError("Indiquez le salaire perçu ce mois (> 0).");
-                    return;
-                  }
                   if (!payeForm.mode) {
                     setPayeError("Choisissez un mode de paiement.");
                     return;
@@ -1148,7 +1400,6 @@ export default function PaiePage() {
                   try {
                     await marquerPaye.mutateAsync({
                       id: payeBulletin.id,
-                      salaire_net: net,
                       mode: payeForm.mode,
                       compte_tresorerie_id: payeForm.compte_tresorerie_id,
                       reference: payeForm.reference || undefined,
@@ -1169,30 +1420,9 @@ export default function PaiePage() {
         >
           <div className="space-y-3">
             {payeError ? <Alert tone="danger">{payeError}</Alert> : null}
-            {payeBulletin && Number(payeBulletin.salaire_net) > 0 ? (
-              <p className="text-xs text-ink-faint">
-                Net calculé (contrat) :{" "}
-                {formatSalaire(payeBulletin.salaire_net, user)} — à ajuster si
-                prorata jours travaillés.
-              </p>
-            ) : (
-              <Alert tone="info">
-                Le net calculé est à 0. Saisissez le salaire réellement perçu
-                ce mois (jours travaillés).
-              </Alert>
-            )}
-            <Input
-              label="Salaire perçu ce mois (FCFA)"
-              requiredMark
-              type="number"
-              min={1}
-              step={1}
-              value={payeForm.salaire_net}
-              placeholder="Montant net versé"
-              onChange={(e) =>
-                setPayeForm((f) => ({ ...f, salaire_net: e.target.value }))
-              }
-            />
+            <Alert tone="info">
+              Le montant débité est celui saisi par la RH (non affiché ici).
+            </Alert>
             <Select
               label="Mode de paiement"
               requiredMark
@@ -1208,7 +1438,7 @@ export default function PaiePage() {
               value={payeForm.compte_tresorerie_id}
               options={comptes.map((c) => ({
                 value: c.id,
-                label: `${c.libelle}${c.solde != null ? ` · ${formatSalaire(c.solde, user)}` : ""}`,
+                label: `${c.libelle}${c.solde != null ? ` · ${formatFcfa(c.solde)}` : ""}`,
               }))}
               placeholder="Choisir un compte"
               onChange={(e) =>
@@ -1232,11 +1462,138 @@ export default function PaiePage() {
         </Modal>
 
         <Modal
+          open={bulkSalaireOpen}
+          onClose={closeBulkSalaire}
+          preventClose={bulkSalaireBusy}
+          title="Saisir les salaires perçus"
+          description={`${bulkSalaireBulletins.length} agent(s) — montants ajustables par ligne.`}
+          footer={
+            <>
+              <Button
+                variant="secondary"
+                disabled={bulkSalaireBusy}
+                onClick={closeBulkSalaire}
+              >
+                Annuler
+              </Button>
+              <Button
+                loading={bulkSalaireBusy}
+                onClick={() => void executeBulkSalaire()}
+              >
+                Enregistrer ({bulkSalaireBulletins.length})
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            {bulkSalaireError ? (
+              <Alert tone="danger">{bulkSalaireError}</Alert>
+            ) : null}
+
+            <div className="space-y-2 rounded-md border border-border bg-teal/[0.03] p-3">
+              <p className="text-sm font-medium text-ink">
+                Remplir tous les salaires perçus
+              </p>
+              <p className="text-xs text-ink-faint">
+                Cliquez une proposition (nets calculés du lot) ou saisissez un
+                montant unique pour les {bulkSalaireBulletins.length} lignes.
+              </p>
+              {salaireProposes.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {salaireProposes.map(({ montant, count }) => (
+                    <Button
+                      key={montant}
+                      type="button"
+                      size="sm"
+                      variant={
+                        bulkSalaireApplyAll === String(montant)
+                          ? "primary"
+                          : "secondary"
+                      }
+                      disabled={bulkSalaireBusy}
+                      onClick={() => applySalaireToAll(montant)}
+                    >
+                      {formatSalaire(montant, user)}
+                      <span className="opacity-70">· {count}</span>
+                    </Button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-ink-faint">
+                  Aucun net calculé &gt; 0 — saisissez un montant ci-dessous.
+                </p>
+              )}
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="min-w-[10rem] flex-1">
+                  <Input
+                    label="Montant libre (FCFA)"
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={bulkSalaireApplyAll}
+                    placeholder="Ex. 90000"
+                    onChange={(e) => setBulkSalaireApplyAll(e.target.value)}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={bulkSalaireBusy || !bulkSalaireApplyAll.trim()}
+                  onClick={() => applySalaireToAll(bulkSalaireApplyAll)}
+                >
+                  Appliquer à tous
+                </Button>
+              </div>
+            </div>
+
+            <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border border-border p-2">
+              <p className="sticky top-0 z-10 bg-white px-1 pb-1 text-xs font-medium text-ink-muted">
+                Détail par agent
+              </p>
+              {bulkSalaireBulletins.map((b) => {
+                const label = b.agent
+                  ? `${b.agent.prenom} ${b.agent.nom}`
+                  : "Agent";
+                const matricule = b.agent?.matricule ?? "—";
+                return (
+                  <div
+                    key={b.id}
+                    className="grid grid-cols-[1fr_auto] items-end gap-2 sm:grid-cols-[1.4fr_1fr]"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-ink">
+                        {label}
+                      </p>
+                      <p className="text-xs text-ink-faint">{matricule}</p>
+                    </div>
+                    <Input
+                      label="Salaire perçu"
+                      requiredMark
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={bulkSalaireMontants[b.id] ?? ""}
+                      onChange={(e) =>
+                        setBulkSalaireMontants((m) => ({
+                          ...m,
+                          [b.id]: e.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </Modal>
+
+        <Modal
           open={bulkPayOpen}
           onClose={closeBulkPay}
           preventClose={bulkPayBusy}
           title="Régler plusieurs bulletins"
-          description={`${bulkPayBulletins.length} agent(s) — même mode et compte ; salaire perçu ajustable par ligne.`}
+          description={`${bulkPayBulletins.length} agent(s) prêts — même mode et compte (montants déjà saisis par la RH).`}
           footer={
             <>
               <Button
@@ -1260,6 +1617,10 @@ export default function PaiePage() {
         >
           <div className="space-y-4">
             {bulkPayError ? <Alert tone="danger">{bulkPayError}</Alert> : null}
+            <Alert tone="info">
+              Les montants perçus ont été saisis par la RH et ne sont pas
+              affichés. Seuls les bulletins prêts sont inclus.
+            </Alert>
             <div className="grid gap-3 sm:grid-cols-2">
               <Select
                 label="Mode de paiement"
@@ -1276,7 +1637,7 @@ export default function PaiePage() {
                 value={bulkPayForm.compte_tresorerie_id}
                 options={comptes.map((c) => ({
                   value: c.id,
-                  label: `${c.libelle}${c.solde != null ? ` · ${formatSalaire(c.solde, user)}` : ""}`,
+                  label: `${c.libelle}${c.solde != null ? ` · ${formatFcfa(c.solde)}` : ""}`,
                 }))}
                 placeholder="Choisir un compte"
                 onChange={(e) =>
@@ -1297,102 +1658,18 @@ export default function PaiePage() {
                 setBulkPayForm((f) => ({ ...f, reference: e.target.value }))
               }
             />
-
-            <div className="space-y-2 rounded-md border border-border bg-teal/[0.03] p-3">
-              <p className="text-sm font-medium text-ink">
-                Remplir tous les salaires perçus
-              </p>
-              <p className="text-xs text-ink-faint">
-                Cliquez une proposition (nets calculés du lot) ou saisissez un
-                montant unique pour les {bulkPayBulletins.length} lignes.
-              </p>
-              {salaireProposes.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {salaireProposes.map(({ montant, count }) => (
-                    <Button
-                      key={montant}
-                      type="button"
-                      size="sm"
-                      variant={
-                        bulkPayApplyAll === String(montant)
-                          ? "primary"
-                          : "secondary"
-                      }
-                      disabled={bulkPayBusy}
-                      onClick={() => applySalaireToAll(montant)}
-                    >
-                      {formatSalaire(montant, user)}
-                      <span className="opacity-70">· {count}</span>
-                    </Button>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-ink-faint">
-                  Aucun net calculé &gt; 0 — saisissez un montant ci-dessous.
-                </p>
-              )}
-              <div className="flex flex-wrap items-end gap-2">
-                <div className="min-w-[10rem] flex-1">
-                  <Input
-                    label="Montant libre (FCFA)"
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={bulkPayApplyAll}
-                    placeholder="Ex. 90000"
-                    onChange={(e) => setBulkPayApplyAll(e.target.value)}
-                  />
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  disabled={bulkPayBusy || !bulkPayApplyAll.trim()}
-                  onClick={() => applySalaireToAll(bulkPayApplyAll)}
-                >
-                  Appliquer à tous
-                </Button>
-              </div>
-            </div>
-
-            <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border border-border p-2">
-              <p className="sticky top-0 z-10 bg-white px-1 pb-1 text-xs font-medium text-ink-muted">
-                Détail par agent (modifiable ensuite)
-              </p>
-              {bulkPayBulletins.map((b) => {
-                const label = b.agent
-                  ? `${b.agent.prenom} ${b.agent.nom}`
-                  : "Agent";
-                const matricule = b.agent?.matricule ?? "—";
-                return (
-                  <div
-                    key={b.id}
-                    className="grid grid-cols-[1fr_auto] items-end gap-2 sm:grid-cols-[1.4fr_1fr]"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-ink">
-                        {label}
-                      </p>
-                      <p className="text-xs text-ink-faint">{matricule}</p>
-                    </div>
-                    <Input
-                      label="Salaire perçu"
-                      requiredMark
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={bulkPayMontants[b.id] ?? ""}
-                      onChange={(e) =>
-                        setBulkPayMontants((m) => ({
-                          ...m,
-                          [b.id]: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-                );
-              })}
-            </div>
+            <ul className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-border p-2 text-sm">
+              {bulkPayBulletins.map((b) => (
+                <li key={b.id} className="text-ink-muted">
+                  {b.agent
+                    ? `${b.agent.prenom} ${b.agent.nom}`
+                    : b.id.slice(0, 8)}
+                  {b.agent?.matricule ? (
+                    <span className="text-ink-faint"> · {b.agent.matricule}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
           </div>
         </Modal>
 
@@ -1404,7 +1681,7 @@ export default function PaiePage() {
           }}
           loading={bulkPayBusy}
           title="Confirmer le règlement groupé"
-          description={`Marquer payé ${bulkPayBulletins.length} bulletin(s) via ${bulkPayForm.mode.toUpperCase()} ? Les montants perçus saisis seront débités du compte choisi.`}
+          description={`Marquer payé ${bulkPayBulletins.length} bulletin(s) via ${bulkPayForm.mode.toUpperCase()} ? Les salaires perçus saisis par la RH seront débités du compte choisi.`}
           confirmLabel={`Oui, régler ${bulkPayBulletins.length}`}
           confirmVariant="primary"
           onConfirm={() => void executeBulkPay()}

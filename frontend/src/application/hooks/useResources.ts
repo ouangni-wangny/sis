@@ -44,6 +44,7 @@ export function useAgents(
     statut?: string;
     grade_id?: string;
     ville_id?: string;
+    pool_siege?: boolean;
     contrat_valide?: boolean;
     all?: boolean;
   },
@@ -54,6 +55,21 @@ export function useAgents(
     queryFn: () => agentsApi.list(params),
     enabled: options?.enabled ?? true,
     refetchOnMount: options?.refetchOnMount,
+  });
+}
+
+export function useExportAgentsPdf() {
+  return useMutation({
+    mutationFn: (
+      params?: ListParams & {
+        type?: string;
+        statut?: string;
+        grade_id?: string;
+        ville_id?: string;
+        pool_siege?: boolean;
+        contrat_valide?: boolean;
+      },
+    ) => agentsApi.exportPdf(params),
   });
 }
 
@@ -1054,6 +1070,20 @@ export function useContratAlerts(options?: { enabled?: boolean }) {
   });
 }
 
+export function useExportContratsPdf() {
+  return useMutation({
+    mutationFn: (
+      params?: ListParams & {
+        agent_id?: string;
+        type?: string;
+        statut?: string;
+        surveillance?: boolean;
+        valide?: boolean;
+      },
+    ) => contratsApi.exportPdf(params),
+  });
+}
+
 export function usePeriodesPaie(
   params?: ListParams & {
     annee?: number | string;
@@ -1135,6 +1165,35 @@ export function useGenererBulletinPdf() {
   });
 }
 
+export function useRenseignerSalairePercu() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      salaire_net,
+    }: {
+      id: string;
+      salaire_net: number;
+    }) => bulletinsPaieApi.renseignerSalaire(id, { salaire_net }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["bulletins-paie"] });
+      void qc.invalidateQueries({ queryKey: ["periodes-paie"] });
+    },
+  });
+}
+
+export function useRenseignerSalairePercuBulk() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (items: Array<{ id: string; salaire_net: number }>) =>
+      bulletinsPaieApi.renseignerSalaireBulk(items),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["bulletins-paie"] });
+      void qc.invalidateQueries({ queryKey: ["periodes-paie"] });
+    },
+  });
+}
+
 export function useMarquerBulletinPaye() {
   const qc = useQueryClient();
   return useMutation({
@@ -1143,12 +1202,29 @@ export function useMarquerBulletinPaye() {
       ...payload
     }: {
       id: string;
-      salaire_net: number;
       mode: string;
       compte_tresorerie_id: string;
       reference?: string;
       paye_le?: string;
     }) => bulletinsPaieApi.marquerPaye(id, payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["bulletins-paie"] });
+      void qc.invalidateQueries({ queryKey: ["periodes-paie"] });
+      void qc.invalidateQueries({ queryKey: ["tresorerie"] });
+    },
+  });
+}
+
+export function useMarquerBulletinPayeBulk() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      bulletin_ids: string[];
+      mode: string;
+      compte_tresorerie_id: string;
+      reference?: string;
+      paye_le?: string;
+    }) => bulletinsPaieApi.marquerPayeBulk(payload),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["bulletins-paie"] });
       void qc.invalidateQueries({ queryKey: ["periodes-paie"] });
@@ -1223,6 +1299,7 @@ export function useDepenses(
     compte_id?: string;
     from?: string;
     to?: string;
+    statut?: string;
   },
 ) {
   return useQuery({

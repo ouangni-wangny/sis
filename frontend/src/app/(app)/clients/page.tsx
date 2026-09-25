@@ -4,12 +4,13 @@ import { useCallback, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { type ColumnDef } from "@tanstack/react-table";
-import { Plus } from "lucide-react";
+import { FileDown, Plus } from "lucide-react";
 import { useDebouncedValue } from "@/application/hooks/useDebouncedValue";
 import {
   useCreateClient,
   useClients,
   useDeleteClient,
+  useExportClientsPdf,
   useUpdateClient,
 } from "@/application/hooks/useClients";
 import {
@@ -35,7 +36,7 @@ import { Textarea } from "@/presentation/components/ui/Textarea";
 import { PermissionGate } from "@/presentation/components/auth/PermissionGate";
 import { useAuth } from "@/presentation/providers/AuthProvider";
 import { useToast } from "@/presentation/providers/ToastProvider";
-import { getApiErrorMessage } from "@/shared/lib/api-error";
+import { getApiErrorMessage, getApiErrorMessageAsync } from "@/shared/lib/api-error";
 import { can } from "@/shared/lib/can";
 import { labelize } from "@/shared/lib/format";
 
@@ -49,29 +50,51 @@ const emptyDefaults: ClientFormValues = {
   statut: "actif",
 };
 
+const TYPE_FILTER_OPTIONS = [
+  { value: "", label: "Tous les types" },
+  { value: "entreprise", label: "Entreprise" },
+  { value: "particulier", label: "Particulier" },
+];
+
+const STATUT_FILTER_OPTIONS = [
+  { value: "", label: "Tous les statuts" },
+  { value: "actif", label: "Actif" },
+  { value: "suspendu", label: "Suspendu" },
+  { value: "resilie", label: "Résilié" },
+];
+
 export default function ClientsPage() {
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(15);
   const [q, setQ] = useState("");
   const search = useDebouncedValue(q);
+  const [typeFilter, setTypeFilter] = useState("");
+  const [statutFilter, setStatutFilter] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
   const [toDelete, setToDelete] = useState<Client | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
   const canCreate = can(user, "clients.create");
   const canUpdate = can(user, "clients.update");
   const canDelete = can(user, "clients.delete");
+  const canView = can(user, "clients.view");
 
-  const { data, isLoading } = useClients({
+  const listParams = {
     page,
     per_page: perPage,
     q: search || undefined,
-  });
+    type: typeFilter || undefined,
+    statut: statutFilter || undefined,
+  };
+
+  const { data, isLoading } = useClients(listParams);
   const createClient = useCreateClient();
   const updateClient = useUpdateClient();
   const deleteClient = useDeleteClient();
+  const exportPdf = useExportClientsPdf();
 
   const {
     register,
@@ -209,6 +232,43 @@ export default function ClientsPage() {
     setOpen(true);
   };
 
+  const handleExportPdf = async () => {
+    if (!canView) {
+      toast("Vous n’avez pas le droit d’exporter la liste.", "danger");
+      return;
+    }
+    setPdfLoading(true);
+    try {
+      const data = await exportPdf.mutateAsync({
+        q: search || undefined,
+        type: typeFilter || undefined,
+        statut: statutFilter || undefined,
+      });
+      const blob =
+        data instanceof Blob
+          ? data
+          : new Blob([data as BlobPart], { type: "application/pdf" });
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      const suffix = [typeFilter, statutFilter].filter(Boolean).join("-") || "tous";
+      link.download = `clients-${suffix}-${new Date().toISOString().slice(0, 10)}.pdf`;
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+      toast("PDF téléchargé.", "success");
+    } catch (err) {
+      toast(
+        await getApiErrorMessageAsync(err, "Échec de la génération du PDF."),
+        "danger",
+      );
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
   return (
     <PermissionGate permission="clients.view" title="Clients">
     <div>
@@ -230,12 +290,43 @@ export default function ClientsPage() {
           placeholder: "Rechercher un client…",
         }}
         toolbar={
-          canCreate ? (
-            <Button onClick={openCreate}>
-              <Plus className="size-4" />
-              Nouveau client
-            </Button>
-          ) : null
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              className="min-w-[10rem]"
+              value={typeFilter}
+              options={TYPE_FILTER_OPTIONS}
+              onChange={(event) => {
+                setTypeFilter(event.target.value);
+                setPage(1);
+              }}
+            />
+            <Select
+              className="min-w-[10rem]"
+              value={statutFilter}
+              options={STATUT_FILTER_OPTIONS}
+              onChange={(event) => {
+                setStatutFilter(event.target.value);
+                setPage(1);
+              }}
+            />
+            {canView ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void handleExportPdf()}
+                loading={pdfLoading || exportPdf.isPending}
+              >
+                <FileDown className="size-4" />
+                Exporter PDF
+              </Button>
+            ) : null}
+            {canCreate ? (
+              <Button onClick={openCreate}>
+                <Plus className="size-4" />
+                Nouveau client
+              </Button>
+            ) : null}
+          </div>
         }
         pagination={{
           page,

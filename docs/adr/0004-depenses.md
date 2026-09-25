@@ -21,7 +21,10 @@ Introduire :
    - `user_id` auteur
 
 **Règle d’or** : la création d’une dépense crée **atomiquement** un mouvement `sortie` (`source_type = depense`).  
-La suppression / annulation d’une dépense crée un mouvement inverse (ou soft-delete cohérent journal + dépense) — jamais une dépense « orpheline » sans impact cash, ni un cash sans dépense métier pour ce type.
+L’annulation d’une dépense :
+- crée un **mouvement inverse** (entrée) sur le même compte — le mouvement de sortie d’origine reste au journal
+- passe le statut à `annulee` (la ligne **reste visible** dans la liste)
+- solde = ouverture + entrées − sorties → net remis à l’état d’avant la dépense
 
 Hors scope phase 1 : workflow d’approbation multi-niveaux, fournisseurs complets (AP), TVA déductible détaillée.
 

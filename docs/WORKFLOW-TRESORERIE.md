@@ -53,7 +53,11 @@ Les formulaires (dépenses, paie, encaissements, ajustements) consomment ces lis
 2. Le système crée la dépense **et** un mouvement **sortie** sur le compte choisi.
 3. Le solde du compte baisse tout de suite.
 
-Annuler une dépense → mouvement inverse + dépense soft-deleted.
+Annuler une dépense → mouvement **inverse** (entrée) sur le même compte + statut **Annulée**.
+Le solde revient comme avant la dépense (sortie d’origine + entrée d’annulation = net 0).
+
+Si d’anciennes annulations avaient soft-deleté *et* créé un inverse (solde trop haut) :
+`php artisan tresorerie:fix-double-reverse`
 
 ---
 
@@ -61,21 +65,31 @@ Annuler une dépense → mouvement inverse + dépense soft-deleted.
 
 Le calcul salarial (brut, CNPS, IGR, net) **ne change pas** à la génération (base contrat).
 
-Ce qui change : **Marquer payé** demande maintenant, pour chaque agent / rondier :
+Le règlement se fait en **deux étapes** :
 
-- **salaire perçu ce mois** (obligatoire — ajustable selon jours travaillés)
+### Étape A — RH (`paie.manage`, voit les salaires via `contrats.manage`)
+
+Saisir le **salaire perçu** du mois (ajustable selon jours travaillés) sur chaque bulletin — unitaire ou groupé.  
+Cela met à jour `salaire_net` / `details.salaire_percu` **sans** passer le statut à `paye`.
+
+### Étape B — Comptable (`paie.payer`, **ne voit pas** les montants)
+
+Marquer payé (unitaire ou groupé) avec uniquement :
+
 - moyen de paiement
 - compte débité
 - référence optionnelle
 
+Le montant débité est celui déjà saisi par la RH. L’API renvoie `salaire_*` à `null` et un flag `salaire_renseigne` pour savoir si le bulletin est prêt.
+
 Puis, en une transaction :
 
-1. bulletin → statut `paye` + salaire_net (perçu) + date + mode + compte
+1. bulletin → statut `paye` + date + mode + compte
 2. mouvement **sortie** = montant perçu sur ce compte
 
 Valider la période passe aussi les bulletins brouillon → `valide`.
 
-Règlement **groupé** : cocher des lignes → **Marquer payé (N)**, ou **Régler tous les non payés** (toute la période, hors pagination) — même mode/compte, salaire perçu par agent.
+Les PDF bulletins sont réservés aux profils qui peuvent voir les salaires (RH).
 
 Les stats Trésorerie montrent la masse salariale **payée** du mois, par mode et par compte.
 
@@ -124,4 +138,5 @@ Le **recouvrement** reste Commercial jusqu’à l’encaissement ; Trésorerie n
 |---------|--------|
 | Feature flag | `module.tresorerie` |
 | Permissions | `tresorerie.view` / `tresorerie.manage`, `depenses.view` / `depenses.manage` |
+| Paie | RH : `paie.manage` (+ `contrats.manage` pour voir salaires) · Comptable : `paie.view` + `paie.payer` |
 | Paramètres référentiels | `grades.manage` (ou `tresorerie.manage`) |

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const baseRoles = ["super-admin", "operation", "rh", "commercial"] as const;
+const baseRoles = ["super-admin", "operation", "rh", "commercial", "comptable"] as const;
 const allRoles = [...baseRoles, "developpeur"] as const;
 
 export const userSchema = z
@@ -30,6 +30,7 @@ export const BASE_ROLE_OPTIONS: { value: BackofficeRole; label: string }[] = [
   { value: "operation", label: "Opération" },
   { value: "rh", label: "RH" },
   { value: "commercial", label: "Commercial" },
+  { value: "comptable", label: "Comptable" },
 ];
 
 export const DEVELOPPEUR_ROLE_OPTION: {

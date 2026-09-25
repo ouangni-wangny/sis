@@ -66,10 +66,11 @@ final class UpsertPaiementAction
             $this->assertCompteSiTresorerie($merged);
 
             if (PosterMouvementTresorerieAction::isModuleEnabled()) {
-                $this->poster->reverseForSource(
+                // Correction : on retire l’ancien mouvement puis on re-poste (pas d’inverse,
+                // sinon le solde serait faussé avec le soft-delete nécessaire au re-post).
+                $this->poster->retractForSource(
                     SourceMouvementTresorerie::FacturePaiement,
                     $paiement->id,
-                    'Correction encaissement facture',
                 );
             }
 

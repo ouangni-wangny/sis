@@ -8,6 +8,7 @@ import { type ColumnDef } from "@tanstack/react-table";
 import {
   AlertTriangle,
   CalendarOff,
+  FileDown,
   FileText,
   Plus,
   Settings2,
@@ -23,6 +24,7 @@ import {
   useCreateContrat,
   useDeleteAbsence,
   useDeleteContrat,
+  useExportContratsPdf,
   useUpdateAbsence,
   useUpdateContrat,
 } from "@/application/hooks/useResources";
@@ -44,6 +46,7 @@ import {
   contratSchema,
   previewRemunerationCi,
   STATUT_CONTRAT_FILTER_OPTIONS,
+  TYPE_CONTRAT_FILTER_OPTIONS,
   type ContratFormValues,
 } from "@/domain/schemas/contrat";
 import {
@@ -74,7 +77,7 @@ import { StatCard } from "@/presentation/components/ui/StatCard";
 import { TabPanel, Tabs } from "@/presentation/components/ui/Tabs";
 import { useAuth } from "@/presentation/providers/AuthProvider";
 import { useToast } from "@/presentation/providers/ToastProvider";
-import { getApiErrorMessage } from "@/shared/lib/api-error";
+import { getApiErrorMessage, getApiErrorMessageAsync } from "@/shared/lib/api-error";
 import {
   can,
   canManageAbsences,
@@ -393,6 +396,7 @@ export default function RhPage() {
   const [contratPage, setContratPage] = useState(1);
   const [contratPerPage, setContratPerPage] = useState(15);
   const [contratQ, setContratQ] = useState("");
+  const [contratTypeFilter, setContratTypeFilter] = useState("");
   const [contratStatutFilter, setContratStatutFilter] = useState("");
   const contratSearch = useDebouncedValue(contratQ);
   const [contratOpen, setContratOpen] = useState(false);
@@ -400,17 +404,18 @@ export default function RhPage() {
   const [contratToDelete, setContratToDelete] = useState<Contrat | null>(null);
   const [contratFormError, setContratFormError] = useState<string | null>(null);
   const [contratSurveillanceOnly, setContratSurveillanceOnly] = useState(false);
+  const [contratPdfLoading, setContratPdfLoading] = useState(false);
 
-  const contrats = useContrats(
-    {
-      page: contratPage,
-      per_page: contratPerPage,
-      q: contratSearch || undefined,
-      statut: contratStatutFilter || undefined,
-      surveillance: contratSurveillanceOnly || undefined,
-    },
-    { enabled: canViewCont },
-  );
+  const contratListParams = {
+    page: contratPage,
+    per_page: contratPerPage,
+    q: contratSearch || undefined,
+    type: contratTypeFilter || undefined,
+    statut: contratStatutFilter || undefined,
+    surveillance: contratSurveillanceOnly || undefined,
+  };
+
+  const contrats = useContrats(contratListParams, { enabled: canViewCont });
 
   const contratsCdi = useContrats(
     { type: "cdi", per_page: 1, valide: true },
@@ -432,6 +437,57 @@ export default function RhPage() {
   const createContrat = useCreateContrat();
   const updateContrat = useUpdateContrat();
   const deleteContrat = useDeleteContrat();
+  const exportContratsPdf = useExportContratsPdf();
+
+  const focusContratsByType = (type: string) => {
+    setRhTab("contrats");
+    setContratQ("");
+    setContratTypeFilter(type);
+    setContratStatutFilter("actif");
+    setContratSurveillanceOnly(false);
+    setContratPage(1);
+  };
+
+  const handleExportContratsPdf = async () => {
+    if (!canViewCont) {
+      toast("Vous n’avez pas le droit d’exporter la liste.", "danger");
+      return;
+    }
+    setContratPdfLoading(true);
+    try {
+      const data = await exportContratsPdf.mutateAsync({
+        q: contratSearch || undefined,
+        type: contratTypeFilter || undefined,
+        statut: contratStatutFilter || undefined,
+        surveillance: contratSurveillanceOnly || undefined,
+      });
+      const blob =
+        data instanceof Blob
+          ? data
+          : new Blob([data as BlobPart], { type: "application/pdf" });
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      const suffix =
+        [contratTypeFilter, contratStatutFilter, contratSurveillanceOnly ? "alertes" : ""]
+          .filter(Boolean)
+          .join("-") || "tous";
+      link.download = `contrats-${suffix}-${new Date().toISOString().slice(0, 10)}.pdf`;
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+      toast("PDF téléchargé.", "success");
+    } catch (err) {
+      toast(
+        await getApiErrorMessageAsync(err, "Échec de la génération du PDF."),
+        "danger",
+      );
+    } finally {
+      setContratPdfLoading(false);
+    }
+  };
 
   const {
     register: registerContrat,
@@ -791,6 +847,10 @@ export default function RhPage() {
               onClick={() => {
                 setRhTab("contrats");
                 setContratSurveillanceOnly(false);
+                setContratTypeFilter("");
+                setContratStatutFilter("");
+                setContratQ("");
+                setContratPage(1);
               }}
             >
               <StatCard
@@ -861,7 +921,7 @@ export default function RhPage() {
             <button
               type="button"
               className="text-left transition hover:opacity-90"
-              onClick={() => { setRhTab("contrats"); setContratQ("cdi"); setContratStatutFilter("actif"); setContratPage(1); }}
+              onClick={() => focusContratsByType("cdi")}
             >
               <StatCard
                 label="CDI"
@@ -873,7 +933,7 @@ export default function RhPage() {
             <button
               type="button"
               className="text-left transition hover:opacity-90"
-              onClick={() => { setRhTab("contrats"); setContratQ("cdd"); setContratStatutFilter("actif"); setContratPage(1); }}
+              onClick={() => focusContratsByType("cdd")}
             >
               <StatCard
                 label="CDD"
@@ -885,7 +945,7 @@ export default function RhPage() {
             <button
               type="button"
               className="text-left transition hover:opacity-90"
-              onClick={() => { setRhTab("contrats"); setContratQ("prestation"); setContratStatutFilter("actif"); setContratPage(1); }}
+              onClick={() => focusContratsByType("prestation")}
             >
               <StatCard
                 label="Prestation"
@@ -897,7 +957,7 @@ export default function RhPage() {
             <button
               type="button"
               className="text-left transition hover:opacity-90"
-              onClick={() => { setRhTab("contrats"); setContratQ("stage"); setContratStatutFilter("actif"); setContratPage(1); }}
+              onClick={() => focusContratsByType("stage")}
             >
               <StatCard
                 label="Stage"
@@ -938,6 +998,18 @@ export default function RhPage() {
                     toolbar={
                       <div className="flex flex-wrap items-center gap-2">
                         <Select
+                          className="min-w-[10rem]"
+                          value={contratTypeFilter}
+                          options={TYPE_CONTRAT_FILTER_OPTIONS.map((o) => ({
+                            value: o.value,
+                            label: o.label,
+                          }))}
+                          onChange={(event) => {
+                            setContratTypeFilter(event.target.value);
+                            setContratPage(1);
+                          }}
+                        />
+                        <Select
                           className="min-w-[11rem]"
                           value={contratStatutFilter}
                           options={STATUT_CONTRAT_FILTER_OPTIONS.map((o) => ({
@@ -962,6 +1034,19 @@ export default function RhPage() {
                           Alertes contrats
                           {contratSurveillanceOnly ? " (actif)" : ""}
                         </Button>
+                        {canViewCont ? (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => void handleExportContratsPdf()}
+                            loading={
+                              contratPdfLoading || exportContratsPdf.isPending
+                            }
+                          >
+                            <FileDown className="size-4" />
+                            Exporter PDF
+                          </Button>
+                        ) : null}
                         {canContrats ? (
                           <Button onClick={openCreateContrat}>
                             <Plus className="size-4" />

@@ -8,7 +8,11 @@ function isSuperAdmin(user: User | null | undefined): boolean {
   return Boolean(user?.roles?.includes("super-admin"));
 }
 
-/** Vérifie une permission Spatie. developpeur = tout ; super-admin = tout sauf system.*. */
+/**
+ * Vérifie une permission Spatie.
+ * developpeur = tout ; super-admin = tout sauf system.* (sauf celles explicitement assignées,
+ * ex. system.roles.manage).
+ */
 export function can(
   user: User | null | undefined,
   permission: string | string[],
@@ -22,7 +26,7 @@ export function can(
   if (isSuperAdmin(user)) {
     const metierNeeded = needed.filter((p) => !p.startsWith("system."));
     if (metierNeeded.length > 0) return true;
-    // Uniquement des permissions system.* → vérifier la liste (super-admin n’en a pas)
+    // Uniquement des permissions system.* → vérifier la liste assignée
   }
 
   return needed.some((p) => {
@@ -88,9 +92,9 @@ export function isMenuVisible(
   return Boolean(overrides[navKey]);
 }
 
-/** Salaires visibles uniquement pour gestion contrats ou paie. */
+/** Salaires visibles uniquement pour la RH (gestion contrats). */
 export function canSeeSalaire(user: User | null | undefined): boolean {
-  return can(user, ["contrats.manage", "paie.manage"]);
+  return can(user, "contrats.manage");
 }
 
 export function canViewContrats(user: User | null | undefined): boolean {
@@ -110,9 +114,14 @@ export function canManageAbsences(user: User | null | undefined): boolean {
 }
 
 export function canViewPaie(user: User | null | undefined): boolean {
-  return can(user, ["paie.manage", "paie.view"]);
+  return can(user, ["paie.manage", "paie.view", "paie.payer"]);
 }
 
 export function canManagePaie(user: User | null | undefined): boolean {
   return can(user, "paie.manage");
+}
+
+/** Marquer les bulletins comme payés (comptable). */
+export function canPayerPaie(user: User | null | undefined): boolean {
+  return can(user, "paie.payer");
 }

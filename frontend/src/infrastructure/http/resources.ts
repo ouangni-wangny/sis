@@ -63,6 +63,12 @@ function toQuery(params?: ListParams) {
 export const clientsApi = {
   list: (params?: ListParams & { type?: string; statut?: string }) =>
     api.get<PaginatedResponse<Client>>("/clients", { params: toQuery(params) }),
+  exportPdf: (params?: ListParams & { type?: string; statut?: string }) =>
+    api.get<Blob>("/clients/export-pdf", {
+      params: toQuery(params),
+      responseType: "blob",
+      timeout: 300_000,
+    }),
   create: (payload: Partial<Client>) =>
     api.post<DataResponse<Client>>("/clients", payload),
   update: (id: string, payload: Partial<Client>) =>
@@ -128,10 +134,27 @@ export const agentsApi = {
       statut?: string;
       grade_id?: string;
       ville_id?: string;
+      pool_siege?: boolean;
+      contrat_valide?: boolean;
       all?: boolean;
     },
   ) =>
     api.get<PaginatedResponse<Agent>>("/agents", { params: toQuery(params) }),
+  exportPdf: (
+    params?: ListParams & {
+      type?: string;
+      statut?: string;
+      grade_id?: string;
+      ville_id?: string;
+      pool_siege?: boolean;
+      contrat_valide?: boolean;
+    },
+  ) =>
+    api.get<Blob>("/agents/export-pdf", {
+      params: toQuery(params),
+      responseType: "blob",
+      timeout: 300_000,
+    }),
   create: (
     payload: Partial<Agent> & {
       pin?: string;
@@ -702,6 +725,18 @@ export const contratsApi = {
     api.get<PaginatedResponse<Contrat>>("/contrats", {
       params: toQuery(params),
     }),
+  exportPdf: (params?: ListParams & {
+    agent_id?: string;
+    type?: string;
+    statut?: string;
+    surveillance?: boolean;
+    valide?: boolean;
+  }) =>
+    api.get<Blob>("/contrats/export-pdf", {
+      params: toQuery(params),
+      responseType: "blob",
+      timeout: 300_000,
+    }),
   create: (payload: {
     agent_id: string;
     type: string;
@@ -794,10 +829,22 @@ export const bulletinsPaieApi = {
   genererPdf: (id: string) =>
     api.post<DataResponse<BulletinPaie>>(`/bulletins-paie/${id}/generer-pdf`),
   downloadPdf: (id: string) => `/bulletins-paie/${id}/pdf`,
+  renseignerSalaire: (id: string, payload: { salaire_net: number }) =>
+    api.post<DataResponse<BulletinPaie>>(
+      `/bulletins-paie/${id}/salaire-percu`,
+      payload,
+    ),
+  renseignerSalaireBulk: (
+    items: Array<{ id: string; salaire_net: number }>,
+  ) =>
+    api.post<DataResponse<{ updated: number }>>(
+      `/bulletins-paie/salaire-percu-bulk`,
+      { items },
+      { timeout: 300_000 },
+    ),
   marquerPaye: (
     id: string,
     payload: {
-      salaire_net: number;
       mode: string;
       compte_tresorerie_id: string;
       reference?: string;
@@ -807,6 +854,18 @@ export const bulletinsPaieApi = {
     api.post<DataResponse<BulletinPaie>>(
       `/bulletins-paie/${id}/marquer-paye`,
       payload,
+    ),
+  marquerPayeBulk: (payload: {
+    bulletin_ids: string[];
+    mode: string;
+    compte_tresorerie_id: string;
+    reference?: string;
+    paye_le?: string;
+  }) =>
+    api.post<DataResponse<{ updated: number }>>(
+      `/bulletins-paie/marquer-paye-bulk`,
+      payload,
+      { timeout: 300_000 },
     ),
 };
 
@@ -892,6 +951,7 @@ export const tresorerieApi = {
       compte_id?: string;
       from?: string;
       to?: string;
+      statut?: string;
     },
   ) =>
     api.get<PaginatedResponse<Depense>>("/depenses", {
@@ -899,7 +959,8 @@ export const tresorerieApi = {
     }),
   createDepense: (payload: Record<string, unknown>) =>
     api.post<DataResponse<Depense>>("/depenses", payload),
-  deleteDepense: (id: string) => api.delete<void>(`/depenses/${id}`),
+  deleteDepense: (id: string) =>
+    api.delete<DataResponse<Depense>>(`/depenses/${id}`),
 };
 
 export const notificationsApi = {

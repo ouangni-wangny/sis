@@ -57,6 +57,7 @@ export function statusTone(statut: string): Tone {
     termine: "success",
     valide: "success",
     validé: "success",
+    validee: "success",
     confirme: "success",
     confirmee: "success",
 

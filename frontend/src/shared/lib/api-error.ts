@@ -14,6 +14,13 @@ export function getApiErrorMessage(
   if (!axios.isAxiosError(err)) return fallback;
 
   if (!err.response) {
+    const code = err.code;
+    if (code === "ECONNABORTED" || code === "ETIMEDOUT") {
+      return "Délai dépassé. Affinez les filtres ou réessayez.";
+    }
+    if (code === "ERR_NETWORK" || code === "ECONNRESET") {
+      return "Export interrompu (volume trop important ou serveur saturé). Affinez les filtres et réessayez.";
+    }
     return "API injoignable. Vérifiez que le serveur Laravel tourne.";
   }
 
@@ -38,6 +45,43 @@ export function getApiErrorMessage(
   }
 
   return data?.message ?? fallback;
+}
+
+/**
+ * Comme getApiErrorMessage, mais lit aussi les corps d’erreur en Blob
+ * (requêtes `responseType: "blob"` : export PDF, etc.).
+ */
+export async function getApiErrorMessageAsync(
+  err: unknown,
+  fallback = "Une erreur est survenue.",
+): Promise<string> {
+  if (!axios.isAxiosError(err)) return fallback;
+
+  if (!err.response) {
+    return getApiErrorMessage(err, fallback);
+  }
+
+  const raw = err.response.data;
+  if (raw instanceof Blob) {
+    try {
+      const text = await raw.text();
+      const json = JSON.parse(text) as {
+        message?: string;
+        errors?: Record<string, string[]>;
+      };
+      if (err.response.status === 422 && json.errors) {
+        const first = Object.entries(json.errors).find(
+          ([key, messages]) => !META_ERROR_KEYS.has(key) && messages?.[0],
+        )?.[1]?.[0];
+        if (first) return first;
+      }
+      if (json.message) return json.message;
+    } catch {
+      // ignore parse errors
+    }
+  }
+
+  return getApiErrorMessage(err, fallback);
 }
 
 /**

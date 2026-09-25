@@ -11,6 +11,9 @@ class BulletinPaieResource extends JsonResource
     public function toArray(Request $request): array
     {
         $canSeeSalaire = RhAuthorization::canSeeSalaire($request->user());
+        $details = is_array($this->details) ? $this->details : [];
+        $salaireRenseigne = array_key_exists('salaire_percu', $details)
+            || array_key_exists('salaire_renseigne_le', $details);
 
         return [
             'id' => $this->id,
@@ -21,6 +24,7 @@ class BulletinPaieResource extends JsonResource
             'retenue_cnps' => $canSeeSalaire ? $this->retenue_cnps : null,
             'montant_igr' => $canSeeSalaire ? $this->montant_igr : null,
             'salaire_net' => $canSeeSalaire ? $this->salaire_net : null,
+            'salaire_renseigne' => $salaireRenseigne,
             'statut' => $this->statut,
             'paye_le' => $this->paye_le,
             'mode_paiement' => $this->mode_paiement,
@@ -28,7 +32,7 @@ class BulletinPaieResource extends JsonResource
             'reference_paiement' => $this->reference_paiement,
             'details' => $canSeeSalaire ? $this->details : null,
             'pdf_url' => $this->when(
-                $this->relationLoaded('media'),
+                $canSeeSalaire && $this->relationLoaded('media'),
                 fn () => $this->getFirstMedia('pdf')
                     ? url("/api/v1/bulletins-paie/{$this->id}/pdf")
                     : null,

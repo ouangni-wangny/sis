@@ -43,7 +43,12 @@ function resolveBackofficeRole(
 ): UserFormValues["role"] {
   if (role === "superviseur" || role === "operation") return "operation";
   if (role === "developpeur") return "developpeur";
-  if (role === "super-admin" || role === "rh" || role === "commercial") {
+  if (
+    role === "super-admin" ||
+    role === "rh" ||
+    role === "commercial" ||
+    role === "comptable"
+  ) {
     return role;
   }
   return "operation";

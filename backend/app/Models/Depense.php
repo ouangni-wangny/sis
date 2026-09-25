@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Domain\Shared\Enums\StatutDepense;
 use App\Domain\Shared\Traits\Auditable;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
@@ -25,6 +26,7 @@ class Depense extends Model implements HasMedia
         'mode',
         'reference',
         'notes',
+        'statut',
         'user_id',
     ];
 
@@ -33,12 +35,18 @@ class Depense extends Model implements HasMedia
         return [
             'montant' => 'decimal:2',
             'date_depense' => 'date',
+            'statut' => StatutDepense::class,
         ];
     }
 
     public function registerMediaCollections(): void
     {
         $this->addMediaCollection('justificatif')->singleFile()->useDisk('private');
+    }
+
+    public function isAnnulee(): bool
+    {
+        return $this->statut === StatutDepense::Annulee;
     }
 
     public function categorie(): BelongsTo
