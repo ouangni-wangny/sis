@@ -133,7 +133,7 @@ class FactureController extends Controller
         $media = $facture->getFirstMedia('pdf');
         abort_unless($media, 404, 'PDF non généré pour cette facture.');
 
-        // Content-Disposition refuse "/" et "\" (ex. SC/ABJ/N°0001).
+        // Content-Disposition refuse "/" et "\" (legacy SC/ABJ/N°0001).
         $filename = $this->safePdfFilename($facture->numero);
 
         return response()->download($media->getPath(), $filename, [

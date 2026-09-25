@@ -1661,7 +1661,7 @@ class DemoSeeder extends Seeder
                 $delaiJours = $this->pick(ConditionsCommerciales::delaisPaiementJours());
 
                 $this->factureCounter++;
-                $numero = 'SC/ABJ/N°'.str_pad((string) $this->factureCounter, 4, '0', STR_PAD_LEFT);
+                $numero = \App\Support\FactureNumero::next(Carbon::parse($pFin));
 
                 $statut = Carbon::parse($pFin)->isPast()
                     ? $this->weighted([

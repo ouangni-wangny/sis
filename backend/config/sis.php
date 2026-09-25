@@ -28,6 +28,15 @@ return [
         'apporteur' => env('SIS_APPORTEUR', ''),
     ],
 
+    /**
+     * Masque des numéros de facture : {prefix}-{site}-{AAAA}-{NNNN}
+     * Ex. SC-ABJ-2026-0007
+     */
+    'facture' => [
+        'numero_prefix' => env('SIS_FACTURE_NUMERO_PREFIX', 'SC'),
+        'numero_site' => env('SIS_FACTURE_NUMERO_SITE', 'ABJ'),
+    ],
+
     /*
     | Contraintes horaires appliquées à la création/modification d'une
     | vacation. Valeurs par défaut usuelles en gardiennage — à ajuster par

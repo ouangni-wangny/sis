@@ -176,9 +176,8 @@ final class GenererFacturesRecurrentesAction
             $delaiPaiementJours = 30;
         }
 
-        $numero = sprintf(
-            'SC/ABJ/N°%s',
-            str_pad((string) (Facture::query()->withTrashed()->count() + 1), 4, '0', STR_PAD_LEFT)
+        $numero = \App\Support\FactureNumero::next(
+            \Illuminate\Support\Carbon::parse($dateEmission)
         );
 
         $facture = Facture::query()->create([

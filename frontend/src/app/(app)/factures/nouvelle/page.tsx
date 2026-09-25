@@ -839,7 +839,7 @@ export default function NouvelleFactureProformaPage() {
                 </div>
                 <div className="border-t border-border pt-2.5">
                   <p className="text-xs leading-relaxed text-ink-faint">
-                    Numéro attribué automatiquement (SC/ABJ/N°…). « Créer »
+                    Numéro attribué automatiquement (SC-ABJ-AAAA-NNNN). « Créer »
                     laisse la proforma en attente ; « Créer et valider » crée
                     aussi l’abonnement (début = aujourd’hui si non renseigné).
                   </p>
