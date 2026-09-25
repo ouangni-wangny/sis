@@ -329,7 +329,9 @@ export type BulletinPaie = {
   reference_paiement?: string | null;
   details: Record<string, unknown> | null;
   pdf_url?: string | null;
-  agent?: Pick<Agent, "id" | "nom" | "prenom" | "matricule"> | null;
+  agent?: (Pick<Agent, "id" | "nom" | "prenom" | "matricule" | "telephone"> & {
+    grade?: Pick<Grade, "id" | "libelle"> | null;
+  }) | null;
   periode_paie?: { mois: number; annee: number } | null;
   compte_tresorerie?: {
     id: string;

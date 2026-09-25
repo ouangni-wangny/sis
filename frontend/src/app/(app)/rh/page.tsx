@@ -27,6 +27,7 @@ import {
   useExportContratsPdf,
   useUpdateAbsence,
   useUpdateContrat,
+  useVilles,
 } from "@/application/hooks/useResources";
 import {
   absenceSchema,
@@ -398,6 +399,7 @@ export default function RhPage() {
   const [contratQ, setContratQ] = useState("");
   const [contratTypeFilter, setContratTypeFilter] = useState("");
   const [contratStatutFilter, setContratStatutFilter] = useState("");
+  const [contratVilleFilter, setContratVilleFilter] = useState("");
   const contratSearch = useDebouncedValue(contratQ);
   const [contratOpen, setContratOpen] = useState(false);
   const [editingContrat, setEditingContrat] = useState<Contrat | null>(null);
@@ -406,12 +408,25 @@ export default function RhPage() {
   const [contratSurveillanceOnly, setContratSurveillanceOnly] = useState(false);
   const [contratPdfLoading, setContratPdfLoading] = useState(false);
 
+  const { data: villesData } = useVilles({ all: true });
+  const villeFilterOptions = useMemo(
+    () => [
+      { value: "", label: "Toutes les villes" },
+      ...(villesData?.data ?? []).map((v) => ({
+        value: v.id,
+        label: v.libelle,
+      })),
+    ],
+    [villesData],
+  );
+
   const contratListParams = {
     page: contratPage,
     per_page: contratPerPage,
     q: contratSearch || undefined,
     type: contratTypeFilter || undefined,
     statut: contratStatutFilter || undefined,
+    ville_id: contratVilleFilter || undefined,
     surveillance: contratSurveillanceOnly || undefined,
   };
 
@@ -444,6 +459,7 @@ export default function RhPage() {
     setContratQ("");
     setContratTypeFilter(type);
     setContratStatutFilter("actif");
+    setContratVilleFilter("");
     setContratSurveillanceOnly(false);
     setContratPage(1);
   };
@@ -459,6 +475,7 @@ export default function RhPage() {
         q: contratSearch || undefined,
         type: contratTypeFilter || undefined,
         statut: contratStatutFilter || undefined,
+        ville_id: contratVilleFilter || undefined,
         surveillance: contratSurveillanceOnly || undefined,
       });
       const blob =
@@ -469,7 +486,12 @@ export default function RhPage() {
       const link = document.createElement("a");
       link.href = objectUrl;
       const suffix =
-        [contratTypeFilter, contratStatutFilter, contratSurveillanceOnly ? "alertes" : ""]
+        [
+          contratTypeFilter,
+          contratStatutFilter,
+          contratVilleFilter ? "ville" : "",
+          contratSurveillanceOnly ? "alertes" : "",
+        ]
           .filter(Boolean)
           .join("-") || "tous";
       link.download = `contrats-${suffix}-${new Date().toISOString().slice(0, 10)}.pdf`;
@@ -849,6 +871,7 @@ export default function RhPage() {
                 setContratSurveillanceOnly(false);
                 setContratTypeFilter("");
                 setContratStatutFilter("");
+                setContratVilleFilter("");
                 setContratQ("");
                 setContratPage(1);
               }}
@@ -1018,6 +1041,16 @@ export default function RhPage() {
                           }))}
                           onChange={(event) => {
                             setContratStatutFilter(event.target.value);
+                            setContratPage(1);
+                          }}
+                        />
+                        <Select
+                          className="min-w-[11rem]"
+                          aria-label="Filtrer par ville"
+                          value={contratVilleFilter}
+                          options={villeFilterOptions}
+                          onChange={(event) => {
+                            setContratVilleFilter(event.target.value);
                             setContratPage(1);
                           }}
                         />

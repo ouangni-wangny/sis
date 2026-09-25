@@ -1018,7 +1018,14 @@ export function useDeleteAbsence() {
 }
 
 export function useContrats(
-  params?: ListParams & { agent_id?: string; type?: string; statut?: string; surveillance?: boolean; valide?: boolean },
+  params?: ListParams & {
+    agent_id?: string;
+    type?: string;
+    statut?: string;
+    ville_id?: string;
+    surveillance?: boolean;
+    valide?: boolean;
+  },
   options?: { enabled?: boolean },
 ) {
   return useQuery({
@@ -1077,6 +1084,7 @@ export function useExportContratsPdf() {
         agent_id?: string;
         type?: string;
         statut?: string;
+        ville_id?: string;
         surveillance?: boolean;
         valide?: boolean;
       },
@@ -1147,6 +1155,9 @@ export function useBulletinsPaie(
   periodeId: string | undefined,
   params?: ListParams & {
     statut?: string;
+    mode?: string;
+    grade_id?: string;
+    ville_id?: string;
     non_payes?: boolean | number;
   },
 ) {
@@ -1154,6 +1165,23 @@ export function useBulletinsPaie(
     queryKey: ["bulletins-paie", periodeId, params],
     queryFn: () => periodesPaieApi.bulletins(periodeId as string, params),
     enabled: !!periodeId,
+  });
+}
+
+export function useExportBulletinsPdf() {
+  return useMutation({
+    mutationFn: ({
+      periodeId,
+      ...params
+    }: {
+      periodeId: string;
+      q?: string;
+      statut?: string;
+      mode?: string;
+      grade_id?: string;
+      ville_id?: string;
+      non_payes?: boolean | number;
+    }) => periodesPaieApi.exportBulletinsPdf(periodeId, params),
   });
 }
 

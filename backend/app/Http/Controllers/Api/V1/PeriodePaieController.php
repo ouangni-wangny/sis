@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Application\Paie\GenerateBulletinsPaieAction;
+use App\Application\Paie\GenererListeBulletinsPdfAction;
 use App\Domain\Shared\Enums\StatutPeriodePaie;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PeriodePaieResource;
@@ -13,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class PeriodePaieController extends Controller
 {
@@ -87,26 +89,23 @@ class PeriodePaieController extends Controller
     {
         abort_unless(RhAuthorization::canViewPaie($request->user()), 403);
 
-        $items = $periodePaie->bulletins()
-            ->with(['agent', 'media'])
-            ->when($request->filled('statut'), fn ($q) => $q->where('statut', $request->string('statut')))
-            ->when($request->boolean('non_payes'), fn ($q) => $q->where('statut', '!=', 'paye'))
-            ->when($request->filled('q'), function ($q) use ($request) {
-                $term = '%'.$request->string('q').'%';
-                $q->where(function ($qq) use ($term) {
-                    $qq->where('statut', 'like', $term)
-                        ->orWhereHas('agent', function ($agent) use ($term) {
-                            $agent->where('nom', 'like', $term)
-                                ->orWhere('prenom', 'like', $term)
-                                ->orWhere('matricule', 'like', $term);
-                        });
-                });
-            })
+        $items = GenererListeBulletinsPdfAction::filteredQuery($request, $periodePaie)
+            ->with(['agent.grade', 'media'])
             ->orderBy('created_at');
 
         return \App\Http\Resources\BulletinPaieResource::collection(
             ListQuery::paginateOrAll($items, $request, 50),
         );
+    }
+
+    public function exportBulletinsPdf(
+        Request $request,
+        PeriodePaie $periodePaie,
+        GenererListeBulletinsPdfAction $action,
+    ): SymfonyResponse {
+        abort_unless(RhAuthorization::canViewPaie($request->user()), 403);
+
+        return $action->execute($request, $periodePaie);
     }
 
     public function valider(Request $request, PeriodePaie $periodePaie): PeriodePaieResource

@@ -721,7 +721,16 @@ export const absencesApi = {
 };
 
 export const contratsApi = {
-  list: (params?: ListParams & { agent_id?: string; type?: string; statut?: string; surveillance?: boolean; valide?: boolean }) =>
+  list: (
+    params?: ListParams & {
+      agent_id?: string;
+      type?: string;
+      statut?: string;
+      ville_id?: string;
+      surveillance?: boolean;
+      valide?: boolean;
+    },
+  ) =>
     api.get<PaginatedResponse<Contrat>>("/contrats", {
       params: toQuery(params),
     }),
@@ -729,6 +738,7 @@ export const contratsApi = {
     agent_id?: string;
     type?: string;
     statut?: string;
+    ville_id?: string;
     surveillance?: boolean;
     valide?: boolean;
   }) =>
@@ -808,6 +818,9 @@ export const periodesPaieApi = {
     id: string,
     params?: ListParams & {
       statut?: string;
+      mode?: string;
+      grade_id?: string;
+      ville_id?: string;
       non_payes?: boolean | number;
       all?: boolean | number;
     },
@@ -816,6 +829,21 @@ export const periodesPaieApi = {
       `/periodes-paie/${id}/bulletins`,
       { params: toQuery(params) },
     ),
+  exportBulletinsPdf: (
+    id: string,
+    params?: ListParams & {
+      statut?: string;
+      mode?: string;
+      grade_id?: string;
+      ville_id?: string;
+      non_payes?: boolean | number;
+    },
+  ) =>
+    api.get<Blob>(`/periodes-paie/${id}/bulletins/export-pdf`, {
+      params: toQuery(params),
+      responseType: "blob",
+      timeout: 300_000,
+    }),
   valider: (id: string) =>
     api.post<DataResponse<PeriodePaie>>(`/periodes-paie/${id}/valider`),
   cloturer: (id: string) =>

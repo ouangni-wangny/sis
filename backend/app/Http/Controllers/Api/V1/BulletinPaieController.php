@@ -25,7 +25,7 @@ class BulletinPaieController extends Controller
     {
         abort_unless(RhAuthorization::canViewPaie($request->user()), 403);
 
-        return new BulletinPaieResource($bulletinPaie->load(['agent', 'contrat', 'periodePaie', 'compteTresorerie', 'media']));
+        return new BulletinPaieResource($bulletinPaie->load(['agent.grade', 'contrat', 'periodePaie', 'compteTresorerie', 'media']));
     }
 
     public function genererPdf(

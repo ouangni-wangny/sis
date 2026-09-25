@@ -11,6 +11,7 @@ import {
   CalendarRange,
   CheckCircle2,
   Download,
+  FileDown,
   FileText,
   Lock,
   Plus,
@@ -22,8 +23,10 @@ import {
   useCloturerPeriodePaie,
   useCreatePeriodePaie,
   useDeletePeriodePaie,
+  useExportBulletinsPdf,
   useGenererBulletinPdf,
   useGenererBulletinsPaie,
+  useGrades,
   useMarquerBulletinPaye,
   useRenseignerSalairePercu,
   useRenseignerSalairePercuBulk,
@@ -32,6 +35,7 @@ import {
   usePeriodesPaie,
   useModesPaiementOptions,
   useValiderPeriodePaie,
+  useVilles,
 } from "@/application/hooks/useResources";
 import type { BulletinPaie, PeriodePaie } from "@/domain/types/entities";
 import { PermissionGate } from "@/presentation/components/auth/PermissionGate";
@@ -53,7 +57,7 @@ import { useAuth } from "@/presentation/providers/AuthProvider";
 import { useToast } from "@/presentation/providers/ToastProvider";
 import { apiClient } from "@/infrastructure/http/apiClient";
 import { bulletinsPaieApi, periodesPaieApi } from "@/infrastructure/http/resources";
-import { getApiErrorMessage } from "@/shared/lib/api-error";
+import { getApiErrorMessage, getApiErrorMessageAsync } from "@/shared/lib/api-error";
 import { canManagePaie, canPayerPaie, canSeeSalaire } from "@/shared/lib/can";
 import {
   formatDate,
@@ -86,6 +90,13 @@ const STATUT_PERIODE_OPTIONS = [
   { value: "brouillon", label: "Brouillon" },
   { value: "validee", label: "Validée" },
   { value: "cloturee", label: "Clôturée" },
+];
+
+const STATUT_BULLETIN_OPTIONS = [
+  { value: "", label: "Tous les statuts" },
+  { value: "brouillon", label: "Brouillon" },
+  { value: "valide", label: "Validé" },
+  { value: "paye", label: "Payé" },
 ];
 
 async function downloadBulletinPdf(bulletinId: string) {
@@ -122,6 +133,11 @@ export default function PaiePage() {
   const [bulletinsPage, setBulletinsPage] = useState(1);
   const [bulletinsPerPage, setBulletinsPerPage] = useState(50);
   const [bulletinsQ, setBulletinsQ] = useState("");
+  const [filterBulletinGradeId, setFilterBulletinGradeId] = useState("");
+  const [filterBulletinVilleId, setFilterBulletinVilleId] = useState("");
+  const [filterBulletinStatut, setFilterBulletinStatut] = useState("");
+  const [filterBulletinMode, setFilterBulletinMode] = useState("");
+  const [pdfListeLoading, setPdfListeLoading] = useState(false);
   const bulletinsSearch = useDebouncedValue(bulletinsQ);
   const [periodeOpen, setPeriodeOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -198,6 +214,10 @@ export default function PaiePage() {
     page: bulletinsPage,
     per_page: bulletinsPerPage,
     q: bulletinsSearch || undefined,
+    grade_id: filterBulletinGradeId || undefined,
+    ville_id: filterBulletinVilleId || undefined,
+    statut: filterBulletinStatut || undefined,
+    mode: filterBulletinMode || undefined,
   });
   const createPeriode = useCreatePeriodePaie();
   const genererBulletins = useGenererBulletinsPaie();
@@ -205,19 +225,46 @@ export default function PaiePage() {
   const cloturerPeriode = useCloturerPeriodePaie();
   const deletePeriode = useDeletePeriodePaie();
   const genererPdf = useGenererBulletinPdf();
+  const exportBulletinsPdf = useExportBulletinsPdf();
   const renseignerSalaire = useRenseignerSalairePercu();
   const renseignerSalaireBulk = useRenseignerSalairePercuBulk();
   const marquerPaye = useMarquerBulletinPaye();
   const marquerPayeBulk = useMarquerBulletinPayeBulk();
+  const { data: gradesData } = useGrades({ all: true });
+  const { data: villesData } = useVilles({ all: true });
   const { data: comptesRes } = useComptesTresorerieOptions({
     enabled: canPayer,
   });
   const comptes = comptesRes?.data ?? [];
-  const { data: modesRes } = useModesPaiementOptions({ enabled: canPayer });
+  const { data: modesRes } = useModesPaiementOptions();
   const modeOptions = useMemo(() => {
     const modes = modesRes?.data ?? [];
     return modes.map((m) => ({ value: m.code, label: m.libelle }));
   }, [modesRes]);
+  const gradeFilterOptions = useMemo(
+    () => [
+      { value: "", label: "Tous les grades" },
+      ...(gradesData?.data ?? []).map((g) => ({
+        value: g.id,
+        label: g.libelle,
+      })),
+    ],
+    [gradesData],
+  );
+  const villeFilterOptions = useMemo(
+    () => [
+      { value: "", label: "Toutes les villes" },
+      ...(villesData?.data ?? []).map((v) => ({
+        value: v.id,
+        label: v.libelle,
+      })),
+    ],
+    [villesData],
+  );
+  const modeFilterOptions = useMemo(
+    () => [{ value: "", label: "Tous les modes" }, ...modeOptions],
+    [modeOptions],
+  );
 
   const selectedPeriode = useMemo(
     () =>
@@ -249,7 +296,51 @@ export default function PaiePage() {
     setSelectedPeriodeId(id);
     setBulletinsPage(1);
     setBulletinsQ("");
+    setFilterBulletinGradeId("");
+    setFilterBulletinVilleId("");
+    setFilterBulletinStatut("");
+    setFilterBulletinMode("");
     setSelectedBulletinIds([]);
+  };
+
+  const handleExportBulletinsPdf = async () => {
+    if (!selectedPeriodeId || !selectedPeriode) {
+      toast("Sélectionnez une période.", "danger");
+      return;
+    }
+    setPdfListeLoading(true);
+    try {
+      const data = await exportBulletinsPdf.mutateAsync({
+        periodeId: selectedPeriodeId,
+        q: bulletinsSearch || undefined,
+        grade_id: filterBulletinGradeId || undefined,
+        ville_id: filterBulletinVilleId || undefined,
+        statut: filterBulletinStatut || undefined,
+        mode: filterBulletinMode || undefined,
+      });
+      const blob =
+        data instanceof Blob
+          ? data
+          : new Blob([data as BlobPart], { type: "application/pdf" });
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      const mois = String(selectedPeriode.mois).padStart(2, "0");
+      link.download = `bulletins-${selectedPeriode.annee}-${mois}.pdf`;
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+      toast("PDF téléchargé.", "success");
+    } catch (err) {
+      toast(
+        await getApiErrorMessageAsync(err, "Échec de la génération du PDF."),
+        "danger",
+      );
+    } finally {
+      setPdfListeLoading(false);
+    }
   };
 
   const bulletinsList = useMemo(
@@ -611,6 +702,16 @@ export default function PaiePage() {
         id: "matricule",
         header: "Matricule",
         cell: ({ row }) => row.original.agent?.matricule ?? "—",
+      },
+      {
+        id: "grade",
+        header: "Grade",
+        cell: ({ row }) => row.original.agent?.grade?.libelle ?? "—",
+      },
+      {
+        id: "telephone",
+        header: "Téléphone",
+        cell: ({ row }) => row.original.agent?.telephone ?? "—",
       },
       ...(showSalaire
         ? ([
@@ -1135,54 +1236,105 @@ export default function PaiePage() {
                     setBulletinsQ(value);
                     setBulletinsPage(1);
                   },
-                  placeholder: "Agent, matricule, statut…",
+                  placeholder: "Agent, matricule, grade, téléphone…",
                 }}
                 onSelectionChange={setSelectedBulletinIds}
                 toolbar={
-                  canManage || canPayer ? (
-                    <div className="flex flex-wrap items-center gap-2">
-                      {canManage && unpaidNeedSalaireSelected.length > 0 ? (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() =>
-                            openBulkSalaire(unpaidNeedSalaireSelected)
-                          }
-                        >
-                          Saisir salaires ({unpaidNeedSalaireSelected.length})
-                        </Button>
-                      ) : null}
-                      {canManage && unpaidTotal > 0 ? (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          loading={bulkSalaireBusy && !bulkSalaireOpen}
-                          onClick={() => void openBulkSalaireAllUnpaid()}
-                        >
-                          Saisir tous les salaires non renseignés
-                        </Button>
-                      ) : null}
-                      {canPayer && unpaidReadySelected.length > 0 ? (
-                        <Button
-                          size="sm"
-                          onClick={() => openBulkPay(unpaidReadySelected)}
-                        >
-                          <Wallet className="size-4" />
-                          Marquer payé ({unpaidReadySelected.length})
-                        </Button>
-                      ) : null}
-                      {canPayer && unpaidTotal > 0 ? (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          loading={bulkPayBusy && !bulkPayOpen}
-                          onClick={() => void openBulkPayAllUnpaid()}
-                        >
-                          Régler tous les prêts ({unpaidTotal})
-                        </Button>
-                      ) : null}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="w-40 sm:w-48">
+                      <Select
+                        aria-label="Filtrer par grade"
+                        options={gradeFilterOptions}
+                        value={filterBulletinGradeId}
+                        onChange={(e) => {
+                          setFilterBulletinGradeId(e.target.value);
+                          setBulletinsPage(1);
+                        }}
+                      />
                     </div>
-                  ) : null
+                    <div className="w-40 sm:w-48">
+                      <Select
+                        aria-label="Filtrer par ville"
+                        options={villeFilterOptions}
+                        value={filterBulletinVilleId}
+                        onChange={(e) => {
+                          setFilterBulletinVilleId(e.target.value);
+                          setBulletinsPage(1);
+                        }}
+                      />
+                    </div>
+                    <div className="w-36 sm:w-44">
+                      <Select
+                        aria-label="Filtrer par statut"
+                        options={STATUT_BULLETIN_OPTIONS}
+                        value={filterBulletinStatut}
+                        onChange={(e) => {
+                          setFilterBulletinStatut(e.target.value);
+                          setBulletinsPage(1);
+                        }}
+                      />
+                    </div>
+                    <div className="w-36 sm:w-44">
+                      <Select
+                        aria-label="Filtrer par mode de paiement"
+                        options={modeFilterOptions}
+                        value={filterBulletinMode}
+                        onChange={(e) => {
+                          setFilterBulletinMode(e.target.value);
+                          setBulletinsPage(1);
+                        }}
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      loading={pdfListeLoading || exportBulletinsPdf.isPending}
+                      onClick={() => void handleExportBulletinsPdf()}
+                    >
+                      <FileDown className="size-4" />
+                      Exporter PDF
+                    </Button>
+                    {canManage && unpaidNeedSalaireSelected.length > 0 ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() =>
+                          openBulkSalaire(unpaidNeedSalaireSelected)
+                        }
+                      >
+                        Saisir salaires ({unpaidNeedSalaireSelected.length})
+                      </Button>
+                    ) : null}
+                    {canManage && unpaidTotal > 0 ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        loading={bulkSalaireBusy && !bulkSalaireOpen}
+                        onClick={() => void openBulkSalaireAllUnpaid()}
+                      >
+                        Saisir tous les salaires non renseignés
+                      </Button>
+                    ) : null}
+                    {canPayer && unpaidReadySelected.length > 0 ? (
+                      <Button
+                        size="sm"
+                        onClick={() => openBulkPay(unpaidReadySelected)}
+                      >
+                        <Wallet className="size-4" />
+                        Marquer payé ({unpaidReadySelected.length})
+                      </Button>
+                    ) : null}
+                    {canPayer && unpaidTotal > 0 ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        loading={bulkPayBusy && !bulkPayOpen}
+                        onClick={() => void openBulkPayAllUnpaid()}
+                      >
+                        Régler tous les prêts ({unpaidTotal})
+                      </Button>
+                    ) : null}
+                  </div>
                 }
                 pagination={{
                   page: bulletinsPage,

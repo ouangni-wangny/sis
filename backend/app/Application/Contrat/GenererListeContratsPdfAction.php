@@ -14,7 +14,7 @@ final class GenererListeContratsPdfAction
     public function execute(Request $request): Response
     {
         $query = self::filteredQuery($request)
-            ->with(['agent'])
+            ->with(['agent.villeRef'])
             ->orderByDesc('date_debut')
             ->orderBy('reference');
 
@@ -23,12 +23,14 @@ final class GenererListeContratsPdfAction
 
         $contrats = $query->get();
         $generatedAt = now()->timezone('Africa/Abidjan')->format('d/m/Y H:i');
+        $canSeeSalaire = \App\Support\RhAuthorization::canSeeSalaire($request->user());
 
         $html = view('pdf.contrats-liste', [
             'brand' => PdfBrand::data(),
             'contrats' => $contrats,
             'generatedAt' => $generatedAt,
             'total' => $contrats->count(),
+            'canSeeSalaire' => $canSeeSalaire,
         ])->render();
 
         return PdfListExport::download(
@@ -46,6 +48,9 @@ final class GenererListeContratsPdfAction
             ->when($request->agent_id, fn ($q, $v) => $q->where('agent_id', $v))
             ->when($request->filled('type'), fn ($q) => $q->where('type', $request->string('type')))
             ->when($request->filled('statut'), fn ($q) => $q->where('statut', $request->string('statut')))
+            ->when($request->filled('ville_id'), function ($q) use ($request) {
+                $q->whereHas('agent', fn ($a) => $a->where('ville_id', $request->string('ville_id')));
+            })
             ->when($request->boolean('valide'), fn ($q) => $q->valide())
             ->when($request->boolean('surveillance'), fn ($q) => $q->aSurveiller())
             ->when($request->filled('q'), function ($q) use ($request) {
@@ -57,7 +62,8 @@ final class GenererListeContratsPdfAction
                         ->orWhereHas('agent', function ($agent) use ($term) {
                             $agent->where('nom', 'like', $term)
                                 ->orWhere('prenom', 'like', $term)
-                                ->orWhere('matricule', 'like', $term);
+                                ->orWhere('matricule', 'like', $term)
+                                ->orWhereHas('villeRef', fn ($v) => $v->where('libelle', 'like', $term));
                         });
                 });
             });

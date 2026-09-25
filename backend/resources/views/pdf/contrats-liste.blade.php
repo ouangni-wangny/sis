@@ -8,6 +8,10 @@
 <body>
 @php
     $brand = $brand ?? \App\Support\PdfBrand::data();
+    $canSeeSalaire = $canSeeSalaire ?? false;
+    $fmt = static fn ($n) => $n === null || $n === ''
+        ? '—'
+        : number_format((float) $n, 0, ',', ' ');
     $typeLabels = [
         'cdi' => 'CDI',
         'cdd' => 'CDD',
@@ -34,15 +38,20 @@
     <table class="sis-table">
         <thead>
             <tr>
-                <th style="width:4%;">#</th>
-                <th style="width:14%;">Référence</th>
-                <th style="width:18%;">Agent</th>
-                <th style="width:10%;">Matricule</th>
-                <th style="width:10%;">Type</th>
-                <th style="width:10%;">Début</th>
-                <th style="width:10%;">Fin</th>
-                <th style="width:8%;">Durée</th>
-                <th style="width:10%;">Statut</th>
+                <th style="width:3%;">#</th>
+                <th style="width:11%;">Référence</th>
+                <th style="width:14%;">Agent</th>
+                <th style="width:8%;">Matricule</th>
+                <th style="width:10%;">Ville</th>
+                <th style="width:7%;">Type</th>
+                <th style="width:8%;">Début</th>
+                <th style="width:8%;">Fin</th>
+                <th style="width:6%;">Durée</th>
+                <th style="width:7%;">Statut</th>
+                @if($canSeeSalaire)
+                    <th style="width:9%;" class="right">Salaire brut</th>
+                    <th style="width:9%;" class="right">Salaire net</th>
+                @endif
             </tr>
         </thead>
         <tbody>
@@ -54,6 +63,9 @@
                     $agentLabel = $agent
                         ? trim(($agent->prenom ?? '').' '.($agent->nom ?? ''))
                         : '—';
+                    $ville = $agent?->relationLoaded('villeRef') && $agent->villeRef
+                        ? $agent->villeRef->libelle
+                        : '—';
                     $duree = $contrat->duree_mois;
                     $dureeLabel = $duree === null || $duree === ''
                         ? '—'
@@ -64,11 +76,16 @@
                     <td>{{ $contrat->reference ?: '—' }}</td>
                     <td class="bold">{{ $agentLabel !== '' ? $agentLabel : '—' }}</td>
                     <td>{{ $agent?->matricule ?: '—' }}</td>
+                    <td>{{ $ville }}</td>
                     <td>{{ $typeLabels[$type] ?? strtoupper($type) }}</td>
                     <td>{{ $contrat->date_debut?->format('d/m/Y') ?? '—' }}</td>
                     <td>{{ $contrat->date_fin?->format('d/m/Y') ?? '—' }}</td>
                     <td class="center">{{ $dureeLabel }}</td>
                     <td>{{ $statutLabels[$statut] ?? $statut }}</td>
+                    @if($canSeeSalaire)
+                        <td class="right">{{ $fmt($contrat->salaire_brut ?? $contrat->salaire) }}</td>
+                        <td class="right">{{ $fmt($contrat->salaire_net) }}</td>
+                    @endif
                 </tr>
             @endforeach
         </tbody>

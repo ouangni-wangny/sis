@@ -42,6 +42,13 @@ class BulletinPaieResource extends JsonResource
                 'nom' => $this->agent->nom,
                 'prenom' => $this->agent->prenom,
                 'matricule' => $this->agent->matricule,
+                'telephone' => $this->agent->telephone,
+                'grade' => $this->agent->relationLoaded('grade') && $this->agent->grade
+                    ? [
+                        'id' => $this->agent->grade->id,
+                        'libelle' => $this->agent->grade->libelle,
+                    ]
+                    : null,
             ]),
             'periode_paie' => $this->whenLoaded('periodePaie', fn () => [
                 'mois' => $this->periodePaie->mois,

@@ -167,6 +167,7 @@ Route::prefix('v1')->group(function () {
             Route::post('periodes-paie', [PeriodePaieController::class, 'store']);
             Route::get('periodes-paie/{periodePaie}', [PeriodePaieController::class, 'show']);
             Route::post('periodes-paie/{periodePaie}/generer-bulletins', [PeriodePaieController::class, 'genererBulletins']);
+            Route::get('periodes-paie/{periodePaie}/bulletins/export-pdf', [PeriodePaieController::class, 'exportBulletinsPdf']);
             Route::get('periodes-paie/{periodePaie}/bulletins', [PeriodePaieController::class, 'bulletins']);
             Route::post('periodes-paie/{periodePaie}/valider', [PeriodePaieController::class, 'valider']);
             Route::post('periodes-paie/{periodePaie}/cloturer', [PeriodePaieController::class, 'cloturer']);
