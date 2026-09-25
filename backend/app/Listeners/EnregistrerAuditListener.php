@@ -7,6 +7,7 @@ use App\Models\JournalAudit;
 use App\Support\AuditLabels;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Request;
+use Illuminate\Support\Str;
 
 class EnregistrerAuditListener
 {
@@ -64,13 +65,14 @@ class EnregistrerAuditListener
         $cible = $label ? "{$entity} « {$label} »" : $entity;
         $action = AuditLabels::action($event->action);
 
-        return match ($event->action) {
+        // La colonne `resume` est un VARCHAR(255) : MySQL rejette tout dépassement.
+        return Str::limit(match ($event->action) {
             'created' => "{$action} de {$cible}",
             'deleted' => "{$action} de {$cible}",
             'restored' => "{$action} de {$cible}",
             'updated' => $this->resumeUpdated($cible, $ancien, $nouveau),
             default => "{$action} — {$cible}",
-        };
+        }, 254, '…');
     }
 
     /**
