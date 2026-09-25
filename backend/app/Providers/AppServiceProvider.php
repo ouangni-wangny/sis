@@ -8,6 +8,8 @@ use App\Models\Abonnement;
 use App\Models\Agent;
 use App\Models\Anomalie;
 use App\Models\Client;
+use App\Models\CompteTresorerie;
+use App\Models\Depense;
 use App\Models\Facture;
 use App\Models\Offre;
 use App\Models\Paiement;
@@ -19,6 +21,8 @@ use App\Policies\AbonnementPolicy;
 use App\Policies\AgentPolicy;
 use App\Policies\AnomaliePolicy;
 use App\Policies\ClientPolicy;
+use App\Policies\CompteTresoreriePolicy;
+use App\Policies\DepensePolicy;
 use App\Policies\FacturePolicy;
 use App\Policies\OffrePolicy;
 use App\Policies\PaiementPolicy;
@@ -55,6 +59,8 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Offre::class, OffrePolicy::class);
         Gate::policy(Abonnement::class, AbonnementPolicy::class);
         Gate::policy(Paiement::class, PaiementPolicy::class);
+        Gate::policy(CompteTresorerie::class, CompteTresoreriePolicy::class);
+        Gate::policy(Depense::class, DepensePolicy::class);
         Gate::policy(User::class, UserPolicy::class);
 
         Event::listen(ModelAudited::class, EnregistrerAuditListener::class);

@@ -19,7 +19,7 @@ class PaiementController extends Controller
         $this->authorize('viewAny', Paiement::class);
 
         $items = Paiement::query()
-            ->with(['facture.client'])
+            ->with(['facture.client', 'compteTresorerie'])
             ->when($request->facture_id, fn ($q, $v) => $q->where('facture_id', $v))
             ->when($request->filled('client_id'), function ($q) use ($request) {
                 $clientId = $request->string('client_id')->toString();
@@ -59,7 +59,7 @@ class PaiementController extends Controller
     {
         $this->authorize('view', $paiement);
 
-        return new PaiementResource($paiement->load(['facture.client']));
+        return new PaiementResource($paiement->load(['facture.client', 'compteTresorerie']));
     }
 
     public function update(
@@ -72,10 +72,10 @@ class PaiementController extends Controller
         return new PaiementResource($action->update($paiement, $request->validated()));
     }
 
-    public function destroy(Paiement $paiement): Response
+    public function destroy(Paiement $paiement, UpsertPaiementAction $action): Response
     {
         $this->authorize('delete', $paiement);
-        $paiement->delete();
+        $action->delete($paiement);
 
         return response()->noContent();
     }

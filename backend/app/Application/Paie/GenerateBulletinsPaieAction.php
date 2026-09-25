@@ -36,7 +36,10 @@ final class GenerateBulletinsPaieAction
                 }
 
                 $calc = CalculRemunerationCi::calculer([
-                    'salaire_base' => $contrat->salaire_base,
+                    'salaire_base' => $contrat->salaire_base
+                        ?? $contrat->salaire_brut
+                        ?? $contrat->salaire
+                        ?? 0,
                     'indemnite_fonction' => $contrat->indemnite_fonction,
                     'prime_responsabilite' => $contrat->prime_responsabilite,
                     'prime_transport' => $contrat->prime_transport,

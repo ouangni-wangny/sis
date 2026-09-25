@@ -54,6 +54,10 @@ class RolePermissionSeeder extends Seeder
             'abonnements.view', 'abonnements.create', 'abonnements.update', 'abonnements.delete',
             'paiements.view', 'paiements.create', 'paiements.update', 'paiements.delete',
 
+            // Trésorerie
+            'tresorerie.view', 'tresorerie.manage',
+            'depenses.view', 'depenses.manage',
+
             // Admin
             'users.view', 'users.create', 'users.update', 'users.delete',
 
@@ -129,6 +133,9 @@ class RolePermissionSeeder extends Seeder
             'documents.manage',
             'grades.manage',
 
+            // Lecture soldes pour règlement
+            'tresorerie.view',
+
             // Consultation ops
             'controles.view',
             'anomalies.view',
@@ -147,6 +154,9 @@ class RolePermissionSeeder extends Seeder
             'offres.view', 'offres.create', 'offres.update',
             'abonnements.view', 'abonnements.create', 'abonnements.update',
             'paiements.view', 'paiements.create', 'paiements.update',
+
+            // Compte pour encaissement
+            'tresorerie.view',
         ]);
 
         // Comptes mobile — agent posté

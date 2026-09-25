@@ -23,10 +23,15 @@ class BulletinPaieResource extends JsonResource
             'salaire_net' => $canSeeSalaire ? $this->salaire_net : null,
             'statut' => $this->statut,
             'paye_le' => $this->paye_le,
+            'mode_paiement' => $this->mode_paiement,
+            'compte_tresorerie_id' => $this->compte_tresorerie_id,
+            'reference_paiement' => $this->reference_paiement,
             'details' => $canSeeSalaire ? $this->details : null,
             'pdf_url' => $this->when(
-                $this->relationLoaded('media') && $this->getFirstMedia('pdf'),
-                fn () => url("/api/v1/bulletins-paie/{$this->id}/pdf"),
+                $this->relationLoaded('media'),
+                fn () => $this->getFirstMedia('pdf')
+                    ? url("/api/v1/bulletins-paie/{$this->id}/pdf")
+                    : null,
             ),
             'agent' => $this->whenLoaded('agent', fn () => [
                 'id' => $this->agent->id,
@@ -38,6 +43,11 @@ class BulletinPaieResource extends JsonResource
                 'mois' => $this->periodePaie->mois,
                 'annee' => $this->periodePaie->annee,
             ]),
+            'compte_tresorerie' => $this->whenLoaded('compteTresorerie', fn () => $this->compteTresorerie ? [
+                'id' => $this->compteTresorerie->id,
+                'libelle' => $this->compteTresorerie->libelle,
+                'type' => $this->compteTresorerie->type,
+            ] : null),
         ];
     }
 }

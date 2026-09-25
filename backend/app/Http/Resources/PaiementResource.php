@@ -15,9 +15,15 @@ class PaiementResource extends JsonResource
             'montant' => $this->montant,
             'date_paiement' => $this->date_paiement,
             'mode' => $this->mode,
+            'compte_tresorerie_id' => $this->compte_tresorerie_id,
             'reference' => $this->reference,
             'notes' => $this->notes,
             'created_at' => $this->created_at,
+            'compte_tresorerie' => $this->whenLoaded('compteTresorerie', fn () => $this->compteTresorerie ? [
+                'id' => $this->compteTresorerie->id,
+                'libelle' => $this->compteTresorerie->libelle,
+                'type' => $this->compteTresorerie->type,
+            ] : null),
             'facture' => $this->whenLoaded('facture', fn () => $this->facture ? [
                 'id' => $this->facture->id,
                 'numero' => $this->facture->numero,

@@ -33,6 +33,8 @@ final class PermissionCatalog
         'abonnements' => 'Abonnements',
         'factures' => 'Factures',
         'paiements' => 'Paiements',
+        'tresorerie' => 'Trésorerie',
+        'depenses' => 'Dépenses',
         'users' => 'Utilisateurs',
     ];
 
@@ -80,6 +82,8 @@ final class PermissionCatalog
         'abonnements' => 'Commercial',
         'factures' => 'Commercial',
         'paiements' => 'Commercial',
+        'tresorerie' => 'Trésorerie',
+        'depenses' => 'Trésorerie',
         'users' => 'Administration',
     ];
 
@@ -89,6 +93,7 @@ final class PermissionCatalog
         'Opérations',
         'RH',
         'Commercial',
+        'Trésorerie',
         'Administration',
         'Développeur',
     ];

@@ -1748,7 +1748,9 @@ class DemoSeeder extends Seeder
                 'date_paiement' => $datePaiement->toDateString(),
                 'mode' => $this->weighted([
                     ModePaiement::Virement->value => 45,
-                    ModePaiement::MobileMoney->value => 30,
+                    ModePaiement::Wave->value => 15,
+                    ModePaiement::Mtn->value => 10,
+                    ModePaiement::Orange->value => 5,
                     ModePaiement::Cheque->value => 15,
                     ModePaiement::Especes->value => 10,
                 ]),
@@ -1764,7 +1766,9 @@ class DemoSeeder extends Seeder
                 'date_paiement' => $datePaiement->toDateString(),
                 'mode' => $this->weighted([
                     ModePaiement::Virement->value => 45,
-                    ModePaiement::MobileMoney->value => 30,
+                    ModePaiement::Wave->value => 15,
+                    ModePaiement::Mtn->value => 10,
+                    ModePaiement::Orange->value => 5,
                     ModePaiement::Cheque->value => 15,
                     ModePaiement::Especes->value => 10,
                 ]),

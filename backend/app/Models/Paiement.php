@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Domain\Shared\Enums\ModePaiement;
 use App\Domain\Shared\Traits\Auditable;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
@@ -18,6 +17,7 @@ class Paiement extends Model
         'montant',
         'date_paiement',
         'mode',
+        'compte_tresorerie_id',
         'reference',
         'notes',
     ];
@@ -27,12 +27,16 @@ class Paiement extends Model
         return [
             'montant' => 'decimal:2',
             'date_paiement' => 'date',
-            'mode' => ModePaiement::class,
         ];
     }
 
     public function facture(): BelongsTo
     {
         return $this->belongsTo(Facture::class);
+    }
+
+    public function compteTresorerie(): BelongsTo
+    {
+        return $this->belongsTo(CompteTresorerie::class, 'compte_tresorerie_id');
     }
 }

@@ -8,12 +8,14 @@ import {
   anomaliesApi,
   auditApi,
   bulletinsPaieApi,
+  categoriesDepenseApi,
   checkpointsApi,
   contratsApi,
   controlesApi,
   dashboardApi,
   facturesApi,
   gradesApi,
+  modesPaiementApi,
   notificationsApi,
   offresApi,
   paiementsApi,
@@ -22,6 +24,7 @@ import {
   postesApi,
   rapportsApi,
   sitesApi,
+  tresorerieApi,
   usersApi,
   vacationsApi,
   villesApi,
@@ -333,6 +336,8 @@ export function useFactures(
     periodicite?: string;
     statut_paiement?: string;
     echeance_30j?: boolean;
+    a_recouvrer?: boolean;
+    retard?: boolean;
   },
 ) {
   return useQuery({
@@ -655,6 +660,7 @@ export function useCreatePaiement() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["paiements"] });
       void qc.invalidateQueries({ queryKey: ["factures"] });
+      void qc.invalidateQueries({ queryKey: ["tresorerie"] });
     },
   });
 }
@@ -672,6 +678,7 @@ export function useUpdatePaiement() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["paiements"] });
       void qc.invalidateQueries({ queryKey: ["factures"] });
+      void qc.invalidateQueries({ queryKey: ["tresorerie"] });
     },
   });
 }
@@ -683,6 +690,7 @@ export function useDeletePaiement() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["paiements"] });
       void qc.invalidateQueries({ queryKey: ["factures"] });
+      void qc.invalidateQueries({ queryKey: ["tresorerie"] });
     },
   });
 }
@@ -816,6 +824,131 @@ export function useDeleteVille() {
   return useMutation({
     mutationFn: (id: string) => villesApi.destroy(id),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["villes"] }),
+  });
+}
+
+export function useCategoriesDepenseList(
+  params?: ListParams & { actif_only?: boolean | number },
+) {
+  return useQuery({
+    queryKey: ["categories-depense", params],
+    queryFn: () => categoriesDepenseApi.list(params),
+  });
+}
+
+export function useCreateCategorieDepense() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: categoriesDepenseApi.create,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["categories-depense"] });
+      void qc.invalidateQueries({ queryKey: ["tresorerie", "categories-depense"] });
+    },
+  });
+}
+
+export function useUpdateCategorieDepense() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: Parameters<typeof categoriesDepenseApi.update>[1];
+    }) => categoriesDepenseApi.update(id, payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["categories-depense"] });
+      void qc.invalidateQueries({ queryKey: ["tresorerie", "categories-depense"] });
+    },
+  });
+}
+
+export function useDeleteCategorieDepense() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => categoriesDepenseApi.destroy(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["categories-depense"] });
+      void qc.invalidateQueries({ queryKey: ["tresorerie", "categories-depense"] });
+    },
+  });
+}
+
+export function useModesPaiement(
+  params?: ListParams & { actif_only?: boolean | number },
+) {
+  return useQuery({
+    queryKey: ["modes-paiement", params],
+    queryFn: () => modesPaiementApi.list(params),
+  });
+}
+
+export function useModesPaiementOptions(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ["modes-paiement", "options"],
+    queryFn: () => modesPaiementApi.listAll({ actif_only: 1 }),
+    enabled: options?.enabled ?? true,
+  });
+}
+
+export function useCreateModePaiement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: modesPaiementApi.create,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["modes-paiement"] }),
+  });
+}
+
+export function useUpdateModePaiement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: Parameters<typeof modesPaiementApi.update>[1];
+    }) => modesPaiementApi.update(id, payload),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["modes-paiement"] }),
+  });
+}
+
+export function useDeleteModePaiement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => modesPaiementApi.destroy(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["modes-paiement"] }),
+  });
+}
+
+export function useCreateCompteTresorerie() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: tresorerieApi.createCompte,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["tresorerie"] }),
+  });
+}
+
+export function useUpdateCompteTresorerie() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: Parameters<typeof tresorerieApi.updateCompte>[1];
+    }) => tresorerieApi.updateCompte(id, payload),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["tresorerie"] }),
+  });
+}
+
+export function useDeleteCompteTresorerie() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => tresorerieApi.destroyCompte(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["tresorerie"] }),
   });
 }
 
@@ -969,9 +1102,23 @@ export function useCloturerPeriodePaie() {
   });
 }
 
+export function useDeletePeriodePaie() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => periodesPaieApi.destroy(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["periodes-paie"] });
+      void qc.invalidateQueries({ queryKey: ["bulletins-paie"] });
+    },
+  });
+}
+
 export function useBulletinsPaie(
   periodeId: string | undefined,
-  params?: ListParams & { statut?: string },
+  params?: ListParams & {
+    statut?: string;
+    non_payes?: boolean | number;
+  },
 ) {
   return useQuery({
     queryKey: ["bulletins-paie", periodeId, params],
@@ -991,8 +1138,105 @@ export function useGenererBulletinPdf() {
 export function useMarquerBulletinPaye() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => bulletinsPaieApi.marquerPaye(id),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["bulletins-paie"] }),
+    mutationFn: ({
+      id,
+      ...payload
+    }: {
+      id: string;
+      salaire_net: number;
+      mode: string;
+      compte_tresorerie_id: string;
+      reference?: string;
+      paye_le?: string;
+    }) => bulletinsPaieApi.marquerPaye(id, payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["bulletins-paie"] });
+      void qc.invalidateQueries({ queryKey: ["periodes-paie"] });
+      void qc.invalidateQueries({ queryKey: ["tresorerie"] });
+    },
+  });
+}
+
+export function useComptesTresorerieOptions(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ["tresorerie", "comptes-options"],
+    queryFn: () => tresorerieApi.comptesOptions({ actif_only: 1 }),
+    enabled: options?.enabled ?? true,
+  });
+}
+
+export function useTresorerieStats(params?: { mois?: number; annee?: number }) {
+  return useQuery({
+    queryKey: ["tresorerie", "stats", params],
+    queryFn: () => tresorerieApi.stats(params),
+  });
+}
+
+export function useComptesTresorerie(params?: { actif_only?: boolean | number }) {
+  return useQuery({
+    queryKey: ["tresorerie", "comptes", params],
+    queryFn: () => tresorerieApi.comptes(params),
+  });
+}
+
+export function useMouvementsTresorerie(
+  params?: ListParams & {
+    compte_id?: string;
+    direction?: string;
+    source_type?: string;
+    from?: string;
+    to?: string;
+  },
+) {
+  return useQuery({
+    queryKey: ["tresorerie", "mouvements", params],
+    queryFn: () => tresorerieApi.mouvements(params),
+  });
+}
+
+export function useCreateAjustementTresorerie() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: tresorerieApi.ajustement,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["tresorerie"] }),
+  });
+}
+
+export function useCategoriesDepense() {
+  return useQuery({
+    queryKey: ["tresorerie", "categories-depense"],
+    queryFn: () => tresorerieApi.categoriesDepense({ actif_only: 1 }),
+  });
+}
+
+export function useDepenses(
+  params?: ListParams & {
+    categorie_id?: string;
+    compte_id?: string;
+    from?: string;
+    to?: string;
+  },
+) {
+  return useQuery({
+    queryKey: ["tresorerie", "depenses", params],
+    queryFn: () => tresorerieApi.depenses(params),
+  });
+}
+
+export function useCreateDepense() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Record<string, unknown>) =>
+      tresorerieApi.createDepense(payload),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["tresorerie"] }),
+  });
+}
+
+export function useDeleteDepense() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => tresorerieApi.deleteDepense(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["tresorerie"] }),
   });
 }
 

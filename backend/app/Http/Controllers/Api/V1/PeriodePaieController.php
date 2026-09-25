@@ -3,12 +3,16 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Application\Paie\GenerateBulletinsPaieAction;
+use App\Domain\Shared\Enums\StatutPeriodePaie;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PeriodePaieResource;
 use App\Models\PeriodePaie;
+use App\Support\ListQuery;
 use App\Support\RhAuthorization;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
+use Illuminate\Validation\ValidationException;
 
 class PeriodePaieController extends Controller
 {
@@ -84,8 +88,9 @@ class PeriodePaieController extends Controller
         abort_unless(RhAuthorization::canViewPaie($request->user()), 403);
 
         $items = $periodePaie->bulletins()
-            ->with('agent')
+            ->with(['agent', 'media'])
             ->when($request->filled('statut'), fn ($q) => $q->where('statut', $request->string('statut')))
+            ->when($request->boolean('non_payes'), fn ($q) => $q->where('statut', '!=', 'paye'))
             ->when($request->filled('q'), function ($q) use ($request) {
                 $term = '%'.$request->string('q').'%';
                 $q->where(function ($qq) use ($term) {
@@ -97,9 +102,11 @@ class PeriodePaieController extends Controller
                         });
                 });
             })
-            ->paginate($request->integer('per_page', 50));
+            ->orderBy('created_at');
 
-        return \App\Http\Resources\BulletinPaieResource::collection($items);
+        return \App\Http\Resources\BulletinPaieResource::collection(
+            ListQuery::paginateOrAll($items, $request, 50),
+        );
     }
 
     public function valider(Request $request, PeriodePaie $periodePaie): PeriodePaieResource
@@ -107,8 +114,11 @@ class PeriodePaieController extends Controller
         abort_unless(RhAuthorization::canManagePaie($request->user()), 403);
 
         $periodePaie->update(['statut' => 'validee']);
+        $periodePaie->bulletins()
+            ->where('statut', 'brouillon')
+            ->update(['statut' => 'valide']);
 
-        return new PeriodePaieResource($periodePaie);
+        return new PeriodePaieResource($periodePaie->fresh()->loadCount('bulletins'));
     }
 
     public function cloturer(Request $request, PeriodePaie $periodePaie): PeriodePaieResource
@@ -118,5 +128,26 @@ class PeriodePaieController extends Controller
         $periodePaie->update(['statut' => 'cloturee']);
 
         return new PeriodePaieResource($periodePaie);
+    }
+
+    public function destroy(Request $request, PeriodePaie $periodePaie): Response
+    {
+        abort_unless(RhAuthorization::canManagePaie($request->user()), 403);
+
+        if ($periodePaie->statut !== StatutPeriodePaie::Brouillon) {
+            throw ValidationException::withMessages([
+                'periode' => 'Seules les périodes en brouillon peuvent être supprimées.',
+            ]);
+        }
+
+        if ($periodePaie->bulletins()->exists()) {
+            throw ValidationException::withMessages([
+                'periode' => 'Cette période a des bulletins. Supprimez-les ou conservez la période.',
+            ]);
+        }
+
+        $periodePaie->delete();
+
+        return response()->noContent();
     }
 }

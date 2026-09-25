@@ -105,5 +105,11 @@ class DatabaseSeeder extends Seeder
                 $grade->delete();
             }
         }
+
+        $this->call(TresorerieSeeder::class);
+
+        if (class_exists(\App\Support\FeatureFlagCatalog::class)) {
+            $this->command?->call('system:sync-catalog', ['--menus' => true]);
+        }
     }
 }

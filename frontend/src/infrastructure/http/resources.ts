@@ -10,17 +10,22 @@ import type {
   Agent,
   Anomalie,
   BulletinPaie,
+  CategorieDepense,
   Checkpoint,
   Client,
+  CompteTresorerie,
   Contrat,
   ContratAlerte,
   Controle,
   DashboardStats,
+  Depense,
   Facture,
   FeatureFlag,
   Grade,
   JournalAudit,
   MenuOverride,
+  ModePaiementParam,
+  MouvementTresorerie,
   Offre,
   Paiement,
   PeriodePaie,
@@ -37,6 +42,7 @@ import type {
   SystemPermission,
   SystemRole,
   SystemSetting,
+  TresorerieStats,
   User,
   Vacation,
   Ville,
@@ -325,6 +331,8 @@ export const facturesApi = {
     periodicite?: string;
     statut_paiement?: string;
     echeance_30j?: boolean;
+    a_recouvrer?: boolean;
+    retard?: boolean;
   }) =>
     api.get<PaginatedResponse<Facture>>("/factures", {
       params: toQuery(params),
@@ -535,6 +543,7 @@ export const paiementsApi = {
     montant: number;
     date_paiement: string;
     mode: string;
+    compte_tresorerie_id?: string;
     reference?: string | null;
     notes?: string | null;
   }) => api.post<DataResponse<Paiement>>("/paiements", payload),
@@ -545,6 +554,7 @@ export const paiementsApi = {
       montant: number;
       date_paiement: string;
       mode: string;
+      compte_tresorerie_id: string;
       reference: string | null;
       notes: string | null;
     }>,
@@ -619,6 +629,46 @@ export const villesApi = {
   update: (id: string, payload: Partial<{ libelle: string }>) =>
     api.put<DataResponse<Ville>>(`/villes/${id}`, payload),
   destroy: (id: string) => api.delete<void>(`/villes/${id}`),
+};
+
+export const categoriesDepenseApi = {
+  list: (params?: ListParams & { actif_only?: boolean | number }) =>
+    api.get<PaginatedResponse<CategorieDepense>>("/categories-depense", {
+      params: toQuery(params),
+    }),
+  listAll: (params?: { actif_only?: boolean | number; q?: string }) =>
+    api.get<DataResponse<CategorieDepense[]>>("/categories-depense", {
+      params: toQuery({ all: 1, ...params }),
+    }),
+  create: (payload: { libelle: string; actif?: boolean }) =>
+    api.post<DataResponse<CategorieDepense>>("/categories-depense", payload),
+  update: (
+    id: string,
+    payload: Partial<{ libelle: string; actif: boolean }>,
+  ) => api.put<DataResponse<CategorieDepense>>(`/categories-depense/${id}`, payload),
+  destroy: (id: string) => api.delete<void>(`/categories-depense/${id}`),
+};
+
+export const modesPaiementApi = {
+  list: (params?: ListParams & { actif_only?: boolean | number }) =>
+    api.get<PaginatedResponse<ModePaiementParam>>("/modes-paiement", {
+      params: toQuery(params),
+    }),
+  listAll: (params?: { actif_only?: boolean | number; q?: string }) =>
+    api.get<DataResponse<ModePaiementParam[]>>("/modes-paiement", {
+      params: toQuery({ all: 1, ...params }),
+    }),
+  create: (payload: {
+    libelle: string;
+    code?: string;
+    actif?: boolean;
+    ordre?: number;
+  }) => api.post<DataResponse<ModePaiementParam>>("/modes-paiement", payload),
+  update: (
+    id: string,
+    payload: Partial<{ libelle: string; actif: boolean; ordre: number }>,
+  ) => api.put<DataResponse<ModePaiementParam>>(`/modes-paiement/${id}`, payload),
+  destroy: (id: string) => api.delete<void>(`/modes-paiement/${id}`),
 };
 
 export const absencesApi = {
@@ -721,7 +771,11 @@ export const periodesPaieApi = {
     ),
   bulletins: (
     id: string,
-    params?: ListParams & { statut?: string },
+    params?: ListParams & {
+      statut?: string;
+      non_payes?: boolean | number;
+      all?: boolean | number;
+    },
   ) =>
     api.get<PaginatedResponse<BulletinPaie>>(
       `/periodes-paie/${id}/bulletins`,
@@ -731,6 +785,7 @@ export const periodesPaieApi = {
     api.post<DataResponse<PeriodePaie>>(`/periodes-paie/${id}/valider`),
   cloturer: (id: string) =>
     api.post<DataResponse<PeriodePaie>>(`/periodes-paie/${id}/cloturer`),
+  destroy: (id: string) => api.delete<void>(`/periodes-paie/${id}`),
 };
 
 export const bulletinsPaieApi = {
@@ -739,8 +794,100 @@ export const bulletinsPaieApi = {
   genererPdf: (id: string) =>
     api.post<DataResponse<BulletinPaie>>(`/bulletins-paie/${id}/generer-pdf`),
   downloadPdf: (id: string) => `/bulletins-paie/${id}/pdf`,
-  marquerPaye: (id: string) =>
-    api.post<DataResponse<BulletinPaie>>(`/bulletins-paie/${id}/marquer-paye`),
+  marquerPaye: (
+    id: string,
+    payload: {
+      salaire_net: number;
+      mode: string;
+      compte_tresorerie_id: string;
+      reference?: string;
+      paye_le?: string;
+    },
+  ) =>
+    api.post<DataResponse<BulletinPaie>>(
+      `/bulletins-paie/${id}/marquer-paye`,
+      payload,
+    ),
+};
+
+export const tresorerieApi = {
+  comptes: (params?: { actif_only?: boolean | number }) =>
+    api.get<DataResponse<CompteTresorerie[]>>("/comptes-tresorerie", {
+      params: toQuery(params),
+    }),
+  comptesOptions: (params?: { actif_only?: boolean | number }) =>
+    api.get<DataResponse<CompteTresorerie[]>>("/comptes-tresorerie-options", {
+      params: toQuery({ actif_only: 1, ...params }),
+    }),
+  createCompte: (payload: {
+    libelle: string;
+    type: string;
+    solde_ouverture?: number;
+    actif?: boolean;
+  }) =>
+    api.post<DataResponse<CompteTresorerie>>("/comptes-tresorerie", payload),
+  updateCompte: (
+    id: string,
+    payload: Partial<{
+      libelle: string;
+      type: string;
+      solde_ouverture: number;
+      actif: boolean;
+    }>,
+  ) =>
+    api.put<DataResponse<CompteTresorerie>>(`/comptes-tresorerie/${id}`, payload),
+  destroyCompte: (id: string) =>
+    api.delete<void>(`/comptes-tresorerie/${id}`),
+  mouvements: (
+    params?: ListParams & {
+      compte_id?: string;
+      direction?: string;
+      source_type?: string;
+      from?: string;
+      to?: string;
+    },
+  ) =>
+    api.get<PaginatedResponse<MouvementTresorerie>>("/tresorerie/mouvements", {
+      params: toQuery(params),
+    }),
+  ajustement: (payload: {
+    compte_tresorerie_id: string;
+    direction: "entree" | "sortie";
+    montant: number;
+    date_mouvement: string;
+    mode?: string;
+    reference?: string;
+    notes?: string;
+  }) =>
+    api.post<DataResponse<MouvementTresorerie>>(
+      "/tresorerie/ajustements",
+      payload,
+    ),
+  stats: (params?: { mois?: number; annee?: number }) =>
+    api.get<DataResponse<TresorerieStats>>("/tresorerie/stats", {
+      params: toQuery(params),
+    }),
+  categoriesDepense: (params?: {
+    actif_only?: boolean | number;
+    all?: boolean | number;
+  }) =>
+    api.get<DataResponse<CategorieDepense[]>>("/categories-depense", {
+      params: toQuery({ all: 1, ...params }),
+    }),
+  depenses: (
+    params?: ListParams & {
+      categorie_id?: string;
+      compte_id?: string;
+      from?: string;
+      to?: string;
+    },
+  ) =>
+    api.get<PaginatedResponse<Depense>>("/depenses", {
+      params: toQuery(params),
+    }),
+  createDepense: (payload: Record<string, unknown>) =>
+    api.post<DataResponse<Depense>>("/depenses", payload),
+  deleteDepense: (id: string) => api.delete<void>(`/depenses/${id}`),
 };
 
 export const notificationsApi = {

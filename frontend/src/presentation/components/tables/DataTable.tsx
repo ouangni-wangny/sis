@@ -11,6 +11,7 @@ import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -75,10 +76,32 @@ export function DataTable<T>({
   onSelectionChange,
 }: DataTableProps<T>) {
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  onSelectionChangeRef.current = onSelectionChange;
+  const prevSelectionKeyRef = useRef<string>("");
+
+  // Signature stable : évite une boucle si `data` est un nouveau [] à chaque render.
+  const dataSignature = useMemo(
+    () =>
+      data
+        .map((row, index) =>
+          getRowId ? getRowId(row) : defaultRowId(row, index),
+        )
+        .join("|"),
+    [data, getRowId],
+  );
 
   useEffect(() => {
     setRowSelection({});
-  }, [data]);
+  }, [dataSignature]);
+
+  useEffect(() => {
+    const ids = Object.keys(rowSelection).filter((id) => rowSelection[id]);
+    const key = ids.join("|");
+    if (key === prevSelectionKeyRef.current) return;
+    prevSelectionKeyRef.current = key;
+    onSelectionChangeRef.current?.(ids);
+  }, [rowSelection]);
 
   const selectionColumn = useMemo<ColumnDef<T, unknown>>(
     () => ({
@@ -135,11 +158,6 @@ export function DataTable<T>({
       ? Math.max(1, Math.ceil(pagination.total / pagination.perPage))
       : 1,
   });
-
-  useEffect(() => {
-    if (!onSelectionChange) return;
-    onSelectionChange(Object.keys(rowSelection).filter((id) => rowSelection[id]));
-  }, [rowSelection, onSelectionChange]);
 
   const lastPage = pagination
     ? Math.max(1, Math.ceil(pagination.total / pagination.perPage))

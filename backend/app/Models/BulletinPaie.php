@@ -25,6 +25,9 @@ class BulletinPaie extends Model implements HasMedia
         'salaire_net',
         'statut',
         'paye_le',
+        'mode_paiement',
+        'compte_tresorerie_id',
+        'reference_paiement',
         'details',
     ];
 
@@ -59,5 +62,10 @@ class BulletinPaie extends Model implements HasMedia
     public function contrat(): BelongsTo
     {
         return $this->belongsTo(Contrat::class);
+    }
+
+    public function compteTresorerie(): BelongsTo
+    {
+        return $this->belongsTo(CompteTresorerie::class, 'compte_tresorerie_id');
     }
 }

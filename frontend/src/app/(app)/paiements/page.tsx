@@ -12,13 +12,13 @@ import {
   useCreatePaiement,
   useDeletePaiement,
   useFactures,
+  useComptesTresorerieOptions,
+  useModesPaiementOptions,
   usePaiements,
   useUpdatePaiement,
 } from "@/application/hooks/useResources";
 import {
   paiementSchema,
-  MODE_PAIEMENT_FILTER_OPTIONS,
-  MODE_PAIEMENT_FORM_OPTIONS,
   type PaiementFormInput,
   type PaiementFormValues,
 } from "@/domain/schemas/paiement";
@@ -43,16 +43,12 @@ import { getApiErrorMessage } from "@/shared/lib/api-error";
 import { can } from "@/shared/lib/can";
 import { formatDate, formatFcfa, labelize } from "@/shared/lib/format";
 
-const modeOptions = MODE_PAIEMENT_FORM_OPTIONS.map((o) => ({
-  value: o.value,
-  label: o.label,
-}));
-
 const emptyDefaults: PaiementFormValues = {
   facture_id: "",
   montant: 0,
   date_paiement: new Date().toISOString().slice(0, 10),
   mode: "virement",
+  compte_tresorerie_id: "",
   reference: "",
   notes: "",
 };
@@ -120,6 +116,17 @@ function PaiementsPageContent() {
     facture_id: prefillFactureId || undefined,
   });
   const { data: facturesData } = useFactures({ all: true });
+  const { data: comptesRes } = useComptesTresorerieOptions();
+  const comptes = comptesRes?.data ?? [];
+  const { data: modesRes } = useModesPaiementOptions();
+  const modeOptions = useMemo(() => {
+    const modes = modesRes?.data ?? [];
+    return modes.map((m) => ({ value: m.code, label: m.libelle }));
+  }, [modesRes]);
+  const modeFilterOptions = useMemo(
+    () => [{ value: "", label: "Tous les modes" }, ...modeOptions],
+    [modeOptions],
+  );
   const createPaiement = useCreatePaiement();
   const updatePaiement = useUpdatePaiement();
   const deletePaiement = useDeletePaiement();
@@ -143,7 +150,18 @@ function PaiementsPageContent() {
     isSubmitting || createPaiement.isPending || updatePaiement.isPending;
 
   const factureOptions = useMemo(() => {
-    const rows = (facturesData?.data ?? []).filter((f) => f.statut !== "annule");
+    const editingFactureId = editing?.facture_id;
+    const rows = (facturesData?.data ?? []).filter((f) => {
+      if (f.statut === "annule") return false;
+      // En édition, garder la facture déjà liée même si soldée depuis.
+      if (editingFactureId && f.id === editingFactureId) return true;
+      if (f.statut_paiement === "soldee") return false;
+      const solde =
+        f.solde != null
+          ? Number(f.solde)
+          : Math.max(0, Number(f.montant_ttc) - Number(f.montant_paye ?? 0));
+      return solde > 1;
+    });
     return rows.map((f) => {
       const solde =
         f.solde != null
@@ -158,7 +176,7 @@ function PaiementsPageContent() {
         label: `${f.numero} · ${f.client?.raison_sociale ?? "Client"}${periode} · solde ${formatFcfa(solde)}`,
       };
     });
-  }, [facturesData]);
+  }, [editing?.facture_id, facturesData]);
 
   const selectedFacture = useMemo(
     () => (facturesData?.data ?? []).find((f) => f.id === factureId),
@@ -194,11 +212,12 @@ function PaiementsPageContent() {
         ...emptyDefaults,
         facture_id: fid,
         montant: solde > 0 ? solde : 0,
+        compte_tresorerie_id: comptes[0]?.id ?? "",
       });
       setFormError(null);
       setOpen(true);
     },
-    [canCreate, facturesData, reset, toast],
+    [canCreate, comptes, facturesData, reset, toast],
   );
 
   useEffect(() => {
@@ -233,13 +252,14 @@ function PaiementsPageContent() {
         montant: Number(row.montant),
         date_paiement: row.date_paiement?.slice(0, 10) ?? "",
         mode: row.mode as PaiementFormValues["mode"],
+        compte_tresorerie_id: row.compte_tresorerie_id ?? comptes[0]?.id ?? "",
         reference: row.reference ?? "",
         notes: row.notes ?? "",
       });
       setFormError(null);
       setOpen(true);
     },
-    [canUpdate, reset, toast],
+    [canUpdate, comptes, reset, toast],
   );
 
   const columns = useMemo<ColumnDef<Paiement>[]>(
@@ -333,10 +353,7 @@ function PaiementsPageContent() {
               <Select
                 className="min-w-[11rem]"
                 value={modeFilter}
-                options={MODE_PAIEMENT_FILTER_OPTIONS.map((o) => ({
-                  value: o.value,
-                  label: o.label,
-                }))}
+                options={modeFilterOptions}
                 onChange={(event) => {
                   setModeFilter(event.target.value);
                   resetPage();
@@ -416,6 +433,7 @@ function PaiementsPageContent() {
                   montant: Number(values.montant),
                   date_paiement: values.date_paiement,
                   mode: values.mode,
+                  compte_tresorerie_id: values.compte_tresorerie_id,
                   reference: values.reference || null,
                   notes: values.notes || null,
                 };
@@ -502,10 +520,22 @@ function PaiementsPageContent() {
                 error={errors.mode?.message}
                 {...register("mode")}
               />
+              <Select
+                label="Compte de trésorerie"
+                requiredMark
+                options={comptes.map((c) => ({
+                  value: c.id,
+                  label: `${c.libelle}${c.solde != null ? ` · ${formatFcfa(c.solde)}` : ""}`,
+                }))}
+                placeholder="Choisir un compte"
+                error={errors.compte_tresorerie_id?.message}
+                {...register("compte_tresorerie_id")}
+              />
               <Input
                 label="Référence"
                 optionalMark
-                placeholder="N° chèque, réf. virement…"
+                placeholder="Auto si vide"
+                hint="Laissée vide → générée automatiquement (ex. ENC-20260925-A3F2K)."
                 error={errors.reference?.message}
                 {...register("reference")}
               />

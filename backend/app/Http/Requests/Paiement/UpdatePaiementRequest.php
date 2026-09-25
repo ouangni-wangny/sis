@@ -2,9 +2,8 @@
 
 namespace App\Http\Requests\Paiement;
 
-use App\Domain\Shared\Enums\ModePaiement;
+use App\Support\ModePaiementRules;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class UpdatePaiementRequest extends FormRequest
 {
@@ -19,7 +18,8 @@ class UpdatePaiementRequest extends FormRequest
             'facture_id' => ['sometimes', 'uuid', 'exists:factures,id'],
             'montant' => ['sometimes', 'numeric', 'min:0.01'],
             'date_paiement' => ['sometimes', 'date'],
-            'mode' => ['sometimes', Rule::enum(ModePaiement::class)],
+            'mode' => ModePaiementRules::sometimes(),
+            'compte_tresorerie_id' => ['nullable', 'uuid', 'exists:comptes_tresorerie,id'],
             'reference' => ['nullable', 'string', 'max:255'],
             'notes' => ['nullable', 'string', 'max:2000'],
         ];

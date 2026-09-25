@@ -287,6 +287,19 @@ export type ContratAlerte = {
   jours_restants: number;
 };
 
+export type StatutPaiementFacture = "non_payee" | "partiel" | "soldee";
+
+export type ModePaiement =
+  | "especes"
+  | "virement"
+  | "cheque"
+  | "wave"
+  | "mtn"
+  | "moov"
+  | "orange"
+  | "mobile_money"
+  | "autre";
+
 export type PeriodePaie = {
   id: string;
   mois: number;
@@ -309,10 +322,103 @@ export type BulletinPaie = {
   salaire_net: string | number | null;
   statut: "brouillon" | "valide" | "paye" | string;
   paye_le: string | null;
+  mode_paiement?: ModePaiement | string | null;
+  compte_tresorerie_id?: string | null;
+  reference_paiement?: string | null;
   details: Record<string, unknown> | null;
   pdf_url?: string | null;
   agent?: Pick<Agent, "id" | "nom" | "prenom" | "matricule"> | null;
   periode_paie?: { mois: number; annee: number } | null;
+  compte_tresorerie?: {
+    id: string;
+    libelle: string;
+    type: string;
+  } | null;
+};
+
+export type CompteTresorerie = {
+  id: string;
+  libelle: string;
+  type: "banque" | "caisse" | "mobile_money" | string;
+  solde_ouverture: string | number;
+  actif: boolean;
+  solde?: string | number;
+};
+
+export type MouvementTresorerie = {
+  id: string;
+  compte_tresorerie_id: string;
+  direction: "entree" | "sortie" | string;
+  montant: string | number;
+  date_mouvement: string;
+  mode: ModePaiement | string;
+  source_type: string;
+  source_id: string | null;
+  reference: string | null;
+  notes: string | null;
+  compte?: Pick<CompteTresorerie, "id" | "libelle" | "type"> | null;
+};
+
+export type CategorieDepense = {
+  id: string;
+  libelle: string;
+  actif: boolean;
+};
+
+export type ModePaiementParam = {
+  id: string;
+  code: string;
+  libelle: string;
+  actif: boolean;
+  ordre: number;
+};
+
+export type Depense = {
+  id: string;
+  categorie_depense_id: string;
+  libelle: string;
+  montant: string | number;
+  date_depense: string;
+  compte_tresorerie_id: string;
+  mode: ModePaiement | string;
+  reference: string | null;
+  notes: string | null;
+  categorie?: Pick<CategorieDepense, "id" | "libelle"> | null;
+  compte?: Pick<CompteTresorerie, "id" | "libelle" | "type"> | null;
+};
+
+export type TresorerieStats = {
+  periode: { mois: number; annee: number };
+  solde_consolide: number;
+  comptes: Array<{
+    id: string;
+    libelle: string;
+    type: string;
+    solde: number;
+  }>;
+  entrees_mois: {
+    total: number;
+    count: number;
+    encaissements: number;
+  };
+  sorties_mois: {
+    total: number;
+    count: number;
+  };
+  depenses_mois: {
+    total: number;
+    par_categorie: Array<{ categorie: string; montant: number; count: number }>;
+  };
+  paie_mois: {
+    total_paye: number;
+    par_mode: Array<{ mode: string; montant: number; count: number }>;
+    par_compte: Array<{
+      compte_id: string;
+      compte_libelle: string | null;
+      montant: number;
+      count: number;
+    }>;
+  };
 };
 
 export type SoldeCongesMouvement = {
@@ -458,20 +564,21 @@ export type Controle = {
 
 export type StatutFacture = "en_attente" | "valide" | "annule";
 
-export type StatutPaiementFacture = "non_payee" | "partiel" | "soldee";
-
-export type ModePaiement =
-  "especes" | "virement" | "cheque" | "mobile_money" | "autre";
-
 export type Paiement = {
   id: string;
   facture_id: string;
   montant: string | number;
   date_paiement: string;
   mode: ModePaiement | string;
+  compte_tresorerie_id?: string | null;
   reference: string | null;
   notes: string | null;
   created_at?: string;
+  compte_tresorerie?: {
+    id: string;
+    libelle: string;
+    type: string;
+  } | null;
   facture?: {
     id: string;
     numero: string;

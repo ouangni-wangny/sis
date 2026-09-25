@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Application\Tresorerie\ReglerBulletinPaieAction;
 use App\Application\Paie\GenererBulletinPaiePdfAction;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Paie\ReglerBulletinPaieRequest;
 use App\Http\Resources\BulletinPaieResource;
 use App\Models\BulletinPaie;
 use App\Support\RhAuthorization;
@@ -16,7 +18,7 @@ class BulletinPaieController extends Controller
     {
         abort_unless(RhAuthorization::canViewPaie($request->user()), 403);
 
-        return new BulletinPaieResource($bulletinPaie->load(['agent', 'contrat', 'periodePaie', 'media']));
+        return new BulletinPaieResource($bulletinPaie->load(['agent', 'contrat', 'periodePaie', 'compteTresorerie', 'media']));
     }
 
     public function genererPdf(
@@ -42,15 +44,13 @@ class BulletinPaieController extends Controller
         );
     }
 
-    public function marquerPaye(Request $request, BulletinPaie $bulletinPaie): BulletinPaieResource
-    {
+    public function marquerPaye(
+        ReglerBulletinPaieRequest $request,
+        BulletinPaie $bulletinPaie,
+        ReglerBulletinPaieAction $action,
+    ): BulletinPaieResource {
         abort_unless(RhAuthorization::canManagePaie($request->user()), 403);
 
-        $bulletinPaie->update([
-            'statut' => 'paye',
-            'paye_le' => now(),
-        ]);
-
-        return new BulletinPaieResource($bulletinPaie);
+        return new BulletinPaieResource($action->execute($bulletinPaie, $request->validated()));
     }
 }

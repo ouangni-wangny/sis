@@ -7,15 +7,19 @@ use App\Http\Controllers\Api\V1\AnomalieController;
 use App\Http\Controllers\Api\V1\AuditController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BulletinPaieController;
+use App\Http\Controllers\Api\V1\CategorieDepenseController;
 use App\Http\Controllers\Api\V1\CheckpointController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ContratController;
+use App\Http\Controllers\Api\V1\CompteTresorerieController;
 use App\Http\Controllers\Api\V1\ControleController;
 use App\Http\Controllers\Api\V1\DashboardController;
+use App\Http\Controllers\Api\V1\DepenseController;
 use App\Http\Controllers\Api\V1\FactureController;
 use App\Http\Controllers\Api\V1\GradeController;
 use App\Http\Controllers\Api\V1\MobileAuthController;
 use App\Http\Controllers\Api\V1\MobileSyncController;
+use App\Http\Controllers\Api\V1\ModePaiementParamController;
 use App\Http\Controllers\Api\V1\OffreController;
 use App\Http\Controllers\Api\V1\PaiementController;
 use App\Http\Controllers\Api\V1\PerimetreController;
@@ -68,6 +72,18 @@ Route::prefix('v1')->group(function () {
         // Référentiels partagés (utilisés par agents, sites, etc.)
         Route::apiResource('grades', GradeController::class);
         Route::apiResource('villes', VilleController::class);
+        Route::get('modes-paiement', [ModePaiementParamController::class, 'index']);
+        Route::post('modes-paiement', [ModePaiementParamController::class, 'store']);
+        Route::put('modes-paiement/{modePaiementParam}', [ModePaiementParamController::class, 'update']);
+        Route::delete('modes-paiement/{modePaiementParam}', [ModePaiementParamController::class, 'destroy']);
+        Route::get('categories-depense', [CategorieDepenseController::class, 'index']);
+        Route::post('categories-depense', [CategorieDepenseController::class, 'store']);
+        Route::put('categories-depense/{categorieDepense}', [CategorieDepenseController::class, 'update']);
+        Route::delete('categories-depense/{categorieDepense}', [CategorieDepenseController::class, 'destroy']);
+        Route::get('comptes-tresorerie', [CompteTresorerieController::class, 'index']);
+        Route::post('comptes-tresorerie', [CompteTresorerieController::class, 'store']);
+        Route::put('comptes-tresorerie/{compteTresorerie}', [CompteTresorerieController::class, 'update']);
+        Route::delete('comptes-tresorerie/{compteTresorerie}', [CompteTresorerieController::class, 'destroy']);
 
         Route::middleware('feature:module.dashboard')->group(function () {
             Route::get('dashboard/stats', [DashboardController::class, 'stats']);
@@ -152,6 +168,7 @@ Route::prefix('v1')->group(function () {
             Route::get('periodes-paie/{periodePaie}/bulletins', [PeriodePaieController::class, 'bulletins']);
             Route::post('periodes-paie/{periodePaie}/valider', [PeriodePaieController::class, 'valider']);
             Route::post('periodes-paie/{periodePaie}/cloturer', [PeriodePaieController::class, 'cloturer']);
+            Route::delete('periodes-paie/{periodePaie}', [PeriodePaieController::class, 'destroy']);
             Route::get('bulletins-paie/{bulletinPaie}', [BulletinPaieController::class, 'show']);
             Route::post('bulletins-paie/{bulletinPaie}/generer-pdf', [BulletinPaieController::class, 'genererPdf']);
             Route::get('bulletins-paie/{bulletinPaie}/pdf', [BulletinPaieController::class, 'downloadPdf']);
@@ -184,6 +201,19 @@ Route::prefix('v1')->group(function () {
         Route::middleware('feature:module.paiements')->group(function () {
             Route::apiResource('paiements', PaiementController::class);
         });
+
+        Route::middleware('feature:module.tresorerie')->group(function () {
+            Route::get('tresorerie/stats', [CompteTresorerieController::class, 'stats']);
+            Route::get('tresorerie/mouvements', [CompteTresorerieController::class, 'mouvements']);
+            Route::post('tresorerie/ajustements', [CompteTresorerieController::class, 'ajustement']);
+            Route::get('depenses', [DepenseController::class, 'index']);
+            Route::post('depenses', [DepenseController::class, 'store']);
+            Route::get('depenses/{depense}', [DepenseController::class, 'show']);
+            Route::delete('depenses/{depense}', [DepenseController::class, 'destroy']);
+        });
+
+        // Alias options (compat formulaires paie / encaissements)
+        Route::get('comptes-tresorerie-options', [CompteTresorerieController::class, 'index']);
 
         Route::middleware('feature:module.users')->group(function () {
             Route::apiResource('users', UserController::class);

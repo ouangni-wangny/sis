@@ -7,6 +7,7 @@ import {
   Code2,
   FileBarChart,
   FileText,
+  HandCoins,
   LayoutDashboard,
   MapPinned,
   Repeat,
@@ -19,6 +20,7 @@ import {
   UserRound,
   Users,
   Wallet,
+  Banknote,
   type LucideIcon,
 } from "lucide-react";
 
@@ -205,12 +207,46 @@ export const navigation: NavGroup[] = [
         feature: "module.factures",
       },
       {
+        key: "com.recouvrement",
+        href: "/recouvrement",
+        label: "À recouvrer",
+        icon: HandCoins,
+        permissions: ["factures.view"],
+        feature: "module.factures",
+      },
+      {
         key: "com.paiements",
         href: "/paiements",
         label: "Paiements",
         icon: Wallet,
         permissions: ["paiements.view"],
         feature: "module.paiements",
+      },
+    ],
+  },
+  {
+    label: "Trésorerie",
+    items: [
+      {
+        key: "treso.dashboard",
+        href: "/tresorerie",
+        label: "Soldes & mouvements",
+        icon: Banknote,
+        permissions: ["tresorerie.view", "tresorerie.manage"],
+        feature: "module.tresorerie",
+      },
+      {
+        key: "treso.depenses",
+        href: "/tresorerie/depenses",
+        label: "Dépenses",
+        icon: Wallet,
+        permissions: [
+          "depenses.view",
+          "depenses.manage",
+          "tresorerie.view",
+          "tresorerie.manage",
+        ],
+        feature: "module.tresorerie",
       },
     ],
   },

@@ -31,7 +31,16 @@ class FactureController extends Controller
             ->when($request->client_id, fn ($q, $v) => $q->where('client_id', $v))
             ->when($request->statut, fn ($q, $v) => $q->where('statut', $v))
             ->when($request->filled('periodicite'), fn ($q) => $q->where('periodicite', $request->string('periodicite')))
-            ->when($request->filled('statut_paiement'), fn ($q) => $this->applyStatutPaiementFilter($q, $request->string('statut_paiement')->toString()))
+            ->when($request->boolean('a_recouvrer'), fn ($q) => $this->applyARecouvrerFilter($q))
+            ->when(
+                $request->filled('statut_paiement') && ! $request->boolean('a_recouvrer'),
+                fn ($q) => $this->applyStatutPaiementFilter($q, $request->string('statut_paiement')->toString()),
+            )
+            ->when(
+                $request->boolean('a_recouvrer') && $request->filled('statut_paiement'),
+                fn ($q) => $this->applyStatutPaiementRefine($q, $request->string('statut_paiement')->toString()),
+            )
+            ->when($request->boolean('retard'), fn ($q) => $this->applyRetardFilter($q))
             ->when($request->boolean('echeance_30j'), fn ($q) => $this->applyEcheanceProcheFilter($q, $request->string('statut')->toString()))
             ->when($request->filled('q'), function ($q) use ($request) {
                 $term = '%'.$request->string('q')->toString().'%';
@@ -44,8 +53,16 @@ class FactureController extends Controller
                                 ->orWhere('nom_responsable', 'like', $term);
                         });
                 });
-            })
-            ->latest();
+            });
+
+        if ($request->boolean('a_recouvrer')) {
+            $items
+                ->orderByRaw('CASE WHEN date_echeance IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('date_echeance')
+                ->orderBy('numero');
+        } else {
+            $items->latest();
+        }
 
         return FactureResource::collection(ListQuery::paginateOrAll($items, $request));
     }
@@ -155,6 +172,35 @@ class FactureController extends Controller
             'soldee' => $query->whereRaw("{$sumSql} >= factures.montant_ttc - 1"),
             default => null,
         };
+    }
+
+    /** Affiner non_payee / partiel une fois le filtre a_recouvrer déjà appliqué. */
+    private function applyStatutPaiementRefine($query, string $statutPaiement): void
+    {
+        $sumSql = '(SELECT COALESCE(SUM(montant), 0) FROM paiements WHERE facture_id = factures.id AND deleted_at IS NULL)';
+
+        match ($statutPaiement) {
+            'non_payee' => $query->whereRaw("{$sumSql} <= 0"),
+            'partiel' => $query
+                ->whereRaw("{$sumSql} > 0")
+                ->whereRaw("{$sumSql} < factures.montant_ttc - 0.01"),
+            default => null,
+        };
+    }
+
+    /** Factures validées non soldées (créances ouvertes). */
+    private function applyARecouvrerFilter($query): void
+    {
+        $query->where('statut', StatutFacture::Valide);
+        $sumSql = '(SELECT COALESCE(SUM(montant), 0) FROM paiements WHERE facture_id = factures.id AND deleted_at IS NULL)';
+        $query->whereRaw("{$sumSql} < factures.montant_ttc - 0.01");
+    }
+
+    private function applyRetardFilter($query): void
+    {
+        $query
+            ->whereNotNull('date_echeance')
+            ->whereDate('date_echeance', '<', now()->toDateString());
     }
 
     private function applyEcheanceProcheFilter($query, string $statutFacture): void

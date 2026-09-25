@@ -7,18 +7,36 @@ import { type ColumnDef } from "@tanstack/react-table";
 import { Plus } from "lucide-react";
 import { useDebouncedValue } from "@/application/hooks/useDebouncedValue";
 import {
+  useCategoriesDepenseList,
+  useComptesTresorerie,
+  useCreateCategorieDepense,
+  useCreateCompteTresorerie,
   useCreateGrade,
+  useCreateModePaiement,
   useCreateVille,
+  useDeleteCategorieDepense,
+  useDeleteCompteTresorerie,
   useDeleteGrade,
+  useDeleteModePaiement,
   useDeleteVille,
   useGrades,
+  useModesPaiement,
+  useUpdateCategorieDepense,
+  useUpdateCompteTresorerie,
   useUpdateGrade,
+  useUpdateModePaiement,
   useUpdateVille,
   useVilles,
 } from "@/application/hooks/useResources";
 import { gradeSchema, type GradeFormValues } from "@/domain/schemas/grade";
 import { villeSchema, type VilleFormValues } from "@/domain/schemas/ville";
-import type { Grade, Ville } from "@/domain/types/entities";
+import type {
+  CategorieDepense,
+  CompteTresorerie,
+  Grade,
+  ModePaiementParam,
+  Ville,
+} from "@/domain/types/entities";
 import { PermissionGate } from "@/presentation/components/auth/PermissionGate";
 import { DataTable } from "@/presentation/components/tables/DataTable";
 import { TableActions } from "@/presentation/components/tables/TableActions";
@@ -36,7 +54,7 @@ import { useAuth } from "@/presentation/providers/AuthProvider";
 import { useToast } from "@/presentation/providers/ToastProvider";
 import { getApiErrorMessage } from "@/shared/lib/api-error";
 import { can } from "@/shared/lib/can";
-import { labelTypeAgent } from "@/shared/lib/format";
+import { formatFcfa, labelTypeAgent, labelize } from "@/shared/lib/format";
 
 const emptyGradeDefaults: GradeFormValues = {
   libelle: "",
@@ -525,6 +543,736 @@ function VillesTab({ canManage }: { canManage: boolean }) {
   );
 }
 
+const TYPE_COMPTE_OPTIONS = [
+  { value: "banque", label: "Banque" },
+  { value: "caisse", label: "Caisse" },
+  { value: "mobile_money", label: "Mobile Money" },
+];
+
+const ACTIF_OPTIONS = [
+  { value: "1", label: "Actif" },
+  { value: "0", label: "Inactif" },
+];
+
+function CategoriesTab({ canManage }: { canManage: boolean }) {
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(15);
+  const [q, setQ] = useState("");
+  const search = useDebouncedValue(q);
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<CategorieDepense | null>(null);
+  const [toDelete, setToDelete] = useState<CategorieDepense | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [libelle, setLibelle] = useState("");
+  const [actif, setActif] = useState("1");
+  const { toast } = useToast();
+
+  const { data, isLoading } = useCategoriesDepenseList({
+    page,
+    per_page: perPage,
+    q: search || undefined,
+  });
+  const createCat = useCreateCategorieDepense();
+  const updateCat = useUpdateCategorieDepense();
+  const deleteCat = useDeleteCategorieDepense();
+  const busy = createCat.isPending || updateCat.isPending;
+
+  const closeModal = () => {
+    if (busy) return;
+    setOpen(false);
+    setEditing(null);
+    setFormError(null);
+    setLibelle("");
+    setActif("1");
+  };
+
+  const openCreate = () => {
+    setEditing(null);
+    setLibelle("");
+    setActif("1");
+    setFormError(null);
+    setOpen(true);
+  };
+
+  const openEdit = useCallback(
+    (row: CategorieDepense) => {
+      setEditing(row);
+      setLibelle(row.libelle);
+      setActif(row.actif ? "1" : "0");
+      setFormError(null);
+      setOpen(true);
+    },
+    [],
+  );
+
+  const columns = useMemo<ColumnDef<CategorieDepense>[]>(
+    () => [
+      { accessorKey: "libelle", header: "Libellé" },
+      {
+        accessorKey: "actif",
+        header: "Statut",
+        cell: ({ getValue }) => (getValue() ? "Actif" : "Inactif"),
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        enableSorting: false,
+        cell: ({ row }) =>
+          canManage ? (
+            <TableActions
+              canEdit
+              canDelete
+              onEdit={() => openEdit(row.original)}
+              onDelete={() => setToDelete(row.original)}
+            />
+          ) : null,
+      },
+    ],
+    [canManage, openEdit],
+  );
+
+  return (
+    <>
+      <DataTable
+        data={data?.data ?? []}
+        columns={columns}
+        isLoading={isLoading}
+        search={{
+          value: q,
+          onChange: (value) => {
+            setQ(value);
+            setPage(1);
+          },
+          placeholder: "Rechercher une catégorie…",
+        }}
+        toolbar={
+          canManage ? (
+            <Button onClick={openCreate}>
+              <Plus className="size-4" />
+              Nouvelle catégorie
+            </Button>
+          ) : null
+        }
+        pagination={{
+          page,
+          perPage: data?.meta.per_page ?? perPage,
+          total: data?.meta.total ?? 0,
+          onPageChange: setPage,
+          onPerPageChange: (n) => {
+            setPerPage(n);
+            setPage(1);
+          },
+        }}
+        emptyTitle="Aucune catégorie"
+        emptyDescription="Ajoutez les catégories utilisées pour les dépenses."
+        emptyAction={
+          canManage ? (
+            <Button size="sm" onClick={openCreate}>
+              <Plus className="size-4" />
+              Nouvelle catégorie
+            </Button>
+          ) : undefined
+        }
+      />
+
+      <Modal
+        open={open}
+        onClose={closeModal}
+        preventClose={busy}
+        title={editing ? "Modifier la catégorie" : "Nouvelle catégorie"}
+        description="Référentiel des catégories de dépense."
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeModal} disabled={busy}>
+              Annuler
+            </Button>
+            <Button
+              loading={busy}
+              onClick={async () => {
+                setFormError(null);
+                if (!libelle.trim()) {
+                  setFormError("Libellé requis.");
+                  return;
+                }
+                try {
+                  if (editing) {
+                    await updateCat.mutateAsync({
+                      id: editing.id,
+                      payload: {
+                        libelle: libelle.trim(),
+                        actif: actif === "1",
+                      },
+                    });
+                    toast("Catégorie mise à jour.");
+                  } else {
+                    await createCat.mutateAsync({
+                      libelle: libelle.trim(),
+                      actif: actif === "1",
+                    });
+                    toast("Catégorie créée.");
+                  }
+                  closeModal();
+                } catch (err) {
+                  setFormError(
+                    getApiErrorMessage(err, "Échec de l’enregistrement."),
+                  );
+                }
+              }}
+            >
+              {busy ? "Enregistrement…" : "Enregistrer"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          {formError ? <Alert tone="danger">{formError}</Alert> : null}
+          <Input
+            label="Libellé"
+            requiredMark
+            value={libelle}
+            onChange={(e) => setLibelle(e.target.value)}
+            placeholder="Fournitures bureau"
+          />
+          <Select
+            label="Statut"
+            value={actif}
+            onChange={(e) => setActif(e.target.value)}
+            options={ACTIF_OPTIONS}
+          />
+        </div>
+      </Modal>
+
+      <ConfirmDialog
+        open={!!toDelete}
+        onClose={() => {
+          if (deleteCat.isPending) return;
+          setToDelete(null);
+        }}
+        loading={deleteCat.isPending}
+        title="Supprimer la catégorie"
+        description={
+          toDelete
+            ? `Confirmer la suppression de « ${toDelete.libelle} » ?`
+            : ""
+        }
+        onConfirm={async () => {
+          if (!toDelete) return;
+          try {
+            await deleteCat.mutateAsync(toDelete.id);
+            toast("Catégorie supprimée.");
+            setToDelete(null);
+          } catch (err) {
+            toast(
+              getApiErrorMessage(err, "Échec de la suppression."),
+              "danger",
+            );
+          }
+        }}
+      />
+    </>
+  );
+}
+
+function ComptesTab({ canManage }: { canManage: boolean }) {
+  const [q, setQ] = useState("");
+  const search = useDebouncedValue(q);
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<CompteTresorerie | null>(null);
+  const [toDelete, setToDelete] = useState<CompteTresorerie | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [libelle, setLibelle] = useState("");
+  const [type, setType] = useState("caisse");
+  const [soldeOuverture, setSoldeOuverture] = useState("0");
+  const [actif, setActif] = useState("1");
+  const { toast } = useToast();
+
+  const { data, isLoading } = useComptesTresorerie();
+  const createCompte = useCreateCompteTresorerie();
+  const updateCompte = useUpdateCompteTresorerie();
+  const deleteCompte = useDeleteCompteTresorerie();
+  const busy = createCompte.isPending || updateCompte.isPending;
+
+  const rows = useMemo(() => {
+    const all = data?.data ?? [];
+    const term = search.trim().toLowerCase();
+    if (!term) return all;
+    return all.filter(
+      (c) =>
+        c.libelle.toLowerCase().includes(term) ||
+        c.type.toLowerCase().includes(term),
+    );
+  }, [data, search]);
+
+  const closeModal = () => {
+    if (busy) return;
+    setOpen(false);
+    setEditing(null);
+    setFormError(null);
+    setLibelle("");
+    setType("caisse");
+    setSoldeOuverture("0");
+    setActif("1");
+  };
+
+  const openCreate = () => {
+    setEditing(null);
+    setLibelle("");
+    setType("caisse");
+    setSoldeOuverture("0");
+    setActif("1");
+    setFormError(null);
+    setOpen(true);
+  };
+
+  const openEdit = useCallback((row: CompteTresorerie) => {
+    setEditing(row);
+    setLibelle(row.libelle);
+    setType(row.type);
+    setSoldeOuverture(String(row.solde_ouverture ?? 0));
+    setActif(row.actif ? "1" : "0");
+    setFormError(null);
+    setOpen(true);
+  }, []);
+
+  const columns = useMemo<ColumnDef<CompteTresorerie>[]>(
+    () => [
+      { accessorKey: "libelle", header: "Libellé" },
+      {
+        accessorKey: "type",
+        header: "Type",
+        cell: ({ getValue }) => labelize(String(getValue())),
+      },
+      {
+        accessorKey: "solde_ouverture",
+        header: "Solde d’ouverture",
+        cell: ({ getValue }) => formatFcfa(getValue() as number),
+      },
+      {
+        id: "solde",
+        header: "Solde actuel",
+        cell: ({ row }) =>
+          row.original.solde != null
+            ? formatFcfa(row.original.solde as number)
+            : "—",
+      },
+      {
+        accessorKey: "actif",
+        header: "Statut",
+        cell: ({ getValue }) => (getValue() ? "Actif" : "Inactif"),
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        enableSorting: false,
+        cell: ({ row }) =>
+          canManage ? (
+            <TableActions
+              canEdit
+              canDelete
+              onEdit={() => openEdit(row.original)}
+              onDelete={() => setToDelete(row.original)}
+            />
+          ) : null,
+      },
+    ],
+    [canManage, openEdit],
+  );
+
+  return (
+    <>
+      <DataTable
+        data={rows}
+        columns={columns}
+        isLoading={isLoading}
+        search={{
+          value: q,
+          onChange: setQ,
+          placeholder: "Rechercher un compte…",
+        }}
+        toolbar={
+          canManage ? (
+            <Button onClick={openCreate}>
+              <Plus className="size-4" />
+              Nouveau compte
+            </Button>
+          ) : null
+        }
+        emptyTitle="Aucun compte"
+        emptyDescription="Créez les comptes caisse / banque / mobile money."
+        emptyAction={
+          canManage ? (
+            <Button size="sm" onClick={openCreate}>
+              <Plus className="size-4" />
+              Nouveau compte
+            </Button>
+          ) : undefined
+        }
+      />
+
+      <Modal
+        open={open}
+        onClose={closeModal}
+        preventClose={busy}
+        title={editing ? "Modifier le compte" : "Nouveau compte"}
+        description="Compte de trésorerie (caisse, banque, mobile money)."
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeModal} disabled={busy}>
+              Annuler
+            </Button>
+            <Button
+              loading={busy}
+              onClick={async () => {
+                setFormError(null);
+                if (!libelle.trim()) {
+                  setFormError("Libellé requis.");
+                  return;
+                }
+                try {
+                  const solde = Number(soldeOuverture);
+                  if (editing) {
+                    await updateCompte.mutateAsync({
+                      id: editing.id,
+                      payload: {
+                        libelle: libelle.trim(),
+                        type,
+                        solde_ouverture: Number.isFinite(solde) ? solde : 0,
+                        actif: actif === "1",
+                      },
+                    });
+                    toast("Compte mis à jour.");
+                  } else {
+                    await createCompte.mutateAsync({
+                      libelle: libelle.trim(),
+                      type,
+                      solde_ouverture: Number.isFinite(solde) ? solde : 0,
+                      actif: actif === "1",
+                    });
+                    toast("Compte créé.");
+                  }
+                  closeModal();
+                } catch (err) {
+                  setFormError(
+                    getApiErrorMessage(err, "Échec de l’enregistrement."),
+                  );
+                }
+              }}
+            >
+              {busy ? "Enregistrement…" : "Enregistrer"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          {formError ? <Alert tone="danger">{formError}</Alert> : null}
+          <Input
+            label="Libellé"
+            requiredMark
+            value={libelle}
+            onChange={(e) => setLibelle(e.target.value)}
+            placeholder="Caisse principale"
+          />
+          <Select
+            label="Type"
+            requiredMark
+            value={type}
+            onChange={(e) => setType(e.target.value)}
+            options={TYPE_COMPTE_OPTIONS}
+          />
+          <Input
+            label="Solde d’ouverture"
+            type="number"
+            value={soldeOuverture}
+            onChange={(e) => setSoldeOuverture(e.target.value)}
+          />
+          <Select
+            label="Statut"
+            value={actif}
+            onChange={(e) => setActif(e.target.value)}
+            options={ACTIF_OPTIONS}
+          />
+        </div>
+      </Modal>
+
+      <ConfirmDialog
+        open={!!toDelete}
+        onClose={() => {
+          if (deleteCompte.isPending) return;
+          setToDelete(null);
+        }}
+        loading={deleteCompte.isPending}
+        title="Supprimer le compte"
+        description={
+          toDelete
+            ? `Confirmer la suppression de « ${toDelete.libelle} » ?`
+            : ""
+        }
+        onConfirm={async () => {
+          if (!toDelete) return;
+          try {
+            await deleteCompte.mutateAsync(toDelete.id);
+            toast("Compte supprimé.");
+            setToDelete(null);
+          } catch (err) {
+            toast(
+              getApiErrorMessage(err, "Échec de la suppression."),
+              "danger",
+            );
+          }
+        }}
+      />
+    </>
+  );
+}
+
+function ModesTab({ canManage }: { canManage: boolean }) {
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(15);
+  const [q, setQ] = useState("");
+  const search = useDebouncedValue(q);
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<ModePaiementParam | null>(null);
+  const [toDelete, setToDelete] = useState<ModePaiementParam | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [libelle, setLibelle] = useState("");
+  const [code, setCode] = useState("");
+  const [ordre, setOrdre] = useState("0");
+  const [actif, setActif] = useState("1");
+  const { toast } = useToast();
+
+  const { data, isLoading } = useModesPaiement({
+    page,
+    per_page: perPage,
+    q: search || undefined,
+  });
+  const createMode = useCreateModePaiement();
+  const updateMode = useUpdateModePaiement();
+  const deleteMode = useDeleteModePaiement();
+  const busy = createMode.isPending || updateMode.isPending;
+
+  const closeModal = () => {
+    if (busy) return;
+    setOpen(false);
+    setEditing(null);
+    setFormError(null);
+    setLibelle("");
+    setCode("");
+    setOrdre("0");
+    setActif("1");
+  };
+
+  const openCreate = () => {
+    setEditing(null);
+    setLibelle("");
+    setCode("");
+    setOrdre("0");
+    setActif("1");
+    setFormError(null);
+    setOpen(true);
+  };
+
+  const openEdit = useCallback((row: ModePaiementParam) => {
+    setEditing(row);
+    setLibelle(row.libelle);
+    setCode(row.code);
+    setOrdre(String(row.ordre ?? 0));
+    setActif(row.actif ? "1" : "0");
+    setFormError(null);
+    setOpen(true);
+  }, []);
+
+  const columns = useMemo<ColumnDef<ModePaiementParam>[]>(
+    () => [
+      { accessorKey: "libelle", header: "Libellé" },
+      { accessorKey: "code", header: "Code" },
+      { accessorKey: "ordre", header: "Ordre" },
+      {
+        accessorKey: "actif",
+        header: "Statut",
+        cell: ({ getValue }) => (getValue() ? "Actif" : "Inactif"),
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        enableSorting: false,
+        cell: ({ row }) =>
+          canManage ? (
+            <TableActions
+              canEdit
+              canDelete
+              onEdit={() => openEdit(row.original)}
+              onDelete={() => setToDelete(row.original)}
+            />
+          ) : null,
+      },
+    ],
+    [canManage, openEdit],
+  );
+
+  return (
+    <>
+      <DataTable
+        data={data?.data ?? []}
+        columns={columns}
+        isLoading={isLoading}
+        search={{
+          value: q,
+          onChange: (value) => {
+            setQ(value);
+            setPage(1);
+          },
+          placeholder: "Rechercher un mode…",
+        }}
+        toolbar={
+          canManage ? (
+            <Button onClick={openCreate}>
+              <Plus className="size-4" />
+              Nouveau mode
+            </Button>
+          ) : null
+        }
+        pagination={{
+          page,
+          perPage: data?.meta.per_page ?? perPage,
+          total: data?.meta.total ?? 0,
+          onPageChange: setPage,
+          onPerPageChange: (n) => {
+            setPerPage(n);
+            setPage(1);
+          },
+        }}
+        emptyTitle="Aucun mode de paiement"
+        emptyDescription="Ajoutez les modes proposés dans les formulaires."
+        emptyAction={
+          canManage ? (
+            <Button size="sm" onClick={openCreate}>
+              <Plus className="size-4" />
+              Nouveau mode
+            </Button>
+          ) : undefined
+        }
+      />
+
+      <Modal
+        open={open}
+        onClose={closeModal}
+        preventClose={busy}
+        title={editing ? "Modifier le mode" : "Nouveau mode"}
+        description="Mode de paiement (espèces, virement, etc.)."
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeModal} disabled={busy}>
+              Annuler
+            </Button>
+            <Button
+              loading={busy}
+              onClick={async () => {
+                setFormError(null);
+                if (!libelle.trim()) {
+                  setFormError("Libellé requis.");
+                  return;
+                }
+                try {
+                  const ordreNum = Number(ordre);
+                  if (editing) {
+                    await updateMode.mutateAsync({
+                      id: editing.id,
+                      payload: {
+                        libelle: libelle.trim(),
+                        actif: actif === "1",
+                        ordre: Number.isFinite(ordreNum) ? ordreNum : 0,
+                      },
+                    });
+                    toast("Mode mis à jour.");
+                  } else {
+                    await createMode.mutateAsync({
+                      libelle: libelle.trim(),
+                      code: code.trim() || undefined,
+                      actif: actif === "1",
+                      ordre: Number.isFinite(ordreNum) ? ordreNum : undefined,
+                    });
+                    toast("Mode créé.");
+                  }
+                  closeModal();
+                } catch (err) {
+                  setFormError(
+                    getApiErrorMessage(err, "Échec de l’enregistrement."),
+                  );
+                }
+              }}
+            >
+              {busy ? "Enregistrement…" : "Enregistrer"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          {formError ? <Alert tone="danger">{formError}</Alert> : null}
+          <Input
+            label="Libellé"
+            requiredMark
+            value={libelle}
+            onChange={(e) => setLibelle(e.target.value)}
+            placeholder="Espèces"
+          />
+          <Input
+            label="Code"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            disabled={!!editing}
+            hint={
+              editing
+                ? "Le code n’est pas modifiable (historique)."
+                : "Optionnel — dérivé du libellé si vide."
+            }
+            placeholder="especes"
+          />
+          <Input
+            label="Ordre"
+            type="number"
+            value={ordre}
+            onChange={(e) => setOrdre(e.target.value)}
+          />
+          <Select
+            label="Statut"
+            value={actif}
+            onChange={(e) => setActif(e.target.value)}
+            options={ACTIF_OPTIONS}
+          />
+        </div>
+      </Modal>
+
+      <ConfirmDialog
+        open={!!toDelete}
+        onClose={() => {
+          if (deleteMode.isPending) return;
+          setToDelete(null);
+        }}
+        loading={deleteMode.isPending}
+        title="Supprimer le mode"
+        description={
+          toDelete
+            ? `Confirmer la suppression de « ${toDelete.libelle} » ?`
+            : ""
+        }
+        onConfirm={async () => {
+          if (!toDelete) return;
+          try {
+            await deleteMode.mutateAsync(toDelete.id);
+            toast("Mode supprimé.");
+            setToDelete(null);
+          } catch (err) {
+            toast(
+              getApiErrorMessage(err, "Échec de la suppression."),
+              "danger",
+            );
+          }
+        }}
+      />
+    </>
+  );
+}
+
 export default function ParametresPage() {
   const [tab, setTab] = useState("grades");
   const { user } = useAuth();
@@ -535,12 +1283,15 @@ export default function ParametresPage() {
       <div className="space-y-4">
         <PageHeader
           title="Paramètres"
-          description="Grades, villes et référentiels système."
+          description="Grades, villes, catégories, comptes et modes de paiement."
         />
         <Tabs
           items={[
             { id: "grades", label: "Grades" },
             { id: "villes", label: "Villes" },
+            { id: "categories", label: "Catégories" },
+            { id: "comptes", label: "Comptes" },
+            { id: "modes", label: "Modes" },
           ]}
           value={tab}
           onChange={setTab}
@@ -550,6 +1301,15 @@ export default function ParametresPage() {
         </TabPanel>
         <TabPanel when="villes" active={tab}>
           <VillesTab canManage={canManage} />
+        </TabPanel>
+        <TabPanel when="categories" active={tab}>
+          <CategoriesTab canManage={canManage} />
+        </TabPanel>
+        <TabPanel when="comptes" active={tab}>
+          <ComptesTab canManage={canManage} />
+        </TabPanel>
+        <TabPanel when="modes" active={tab}>
+          <ModesTab canManage={canManage} />
         </TabPanel>
       </div>
     </PermissionGate>

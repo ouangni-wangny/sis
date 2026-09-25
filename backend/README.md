@@ -77,7 +77,7 @@ php artisan test
 ```
 app/
   Domain/Shared/{Enums,Exceptions,Traits}
-  Application/{Identity,Referentiel,Site,Agent,Operation,Commercial,Reporting}
+  Application/{Identity,Referentiel,Site,Agent,Operation,Commercial,Reporting,Paie,Rh,Tresorerie,Contrat}
   Models/
   Http/{Controllers/Api/V1,Requests,Resources}
   Policies/ Jobs/ Events/ Listeners/
