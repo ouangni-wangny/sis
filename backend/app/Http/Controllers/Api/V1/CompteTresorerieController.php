@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Application\Tresorerie\CreateAjustementTresorerieAction;
+use App\Application\Tresorerie\CreateTransfertTresorerieAction;
 use App\Application\Tresorerie\GetTresorerieStatsAction;
 use App\Domain\Shared\Enums\TypeCompteTresorerie;
 use App\Http\Controllers\Controller;
@@ -118,6 +119,34 @@ class CompteTresorerieController extends Controller
         ]);
 
         return new MouvementTresorerieResource($action->execute($data)->load('compte'));
+    }
+
+    public function transfert(Request $request, CreateTransfertTresorerieAction $action): \Illuminate\Http\JsonResponse
+    {
+        $this->authorize('create', CompteTresorerie::class);
+
+        $data = $request->validate([
+            'compte_source_id' => ['required', 'uuid', Rule::exists('comptes_tresorerie', 'id')->where('actif', true)->whereNull('deleted_at')],
+            'compte_destination_id' => ['required', 'uuid', 'different:compte_source_id', Rule::exists('comptes_tresorerie', 'id')->where('actif', true)->whereNull('deleted_at')],
+            'montant' => ['required', 'numeric', 'min:0.01'],
+            'date_mouvement' => ['required', 'date'],
+            'mode' => ModePaiementRules::sometimes(),
+            'reference' => ['nullable', 'string', 'max:255'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ], [
+            'compte_destination_id.different' => 'Le compte destination doit être différent du compte source.',
+            'compte_source_id.exists' => 'Le compte source est introuvable ou inactif.',
+            'compte_destination_id.exists' => 'Le compte destination est introuvable ou inactif.',
+        ]);
+
+        $result = $action->execute($data);
+
+        return response()->json([
+            'data' => [
+                'sortie' => new MouvementTresorerieResource($result['sortie']->load('compte')),
+                'entree' => new MouvementTresorerieResource($result['entree']->load('compte')),
+            ],
+        ], 201);
     }
 
     public function stats(Request $request, GetTresorerieStatsAction $action): \Illuminate\Http\JsonResponse

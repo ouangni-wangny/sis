@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { type ColumnDef } from "@tanstack/react-table";
 import {
   ArrowDownLeft,
+  ArrowLeftRight,
   ArrowUpRight,
   Landmark,
   Receipt,
@@ -13,6 +14,7 @@ import {
 import {
   useComptesTresorerie,
   useCreateAjustementTresorerie,
+  useCreateTransfertTresorerie,
   useModesPaiementOptions,
   useMouvementsTresorerie,
   useTresorerieStats,
@@ -35,8 +37,18 @@ import { cn } from "@/shared/lib/cn";
 import { formatDate, formatFcfa, labelize } from "@/shared/lib/format";
 
 const MOIS = [
-  "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
-  "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
+  "Janvier",
+  "Février",
+  "Mars",
+  "Avril",
+  "Mai",
+  "Juin",
+  "Juillet",
+  "Août",
+  "Septembre",
+  "Octobre",
+  "Novembre",
+  "Décembre",
 ];
 
 export default function TresoreriePage() {
@@ -50,6 +62,17 @@ export default function TresoreriePage() {
   const [ajustForm, setAjustForm] = useState({
     compte_tresorerie_id: "",
     direction: "entree" as "entree" | "sortie",
+    montant: "",
+    date_mouvement: now.toISOString().slice(0, 10),
+    mode: "virement",
+    reference: "",
+    notes: "",
+  });
+  const [transfertOpen, setTransfertOpen] = useState(false);
+  const [transfertError, setTransfertError] = useState<string | null>(null);
+  const [transfertForm, setTransfertForm] = useState({
+    compte_source_id: "",
+    compte_destination_id: "",
     montant: "",
     date_mouvement: now.toISOString().slice(0, 10),
     mode: "virement",
@@ -76,6 +99,7 @@ export default function TresoreriePage() {
     compte_id: compteFilter || undefined,
   });
   const createAjustement = useCreateAjustementTresorerie();
+  const createTransfert = useCreateTransfertTresorerie();
 
   const compteOptions = useMemo(
     () => [
@@ -152,11 +176,58 @@ export default function TresoreriePage() {
     }
   };
 
+  const soldeParCompte = useMemo(
+    () => new Map((stats?.comptes ?? []).map((c) => [c.id, Number(c.solde)])),
+    [stats],
+  );
+  const compteAvecSoldeOptions = comptes.map((c) => ({
+    value: c.id,
+    label: soldeParCompte.has(c.id)
+      ? `${c.libelle} — ${formatFcfa(soldeParCompte.get(c.id) ?? 0)}`
+      : c.libelle,
+  }));
+
+  const openTransfert = () => {
+    setTransfertForm((f) => ({
+      ...f,
+      compte_source_id: comptes[0]?.id ?? "",
+      compte_destination_id: comptes[1]?.id ?? "",
+      montant: "",
+      reference: "",
+      notes: "",
+    }));
+    setTransfertError(null);
+    setTransfertOpen(true);
+  };
+
+  const submitTransfert = async () => {
+    setTransfertError(null);
+    if (
+      transfertForm.compte_source_id === transfertForm.compte_destination_id
+    ) {
+      setTransfertError("Choisissez deux comptes différents.");
+      return;
+    }
+    try {
+      await createTransfert.mutateAsync({
+        compte_source_id: transfertForm.compte_source_id,
+        compte_destination_id: transfertForm.compte_destination_id,
+        montant: Number(transfertForm.montant),
+        date_mouvement: transfertForm.date_mouvement,
+        mode: transfertForm.mode,
+        reference: transfertForm.reference || undefined,
+        notes: transfertForm.notes || undefined,
+      });
+      toast("Transfert enregistré.", "success");
+      setTransfertOpen(false);
+    } catch (err) {
+      setTransfertError(getApiErrorMessage(err, "Échec du transfert."));
+    }
+  };
+
   const soldeNegatif = (stats?.solde_consolide ?? 0) < 0;
-  const paieReglements = stats?.paie_mois.par_mode.reduce(
-    (n, r) => n + r.count,
-    0,
-  ) ?? 0;
+  const paieReglements =
+    stats?.paie_mois.par_mode.reduce((n, r) => n + r.count, 0) ?? 0;
 
   return (
     <PermissionGate
@@ -168,19 +239,35 @@ export default function TresoreriePage() {
           title="Trésorerie"
           description="Soldes des comptes, journal des mouvements et masse salariale payée."
           actions={
-            <Button
-              type="button"
-              onClick={() => {
-                setAjustForm((f) => ({
-                  ...f,
-                  compte_tresorerie_id: comptes[0]?.id ?? "",
-                }));
-                setAjustError(null);
-                setAjustOpen(true);
-              }}
-            >
-              Ajustement
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={openTransfert}
+                disabled={comptes.length < 2}
+                title={
+                  comptes.length < 2
+                    ? "Il faut au moins deux comptes actifs"
+                    : undefined
+                }
+              >
+                <ArrowLeftRight className="size-4" />
+                Transfert
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setAjustForm((f) => ({
+                    ...f,
+                    compte_tresorerie_id: comptes[0]?.id ?? "",
+                  }));
+                  setAjustError(null);
+                  setAjustOpen(true);
+                }}
+              >
+                Ajustement
+              </Button>
+            </div>
           }
         />
 
@@ -269,7 +356,9 @@ export default function TresoreriePage() {
                       <p className="text-[11px] font-medium uppercase tracking-wide text-ink-faint">
                         {labelize(c.type)}
                       </p>
-                      <p className="mt-0.5 font-semibold text-ink">{c.libelle}</p>
+                      <p className="mt-0.5 font-semibold text-ink">
+                        {c.libelle}
+                      </p>
                     </div>
                     <span className="rounded-md bg-ink/[0.04] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
                       {String(c.type).replaceAll("_", " ")}
@@ -427,6 +516,105 @@ export default function TresoreriePage() {
               disabled={createAjustement.isPending}
             >
               Enregistrer
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={transfertOpen}
+        onClose={() => !createTransfert.isPending && setTransfertOpen(false)}
+        title="Transfert entre comptes"
+      >
+        <div className="space-y-3">
+          {transfertError ? (
+            <Alert tone="danger">{transfertError}</Alert>
+          ) : null}
+          <Select
+            label="Depuis le compte"
+            value={transfertForm.compte_source_id}
+            onChange={(e) =>
+              setTransfertForm((f) => ({
+                ...f,
+                compte_source_id: e.target.value,
+              }))
+            }
+            options={compteAvecSoldeOptions}
+          />
+          <Select
+            label="Vers le compte"
+            value={transfertForm.compte_destination_id}
+            onChange={(e) =>
+              setTransfertForm((f) => ({
+                ...f,
+                compte_destination_id: e.target.value,
+              }))
+            }
+            options={compteAvecSoldeOptions.filter(
+              (o) => o.value !== transfertForm.compte_source_id,
+            )}
+          />
+          <Input
+            label="Montant"
+            type="number"
+            value={transfertForm.montant}
+            onChange={(e) =>
+              setTransfertForm((f) => ({ ...f, montant: e.target.value }))
+            }
+          />
+          <Input
+            label="Date"
+            type="date"
+            value={transfertForm.date_mouvement}
+            onChange={(e) =>
+              setTransfertForm((f) => ({
+                ...f,
+                date_mouvement: e.target.value,
+              }))
+            }
+          />
+          <Select
+            label="Mode"
+            value={transfertForm.mode}
+            onChange={(e) =>
+              setTransfertForm((f) => ({ ...f, mode: e.target.value }))
+            }
+            options={modeOptions}
+          />
+          <Input
+            label="Référence"
+            value={transfertForm.reference}
+            onChange={(e) =>
+              setTransfertForm((f) => ({ ...f, reference: e.target.value }))
+            }
+          />
+          <Textarea
+            label="Notes"
+            value={transfertForm.notes}
+            onChange={(e) =>
+              setTransfertForm((f) => ({ ...f, notes: e.target.value }))
+            }
+          />
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setTransfertOpen(false)}
+              disabled={createTransfert.isPending}
+            >
+              Annuler
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void submitTransfert()}
+              disabled={
+                createTransfert.isPending ||
+                !transfertForm.compte_source_id ||
+                !transfertForm.compte_destination_id ||
+                !(Number(transfertForm.montant) > 0)
+              }
+            >
+              Transférer
             </Button>
           </div>
         </div>

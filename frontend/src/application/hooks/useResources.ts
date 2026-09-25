@@ -1202,6 +1202,14 @@ export function useCreateAjustementTresorerie() {
   });
 }
 
+export function useCreateTransfertTresorerie() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: tresorerieApi.transfert,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["tresorerie"] }),
+  });
+}
+
 export function useCategoriesDepense() {
   return useQuery({
     queryKey: ["tresorerie", "categories-depense"],

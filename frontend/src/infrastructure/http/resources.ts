@@ -863,6 +863,18 @@ export const tresorerieApi = {
       "/tresorerie/ajustements",
       payload,
     ),
+  transfert: (payload: {
+    compte_source_id: string;
+    compte_destination_id: string;
+    montant: number;
+    date_mouvement: string;
+    mode?: string;
+    reference?: string;
+    notes?: string;
+  }) =>
+    api.post<
+      DataResponse<{ sortie: MouvementTresorerie; entree: MouvementTresorerie }>
+    >("/tresorerie/transferts", payload),
   stats: (params?: { mois?: number; annee?: number }) =>
     api.get<DataResponse<TresorerieStats>>("/tresorerie/stats", {
       params: toQuery(params),

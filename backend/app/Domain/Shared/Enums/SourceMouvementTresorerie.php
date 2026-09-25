@@ -8,6 +8,7 @@ enum SourceMouvementTresorerie: string
     case BulletinPaie = 'bulletin_paie';
     case Depense = 'depense';
     case Ajustement = 'ajustement';
+    case Transfert = 'transfert';
 
     public function label(): string
     {
@@ -16,6 +17,7 @@ enum SourceMouvementTresorerie: string
             self::BulletinPaie => 'Règlement paie',
             self::Depense => 'Dépense',
             self::Ajustement => 'Ajustement',
+            self::Transfert => 'Transfert interne',
         };
     }
 }

@@ -206,6 +206,7 @@ Route::prefix('v1')->group(function () {
             Route::get('tresorerie/stats', [CompteTresorerieController::class, 'stats']);
             Route::get('tresorerie/mouvements', [CompteTresorerieController::class, 'mouvements']);
             Route::post('tresorerie/ajustements', [CompteTresorerieController::class, 'ajustement']);
+            Route::post('tresorerie/transferts', [CompteTresorerieController::class, 'transfert']);
             Route::get('depenses', [DepenseController::class, 'index']);
             Route::post('depenses', [DepenseController::class, 'store']);
             Route::get('depenses/{depense}', [DepenseController::class, 'show']);

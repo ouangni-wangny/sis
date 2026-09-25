@@ -78,8 +78,10 @@ final class GetTresorerieStatsAction
             })
             ->values();
 
+        // Les transferts internes s'annulent (sortie + entrée) : ils ne sont ni des recettes ni des charges.
         $mouvementsMois = MouvementTresorerie::query()
             ->whereBetween('date_mouvement', [$debut->toDateString(), $fin->toDateString()])
+            ->where('source_type', '!=', SourceMouvementTresorerie::Transfert->value)
             ->get();
 
         $entrees = $mouvementsMois->where('direction', 'entree');
