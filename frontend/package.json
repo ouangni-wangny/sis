@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "NODE_ENV=production node server.js",
     "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "test:pwa": "node scripts/test-pwa.mjs",
     "test:alternance": "npx --yes tsx scripts/test-alternance-balance.mjs"
   },
@@ -34,6 +36,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.7"
   }
 }

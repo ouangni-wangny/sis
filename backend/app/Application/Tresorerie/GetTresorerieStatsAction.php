@@ -39,7 +39,8 @@ final class GetTresorerieStatsAction
 
         $depensesMois = Depense::query()
             ->where('statut', StatutDepense::Validee)
-            ->whereBetween('date_depense', [$debut->toDateString(), $fin->toDateString()])
+            ->whereDate('date_depense', '>=', $debut->toDateString())
+            ->whereDate('date_depense', '<=', $fin->toDateString())
             ->with('categorie')
             ->get();
 
@@ -55,7 +56,8 @@ final class GetTresorerieStatsAction
         $paieMouvements = MouvementTresorerie::query()
             ->where('source_type', SourceMouvementTresorerie::BulletinPaie->value)
             ->where('direction', 'sortie')
-            ->whereBetween('date_mouvement', [$debut->toDateString(), $fin->toDateString()])
+            ->whereDate('date_mouvement', '>=', $debut->toDateString())
+            ->whereDate('date_mouvement', '<=', $fin->toDateString())
             ->get();
 
         $masseSalarialePayee = round($paieMouvements->sum(fn ($m) => (float) $m->montant), 2);
@@ -85,7 +87,8 @@ final class GetTresorerieStatsAction
 
         // Les transferts internes s'annulent (sortie + entrée) : ils ne sont ni des recettes ni des charges.
         $mouvementsMois = MouvementTresorerie::query()
-            ->whereBetween('date_mouvement', [$debut->toDateString(), $fin->toDateString()])
+            ->whereDate('date_mouvement', '>=', $debut->toDateString())
+            ->whereDate('date_mouvement', '<=', $fin->toDateString())
             ->where('source_type', '!=', SourceMouvementTresorerie::Transfert->value)
             ->get();
 
@@ -100,7 +103,8 @@ final class GetTresorerieStatsAction
         // CA = factures validées émises sur le mois (date_emission), hors proformas / annulées.
         $facturesEmises = Facture::query()
             ->where('statut', StatutFacture::Valide)
-            ->whereBetween('date_emission', [$debut->toDateString(), $fin->toDateString()])
+            ->whereDate('date_emission', '>=', $debut->toDateString())
+            ->whereDate('date_emission', '<=', $fin->toDateString())
             ->get();
 
         $caHt = round($facturesEmises->sum(fn (Facture $f) => (float) $f->montant_ht), 2);

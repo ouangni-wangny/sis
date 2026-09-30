@@ -29,7 +29,8 @@ class DepenseController extends Controller
                     1,
                 )->startOfMonth();
                 $fin = (clone $debut)->endOfMonth();
-                $q->whereBetween('date_depense', [$debut->toDateString(), $fin->toDateString()]);
+                $q->whereDate('date_depense', '>=', $debut->toDateString())
+                    ->whereDate('date_depense', '<=', $fin->toDateString());
             })
             ->when($request->filled('from'), fn ($q) => $q->whereDate('date_depense', '>=', $request->string('from')))
             ->when($request->filled('to'), fn ($q) => $q->whereDate('date_depense', '<=', $request->string('to')))

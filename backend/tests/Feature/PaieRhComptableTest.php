@@ -91,6 +91,21 @@ beforeEach(function () {
     ]);
 });
 
+it('expose la masse salariale nette du mois à la RH et au commercial', function () {
+    $commercial = User::factory()->create([
+        'email' => 'com-paie-masse@sis.ci',
+        'password' => Hash::make('password'),
+    ]);
+    $commercial->assignRole('commercial');
+
+    foreach ([$this->rh, $commercial] as $user) {
+        $this->actingAs($user)
+            ->getJson('/api/v1/periodes-paie')
+            ->assertOk()
+            ->assertJsonPath('data.0.masse_salariale', 120000);
+    }
+});
+
 it('permet à la RH de renseigner le salaire perçu', function () {
     $response = $this->actingAs($this->rh)->postJson(
         "/api/v1/bulletins-paie/{$this->bulletin->id}/salaire-percu",

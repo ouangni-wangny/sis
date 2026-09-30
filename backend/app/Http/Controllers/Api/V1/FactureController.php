@@ -39,7 +39,8 @@ class FactureController extends Controller
                     1,
                 )->startOfMonth();
                 $fin = (clone $debut)->endOfMonth();
-                $q->whereBetween('date_emission', [$debut->toDateString(), $fin->toDateString()]);
+                $q->whereDate('date_emission', '>=', $debut->toDateString())
+                    ->whereDate('date_emission', '<=', $fin->toDateString());
             })
             ->when(
                 $request->filled('annee') && ! $request->filled('mois'),
