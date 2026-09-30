@@ -309,7 +309,7 @@ export type PeriodePaie = {
   statut: "brouillon" | "validee" | "cloturee" | string;
   commentaire: string | null;
   bulletins_count?: number;
-  /** Somme des salaires nets de la période (visible à tout profil paie.view). */
+  /** Somme des salaires nets de la période (visible aux profils paie.view : RH, comptable). */
   masse_salariale?: number | string | null;
 };
 

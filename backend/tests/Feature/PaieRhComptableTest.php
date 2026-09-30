@@ -91,19 +91,25 @@ beforeEach(function () {
     ]);
 });
 
-it('expose la masse salariale nette du mois à la RH et au commercial', function () {
-    $commercial = User::factory()->create([
-        'email' => 'com-paie-masse@sis.ci',
-        'password' => Hash::make('password'),
-    ]);
-    $commercial->assignRole('commercial');
-
-    foreach ([$this->rh, $commercial] as $user) {
+it('expose la masse salariale nette du mois à la RH et au comptable', function () {
+    foreach ([$this->rh, $this->comptable] as $user) {
         $this->actingAs($user)
             ->getJson('/api/v1/periodes-paie')
             ->assertOk()
             ->assertJsonPath('data.0.masse_salariale', 120000);
     }
+});
+
+it('refuse au commercial l’accès à la paie', function () {
+    $commercial = User::factory()->create([
+        'email' => 'com-paie-refuse@sis.ci',
+        'password' => Hash::make('password'),
+    ]);
+    $commercial->assignRole('commercial');
+
+    $this->actingAs($commercial)
+        ->getJson('/api/v1/periodes-paie')
+        ->assertForbidden();
 });
 
 it('permet à la RH de renseigner le salaire perçu', function () {

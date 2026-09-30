@@ -18,7 +18,7 @@ class PeriodePaieResource extends JsonResource
             'statut' => $this->statut,
             'commentaire' => $this->commentaire,
             'bulletins_count' => $this->whenCounted('bulletins'),
-            // Masse nette du mois : visible dès qu’on peut consulter la paie (RH, commercial, comptable…).
+            // Masse nette du mois : visible dès qu’on peut consulter la paie (RH, comptable…).
             // Les montants individuels restent masqués hors contrats.manage.
             'masse_salariale' => $this->when(
                 array_key_exists('masse_salariale', $this->resource->getAttributes())

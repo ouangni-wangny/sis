@@ -32,7 +32,7 @@ describe("can / permissions métier", () => {
     });
     const commercial = user({
       roles: ["commercial"],
-      permissions: ["factures.view", "paie.view", "paiements.manage"],
+      permissions: ["factures.view", "paiements.manage"],
     });
 
     expect(can(rh, "tresorerie.view")).toBe(false);
@@ -58,14 +58,19 @@ describe("can / permissions métier", () => {
     expect(canSeeSalaire(comptable)).toBe(false);
   });
 
-  it("autorise la masse salariale agrégée via paie.view sans salaires individuels", () => {
+  it("refuse la paie au commercial et l’autorise au comptable", () => {
     const commercial = user({
       roles: ["commercial"],
-      permissions: ["paie.view", "factures.view"],
+      permissions: ["factures.view", "paiements.manage"],
+    });
+    const comptable = user({
+      roles: ["comptable"],
+      permissions: ["paie.view", "paie.payer", "factures.view"],
     });
 
-    expect(canViewPaie(commercial)).toBe(true);
-    expect(canSeeSalaire(commercial)).toBe(false);
+    expect(canViewPaie(commercial)).toBe(false);
+    expect(canViewPaie(comptable)).toBe(true);
+    expect(canSeeSalaire(comptable)).toBe(false);
   });
 });
 
@@ -83,11 +88,12 @@ describe("navigation trésorerie / paie", () => {
     }
   });
 
-  it("expose la paie avec paie.view pour RH/commercial", () => {
+  it("expose la paie avec paie.view pour RH/comptable", () => {
     const paie = navigation
       .flatMap((g) => g.items)
       .find((i) => i.href === "/rh/paie");
 
     expect(paie?.permissions).toContain("paie.view");
+    expect(paie?.permissions).toContain("paie.payer");
   });
 });

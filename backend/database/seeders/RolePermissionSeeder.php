@@ -163,9 +163,6 @@ class RolePermissionSeeder extends Seeder
             'offres.view', 'offres.create', 'offres.update',
             'abonnements.view', 'abonnements.create', 'abonnements.update',
             'paiements.view', 'paiements.create', 'paiements.update',
-
-            // Consultation masse salariale / périodes (sans montants individuels)
-            'paie.view',
         ]);
 
         // Comptabilité — trésorerie + règlement paie (sans voir les salaires)
