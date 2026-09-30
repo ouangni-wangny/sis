@@ -351,6 +351,8 @@ export function useFactures(
     statut?: string;
     periodicite?: string;
     statut_paiement?: string;
+    mois?: number | string;
+    annee?: number | string;
     echeance_30j?: boolean;
     a_recouvrer?: boolean;
     retard?: boolean;
@@ -1327,6 +1329,8 @@ export function useDepenses(
     compte_id?: string;
     from?: string;
     to?: string;
+    mois?: number | string;
+    annee?: number | string;
     statut?: string;
   },
 ) {
@@ -1341,14 +1345,6 @@ export function useCreateDepense() {
   return useMutation({
     mutationFn: (payload: Record<string, unknown>) =>
       tresorerieApi.createDepense(payload),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["tresorerie"] }),
-  });
-}
-
-export function useDeleteDepense() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => tresorerieApi.deleteDepense(id),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["tresorerie"] }),
   });
 }

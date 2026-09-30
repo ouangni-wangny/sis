@@ -11,6 +11,9 @@ export type PaginatedMeta = {
 export type PaginatedResponse<T> = {
   data: T[];
   meta: PaginatedMeta;
+  summary?: {
+    total_montant?: number;
+  };
   links?: {
     first: string | null;
     last: string | null;

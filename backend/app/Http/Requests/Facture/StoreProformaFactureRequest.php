@@ -32,6 +32,8 @@ class StoreProformaFactureRequest extends FormRequest
             'date_debut_service' => ['nullable', 'date'],
             'date_fin_service' => ['nullable', 'date', 'after_or_equal:date_debut_service'],
             'delai_paiement_jours' => ['nullable', 'integer', Rule::in([0, 15, 30, 45, 60])],
+            'appliquer_tva' => ['nullable', 'boolean'],
+            'taux_tva' => ['nullable', 'numeric', Rule::in([0, 18])],
             'notes' => ['nullable', 'string', 'max:2000'],
             'conditions_paiement' => ['nullable', 'string', 'max:500'],
             'delai_validite' => ['nullable', 'string', 'max:100'],

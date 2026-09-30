@@ -6,6 +6,7 @@ import {
   ArrowDownLeft,
   ArrowLeftRight,
   ArrowUpRight,
+  FileText,
   Landmark,
   Receipt,
   Scale,
@@ -61,7 +62,7 @@ export default function TresoreriePage() {
   const [ajustError, setAjustError] = useState<string | null>(null);
   const [ajustForm, setAjustForm] = useState({
     compte_tresorerie_id: "",
-    direction: "entree" as "entree" | "sortie",
+    direction: "retour" as "retour" | "sortie",
     montant: "",
     date_mouvement: now.toISOString().slice(0, 10),
     mode: "virement",
@@ -127,8 +128,18 @@ export default function TresoreriePage() {
         cell: ({ getValue }) => {
           const d = getValue() as string;
           return (
-            <Badge tone={d === "entree" ? "success" : "danger"}>
-              {d === "entree" ? "Entrée" : "Sortie"}
+            <Badge
+              tone={
+                d === "sortie" ? "danger" : "success"
+              }
+            >
+              {d === "entree"
+                ? "Entrée"
+                : d === "retour"
+                  ? "Retour"
+                  : d === "approvisionnement"
+                    ? "Approvisionnement"
+                    : "Sortie"}
             </Badge>
           );
         },
@@ -175,17 +186,6 @@ export default function TresoreriePage() {
       setAjustError(getApiErrorMessage(err, "Échec de l’ajustement."));
     }
   };
-
-  const soldeParCompte = useMemo(
-    () => new Map((stats?.comptes ?? []).map((c) => [c.id, Number(c.solde)])),
-    [stats],
-  );
-  const compteAvecSoldeOptions = comptes.map((c) => ({
-    value: c.id,
-    label: soldeParCompte.has(c.id)
-      ? `${c.libelle} — ${formatFcfa(soldeParCompte.get(c.id) ?? 0)}`
-      : c.libelle,
-  }));
 
   const openTransfert = () => {
     setTransfertForm((f) => ({
@@ -303,6 +303,13 @@ export default function TresoreriePage() {
                   ? "border-rose-200 bg-gradient-to-br from-rose-50 to-white"
                   : "border-teal/25 bg-gradient-to-br from-teal/[0.08] to-white",
               )}
+            />
+            <StatCard
+              label="Chiffre d'affaires"
+              value={formatFcfa(stats.chiffre_affaires_mois?.total_ttc ?? 0)}
+              hint={`${stats.chiffre_affaires_mois?.count ?? 0} facture${(stats.chiffre_affaires_mois?.count ?? 0) > 1 ? "s" : ""} émise${(stats.chiffre_affaires_mois?.count ?? 0) > 1 ? "s" : ""} · HT ${formatFcfa(stats.chiffre_affaires_mois?.total_ht ?? 0)}`}
+              icon={<FileText className="size-4" />}
+              className="border-sky-200/80 bg-gradient-to-br from-sky-50/90 to-white"
             />
             <StatCard
               label="Entrées du mois"
@@ -455,11 +462,11 @@ export default function TresoreriePage() {
             onChange={(e) =>
               setAjustForm((f) => ({
                 ...f,
-                direction: e.target.value as "entree" | "sortie",
+                direction: e.target.value as "retour" | "sortie",
               }))
             }
             options={[
-              { value: "entree", label: "Entrée" },
+              { value: "retour", label: "Retour (crédit compte)" },
               { value: "sortie", label: "Sortie" },
             ]}
           />
@@ -539,7 +546,7 @@ export default function TresoreriePage() {
                 compte_source_id: e.target.value,
               }))
             }
-            options={compteAvecSoldeOptions}
+            options={comptes.map((c) => ({ value: c.id, label: c.libelle }))}
           />
           <Select
             label="Vers le compte"
@@ -550,9 +557,9 @@ export default function TresoreriePage() {
                 compte_destination_id: e.target.value,
               }))
             }
-            options={compteAvecSoldeOptions.filter(
-              (o) => o.value !== transfertForm.compte_source_id,
-            )}
+            options={comptes
+              .filter((c) => c.id !== transfertForm.compte_source_id)
+              .map((c) => ({ value: c.id, label: c.libelle }))}
           />
           <Input
             label="Montant"

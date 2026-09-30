@@ -32,7 +32,7 @@ it('transfère un montant entre deux comptes via deux mouvements liés', functio
         ])
         ->assertCreated()
         ->assertJsonPath('data.sortie.direction', 'sortie')
-        ->assertJsonPath('data.entree.direction', 'entree');
+        ->assertJsonPath('data.entree.direction', 'approvisionnement');
 
     expect($this->banque->soldeCourant())->toBe(350000.0)
         ->and($this->caisse->soldeCourant())->toBe(160000.0);

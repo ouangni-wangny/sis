@@ -652,6 +652,12 @@ export default function PaiePage() {
         cell: ({ getValue }) => String(getValue() ?? 0),
       },
       {
+        id: "masse_salariale",
+        header: "Masse salariale",
+        cell: ({ row }) =>
+          formatFcfa(Number(row.original.masse_salariale ?? 0)),
+      },
+      {
         id: "actions",
         header: "",
         enableSorting: false,
@@ -1590,7 +1596,7 @@ export default function PaiePage() {
               value={payeForm.compte_tresorerie_id}
               options={comptes.map((c) => ({
                 value: c.id,
-                label: `${c.libelle}${c.solde != null ? ` · ${formatFcfa(c.solde)}` : ""}`,
+                label: c.libelle,
               }))}
               placeholder="Choisir un compte"
               onChange={(e) =>
@@ -1789,7 +1795,7 @@ export default function PaiePage() {
                 value={bulkPayForm.compte_tresorerie_id}
                 options={comptes.map((c) => ({
                   value: c.id,
-                  label: `${c.libelle}${c.solde != null ? ` · ${formatFcfa(c.solde)}` : ""}`,
+                  label: c.libelle,
                 }))}
                 placeholder="Choisir un compte"
                 onChange={(e) =>

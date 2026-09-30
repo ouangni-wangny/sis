@@ -37,6 +37,18 @@ final class ConditionsCommerciales
     }
 
     /**
+     * Date d’émission métier = dernier jour de la période facturée (30/31 selon le mois),
+     * jamais la date technique de création du document.
+     */
+    public static function dateEmissionPourPeriode(string $periodeFin): string
+    {
+        return Carbon::parse($periodeFin)
+            ->timezone('Africa/Abidjan')
+            ->startOfDay()
+            ->toDateString();
+    }
+
+    /**
      * @return array{0: string, 1: string} [debut, fin]
      */
     public static function periodeFacturee(

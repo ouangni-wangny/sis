@@ -30,6 +30,24 @@ class CompteTresorerieController extends Controller
         return CompteTresorerieResource::collection($items);
     }
 
+    /**
+     * Liste id / libellé / type pour selects (paie, encaissements, dépenses).
+     * Sans soldes — autorisé hors permission tresorerie.view.
+     */
+    public function options(Request $request): AnonymousResourceCollection
+    {
+        $this->authorize('selectOptions', CompteTresorerie::class);
+
+        $request->merge(['with_solde' => false]);
+
+        $items = CompteTresorerie::query()
+            ->when($request->boolean('actif_only'), fn ($q) => $q->where('actif', true))
+            ->orderBy('libelle')
+            ->get();
+
+        return CompteTresorerieResource::collection($items);
+    }
+
     public function store(Request $request): CompteTresorerieResource
     {
         $this->authorize('create', CompteTresorerie::class);
@@ -110,7 +128,7 @@ class CompteTresorerieController extends Controller
 
         $data = $request->validate([
             'compte_tresorerie_id' => ['required', 'uuid', 'exists:comptes_tresorerie,id'],
-            'direction' => ['required', Rule::in(['entree', 'sortie'])],
+            'direction' => ['required', Rule::in(['retour', 'sortie'])],
             'montant' => ['required', 'numeric', 'min:0.01'],
             'date_mouvement' => ['required', 'date'],
             'mode' => ModePaiementRules::sometimes(),

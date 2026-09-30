@@ -5,31 +5,35 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { type ColumnDef } from "@tanstack/react-table";
-import { Plus } from "lucide-react";
+import { Plus, Wallet } from "lucide-react";
 import {
   useCategoriesDepense,
   useComptesTresorerieOptions,
   useCreateDepense,
-  useDeleteDepense,
   useDepenses,
   useModesPaiementOptions,
 } from "@/application/hooks/useResources";
 import type { Depense } from "@/domain/types/entities";
 import { PermissionGate } from "@/presentation/components/auth/PermissionGate";
 import { DataTable } from "@/presentation/components/tables/DataTable";
-import { TableActions } from "@/presentation/components/tables/TableActions";
 import { Alert } from "@/presentation/components/ui/Alert";
 import { Badge, statusTone } from "@/presentation/components/ui/Badge";
 import { Button } from "@/presentation/components/ui/Button";
-import { ConfirmDialog } from "@/presentation/components/ui/ConfirmDialog";
 import { Input } from "@/presentation/components/ui/Input";
 import { Modal } from "@/presentation/components/ui/Modal";
 import { PageHeader } from "@/presentation/components/ui/PageHeader";
 import { Select } from "@/presentation/components/ui/Select";
+import { StatCard } from "@/presentation/components/ui/StatCard";
 import { Textarea } from "@/presentation/components/ui/Textarea";
 import { useToast } from "@/presentation/providers/ToastProvider";
 import { getApiErrorMessage } from "@/shared/lib/api-error";
-import { formatDate, formatFcfa, labelize } from "@/shared/lib/format";
+import {
+  formatDate,
+  formatFcfa,
+  labelize,
+  labelMoisAnnee,
+  MOIS_LABELS,
+} from "@/shared/lib/format";
 
 const depenseSchema = z.object({
   categorie_depense_id: z.string().uuid("Catégorie requise"),
@@ -68,10 +72,12 @@ const STATUT_FILTER_OPTIONS = [
 ];
 
 export default function DepensesPage() {
+  const now = new Date();
   const [page, setPage] = useState(1);
   const [statutFilter, setStatutFilter] = useState("");
+  const [filterMois, setFilterMois] = useState(String(now.getMonth() + 1));
+  const [filterAnnee, setFilterAnnee] = useState(String(now.getFullYear()));
   const [open, setOpen] = useState(false);
-  const [toDelete, setToDelete] = useState<Depense | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -79,12 +85,13 @@ export default function DepensesPage() {
     page,
     per_page: 15,
     statut: statutFilter || undefined,
+    mois: filterMois || undefined,
+    annee: filterAnnee || undefined,
   });
   const { data: categoriesRes } = useCategoriesDepense();
   const { data: comptesRes } = useComptesTresorerieOptions();
   const { data: modesRes } = useModesPaiementOptions();
   const createDepense = useCreateDepense();
-  const deleteDepense = useDeleteDepense();
 
   const categories = categoriesRes?.data ?? [];
   const comptes = comptesRes?.data ?? [];
@@ -92,6 +99,29 @@ export default function DepensesPage() {
     const modes = modesRes?.data ?? [];
     return modes.map((m) => ({ value: m.code, label: m.libelle }));
   }, [modesRes]);
+
+  const anneeOptions = useMemo(() => {
+    const current = now.getFullYear();
+    return Array.from({ length: 6 }, (_, i) => {
+      const year = String(current - i);
+      return { value: year, label: year };
+    });
+  }, [now]);
+
+  const moisOptions = useMemo(
+    () =>
+      MOIS_LABELS.map((label, i) => ({
+        value: String(i + 1),
+        label,
+      })),
+    [],
+  );
+
+  const totalMontant = Number(data?.summary?.total_montant ?? 0);
+  const periodeLabel =
+    filterMois && filterAnnee
+      ? labelMoisAnnee(Number(filterMois), Number(filterAnnee))
+      : "période sélectionnée";
 
   const {
     register,
@@ -146,25 +176,6 @@ export default function DepensesPage() {
           );
         },
       },
-      {
-        id: "actions",
-        header: "Actions",
-        enableSorting: false,
-        cell: ({ row }) => {
-          const isAnnulee = (row.original.statut ?? "validee") === "annulee";
-          if (isAnnulee) {
-            return <span className="text-xs text-ink-faint">—</span>;
-          }
-          return (
-            <TableActions
-              canEdit={false}
-              canDelete
-              deleteLabel="Annuler"
-              onDelete={() => setToDelete(row.original)}
-            />
-          );
-        },
-      },
     ],
     [],
   );
@@ -195,10 +206,10 @@ export default function DepensesPage() {
       ]}
       title="Dépenses"
     >
-      <div className="space-y-6">
+      <div className="space-y-4">
         <PageHeader
           title="Dépenses"
-          description="Enregistrez les sorties d’argent de l’entreprise (impact immédiat sur le solde)."
+          description="Dépenses d’entreprise (hors salaires). Chaque saisie crée une sortie de trésorerie."
           actions={
             <Button
               type="button"
@@ -207,6 +218,7 @@ export default function DepensesPage() {
                   ...emptyDefaults,
                   compte_tresorerie_id: comptes[0]?.id ?? "",
                   categorie_depense_id: categories[0]?.id ?? "",
+                  mode: modeOptions[0]?.value ?? "especes",
                 });
                 setFormError(null);
                 setOpen(true);
@@ -218,28 +230,56 @@ export default function DepensesPage() {
           }
         />
 
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Select
+            label="Mois"
+            value={filterMois}
+            onChange={(e) => {
+              setFilterMois(e.target.value);
+              setPage(1);
+            }}
+            options={moisOptions}
+          />
+          <Select
+            label="Année"
+            value={filterAnnee}
+            onChange={(e) => {
+              setFilterAnnee(e.target.value);
+              setPage(1);
+            }}
+            options={anneeOptions}
+          />
+          <Select
+            label="Statut"
+            value={statutFilter}
+            onChange={(e) => {
+              setStatutFilter(e.target.value);
+              setPage(1);
+            }}
+            options={[...STATUT_FILTER_OPTIONS]}
+          />
+          <StatCard
+            label="Total du mois"
+            value={formatFcfa(totalMontant)}
+            hint={
+              statutFilter
+                ? `${periodeLabel} · ${STATUT_LABELS[statutFilter] ?? labelize(statutFilter)}`
+                : `${periodeLabel} · dépenses validées`
+            }
+            icon={<Wallet className="size-4" />}
+            className="border-teal/25 bg-gradient-to-br from-teal/[0.08] to-white sm:col-span-2 lg:col-span-1"
+          />
+        </div>
+
         <DataTable
           columns={columns}
           data={data?.data ?? []}
           isLoading={isLoading}
-          selectable={false}
-          toolbar={
-            <Select
-              className="min-w-[11rem]"
-              value={statutFilter}
-              options={STATUT_FILTER_OPTIONS}
-              onChange={(event) => {
-                setStatutFilter(event.target.value);
-                setPage(1);
-              }}
-            />
-          }
-          pagination={{
-            page,
-            perPage: 15,
-            total: data?.meta.total ?? 0,
-            onPageChange: setPage,
-          }}
+          page={page}
+          pageCount={data?.meta?.last_page ?? 1}
+          onPageChange={setPage}
+          perPage={15}
+          total={data?.meta?.total}
         />
       </div>
 
@@ -248,7 +288,7 @@ export default function DepensesPage() {
         onClose={() => !isSubmitting && setOpen(false)}
         title="Nouvelle dépense"
       >
-        <form className="space-y-3" onSubmit={onSubmit}>
+        <form className="space-y-3" onSubmit={onSubmit} noValidate>
           {formError ? <Alert tone="danger">{formError}</Alert> : null}
           <Select
             label="Catégorie"
@@ -265,7 +305,7 @@ export default function DepensesPage() {
             {...register("libelle")}
           />
           <Input
-            label="Montant (FCFA)"
+            label="Montant"
             type="number"
             error={errors.montant?.message}
             {...register("montant")}
@@ -281,7 +321,7 @@ export default function DepensesPage() {
             error={errors.compte_tresorerie_id?.message}
             options={comptes.map((c) => ({
               value: c.id,
-              label: `${c.libelle} (${formatFcfa(c.solde ?? 0)})`,
+              label: c.libelle,
             }))}
             {...register("compte_tresorerie_id")}
           />
@@ -305,7 +345,7 @@ export default function DepensesPage() {
               onClick={() => setOpen(false)}
               disabled={isSubmitting}
             >
-              Annuler
+              Fermer
             </Button>
             <Button type="submit" disabled={isSubmitting}>
               Enregistrer
@@ -313,24 +353,6 @@ export default function DepensesPage() {
           </div>
         </form>
       </Modal>
-
-      <ConfirmDialog
-        open={!!toDelete}
-        title="Annuler cette dépense ?"
-        description="La dépense restera visible avec le statut Annulée. Un mouvement inverse sera créé en trésorerie."
-        confirmLabel="Annuler la dépense"
-        onConfirm={async () => {
-          if (!toDelete) return;
-          try {
-            await deleteDepense.mutateAsync(toDelete.id);
-            toast("Dépense annulée.", "success");
-            setToDelete(null);
-          } catch (err) {
-            toast(getApiErrorMessage(err, "Échec."), "danger");
-          }
-        }}
-        onClose={() => setToDelete(null)}
-      />
     </PermissionGate>
   );
 }

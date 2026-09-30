@@ -27,9 +27,4 @@ class DepensePolicy
             || $user->can('tresorerie.manage')
             || $user->hasRole('super-admin');
     }
-
-    public function delete(User $user, Depense $model): bool
-    {
-        return $this->create($user);
-    }
 }

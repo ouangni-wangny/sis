@@ -525,7 +525,7 @@ function PaiementsPageContent() {
                 requiredMark
                 options={comptes.map((c) => ({
                   value: c.id,
-                  label: `${c.libelle}${c.solde != null ? ` · ${formatFcfa(c.solde)}` : ""}`,
+                  label: c.libelle,
                 }))}
                 placeholder="Choisir un compte"
                 error={errors.compte_tresorerie_id?.message}

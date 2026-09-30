@@ -12,7 +12,7 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Transfert interne entre deux comptes de trésorerie : une sortie sur le compte
- * source et une entrée sur le compte destination, liées par le même source_id.
+ * source et un approvisionnement sur le compte destination, liés par le même source_id.
  */
 final class CreateTransfertTresorerieAction
 {
@@ -75,8 +75,8 @@ final class CreateTransfertTresorerieAction
             $entree = $this->poster->execute([
                 ...$common,
                 'compte_tresorerie_id' => $destination->id,
-                'direction' => DirectionMouvementTresorerie::Entree,
-                'notes' => $notes ?? 'Transfert depuis '.$source->libelle,
+                'direction' => DirectionMouvementTresorerie::Approvisionnement,
+                'notes' => $notes ?? 'Approvisionnement depuis '.$source->libelle,
             ]);
 
             return ['sortie' => $sortie, 'entree' => $entree];

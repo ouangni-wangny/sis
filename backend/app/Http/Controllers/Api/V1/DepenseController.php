@@ -3,13 +3,13 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Application\Tresorerie\CreateDepenseAction;
-use App\Application\Tresorerie\DeleteDepenseAction;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\DepenseResource;
 use App\Models\Depense;
 use App\Support\ModePaiementRules;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Carbon;
 
 class DepenseController extends Controller
 {
@@ -17,11 +17,20 @@ class DepenseController extends Controller
     {
         $this->authorize('viewAny', Depense::class);
 
-        $items = Depense::query()
+        $query = Depense::query()
             ->with(['categorie', 'compte', 'media'])
             ->when($request->filled('categorie_id'), fn ($q) => $q->where('categorie_depense_id', $request->string('categorie_id')))
             ->when($request->filled('compte_id'), fn ($q) => $q->where('compte_tresorerie_id', $request->string('compte_id')))
             ->when($request->filled('statut'), fn ($q) => $q->where('statut', $request->string('statut')))
+            ->when($request->filled('mois') && $request->filled('annee'), function ($q) use ($request) {
+                $debut = Carbon::create(
+                    $request->integer('annee'),
+                    $request->integer('mois'),
+                    1,
+                )->startOfMonth();
+                $fin = (clone $debut)->endOfMonth();
+                $q->whereBetween('date_depense', [$debut->toDateString(), $fin->toDateString()]);
+            })
             ->when($request->filled('from'), fn ($q) => $q->whereDate('date_depense', '>=', $request->string('from')))
             ->when($request->filled('to'), fn ($q) => $q->whereDate('date_depense', '<=', $request->string('to')))
             ->when($request->filled('q'), function ($q) use ($request) {
@@ -31,12 +40,26 @@ class DepenseController extends Controller
                         ->orWhere('reference', 'like', $term)
                         ->orWhere('notes', 'like', $term);
                 });
-            })
+            });
+
+        // Total du filtre (avant pagination) — dépenses validées uniquement pour le montant « réel ».
+        $totalMontant = round((float) (clone $query)
+            ->when(
+                ! $request->filled('statut'),
+                fn ($q) => $q->where('statut', 'validee'),
+            )
+            ->sum('montant'), 2);
+
+        $items = $query
             ->latest('date_depense')
             ->latest()
             ->paginate($request->integer('per_page', 15));
 
-        return DepenseResource::collection($items);
+        return DepenseResource::collection($items)->additional([
+            'summary' => [
+                'total_montant' => $totalMontant,
+            ],
+        ]);
     }
 
     public function store(Request $request, CreateDepenseAction $action): DepenseResource
@@ -62,12 +85,5 @@ class DepenseController extends Controller
         $this->authorize('view', $depense);
 
         return new DepenseResource($depense->load(['categorie', 'compte', 'media']));
-    }
-
-    public function destroy(Depense $depense, DeleteDepenseAction $action): DepenseResource
-    {
-        $this->authorize('delete', $depense);
-
-        return new DepenseResource($action->execute($depense));
     }
 }

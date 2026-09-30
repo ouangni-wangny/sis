@@ -39,7 +39,7 @@ class CompteTresorerie extends Model
     public function soldeCourant(): float
     {
         $entrees = (float) $this->mouvements()
-            ->where('direction', 'entree')
+            ->whereIn('direction', ['entree', 'retour', 'approvisionnement'])
             ->sum('montant');
         $sorties = (float) $this->mouvements()
             ->where('direction', 'sortie')

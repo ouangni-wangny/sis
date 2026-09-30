@@ -53,11 +53,9 @@ Les formulaires (dépenses, paie, encaissements, ajustements) consomment ces lis
 2. Le système crée la dépense **et** un mouvement **sortie** sur le compte choisi.
 3. Le solde du compte baisse tout de suite.
 
-Annuler une dépense → mouvement **inverse** (entrée) sur le même compte + statut **Annulée**.
-Le solde revient comme avant la dépense (sortie d’origine + entrée d’annulation = net 0).
-
-Si d’anciennes annulations avaient soft-deleté *et* créé un inverse (solde trop haut) :
-`php artisan tresorerie:fix-double-reverse`
+Les dépenses ne s’annulent pas depuis l’application (pas d’action d’annulation).
+Un mouvement **entrée** est réservé aux **paiements de facture**.  
+Un crédit hors encaissement client utilise **retour** (ajustement) ou **approvisionnement** (transfert interne compte → compte).
 
 ---
 
@@ -139,4 +137,5 @@ Le **recouvrement** reste Commercial jusqu’à l’encaissement ; Trésorerie n
 | Feature flag | `module.tresorerie` |
 | Permissions | `tresorerie.view` / `tresorerie.manage`, `depenses.view` / `depenses.manage` |
 | Paie | RH : `paie.manage` (+ `contrats.manage` pour voir salaires) · Comptable : `paie.view` + `paie.payer` |
-| Paramètres référentiels | `grades.manage` (ou `tresorerie.manage`) |
+| Paramètres référentiels | `grades.manage` (grades/villes/modes) · `tresorerie.manage` (comptes/catégories) |
+| RH / Commercial | **Pas** de `tresorerie.view` — menu Trésorerie masqué ; options compte sans soldes pour encaissements |

@@ -77,6 +77,7 @@ const emptyDefaults: ProformaFactureFormValues = {
   date_debut_service: "",
   date_fin_service: "",
   delai_paiement_jours: 0,
+  appliquer_tva: true,
   notes: "",
   conditions_paiement: "Paiement au comptant avant la mise en place",
   delai_validite: "1 mois",
@@ -202,6 +203,7 @@ export default function NouvelleFactureProformaPage() {
     date_debut_service: values.date_debut_service || null,
     date_fin_service: values.date_fin_service || null,
     delai_paiement_jours: Number(values.delai_paiement_jours),
+    appliquer_tva: values.appliquer_tva,
     notes: values.notes || null,
     conditions_paiement: values.conditions_paiement || null,
     delai_validite: values.delai_validite || null,
@@ -418,18 +420,19 @@ export default function NouvelleFactureProformaPage() {
     [offresData],
   );
 
+  const notes = useWatch({ control, name: "notes" });
+  const appliquerTva = useWatch({ control, name: "appliquer_tva" });
+
   const totals = useMemo(() => {
     const ht = (lignes ?? []).reduce((sum, l) => {
       const q = Number(l?.quantite) || 0;
       const pu = Number(l?.prix_unitaire) || 0;
       return sum + q * pu;
     }, 0);
-    const tva = Math.round(ht * TVA);
+    const tva = appliquerTva ? Math.round(ht * TVA) : 0;
     const ttc = ht + tva;
     return { ht, tva, ttc };
-  }, [lignes]);
-
-  const notes = useWatch({ control, name: "notes" });
+  }, [lignes, appliquerTva]);
 
   useEffect(() => {
     if (totals.ht <= 0) return;
@@ -821,6 +824,31 @@ export default function NouvelleFactureProformaPage() {
                 </p>
               </div>
               <div className="space-y-2.5 px-4 py-4 text-sm">
+                <fieldset>
+                  <legend className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-ink-muted">
+                    TVA
+                  </legend>
+                  <div className="flex gap-4">
+                    <label className="inline-flex cursor-pointer items-center gap-2 text-ink">
+                      <input
+                        type="radio"
+                        className="size-4 accent-teal"
+                        checked={appliquerTva === true}
+                        onChange={() => setValue("appliquer_tva", true)}
+                      />
+                      Appliquer (18 %)
+                    </label>
+                    <label className="inline-flex cursor-pointer items-center gap-2 text-ink">
+                      <input
+                        type="radio"
+                        className="size-4 accent-teal"
+                        checked={appliquerTva === false}
+                        onChange={() => setValue("appliquer_tva", false)}
+                      />
+                      Sans TVA
+                    </label>
+                  </div>
+                </fieldset>
                 <div className="flex justify-between text-ink-muted">
                   <span>Lignes</span>
                   <span className="tabular-nums text-ink">{fields.length}</span>
@@ -832,7 +860,7 @@ export default function NouvelleFactureProformaPage() {
                   </span>
                 </div>
                 <div className="flex justify-between text-ink-muted">
-                  <span>TVA 18 %</span>
+                  <span>{appliquerTva ? "TVA 18 %" : "TVA"}</span>
                   <span className="tabular-nums text-ink">
                     {formatFcfa(totals.tva)}
                   </span>

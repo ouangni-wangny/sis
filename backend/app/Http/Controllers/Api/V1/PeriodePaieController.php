@@ -25,6 +25,7 @@ class PeriodePaieController extends Controller
         return PeriodePaieResource::collection(
             PeriodePaie::query()
                 ->withCount('bulletins')
+                ->withSum('bulletins as masse_salariale', 'salaire_net')
                 ->when($request->filled('annee'), fn ($q) => $q->where('annee', $request->integer('annee')))
                 ->when($request->filled('mois'), fn ($q) => $q->where('mois', $request->integer('mois')))
                 ->when($request->filled('statut'), fn ($q) => $q->where('statut', $request->string('statut')))
@@ -63,14 +64,18 @@ class PeriodePaieController extends Controller
             'statut' => 'brouillon',
         ]);
 
-        return new PeriodePaieResource($periode);
+        return new PeriodePaieResource(
+            $periode->loadCount('bulletins')->loadSum('bulletins as masse_salariale', 'salaire_net')
+        );
     }
 
     public function show(Request $request, PeriodePaie $periodePaie): PeriodePaieResource
     {
         abort_unless(RhAuthorization::canViewPaie($request->user()), 403);
 
-        return new PeriodePaieResource($periodePaie->loadCount('bulletins'));
+        return new PeriodePaieResource(
+            $periodePaie->loadCount('bulletins')->loadSum('bulletins as masse_salariale', 'salaire_net')
+        );
     }
 
     public function genererBulletins(
@@ -82,7 +87,9 @@ class PeriodePaieController extends Controller
 
         $action->execute($periodePaie);
 
-        return new PeriodePaieResource($periodePaie->fresh()->loadCount('bulletins'));
+        return new PeriodePaieResource(
+            $periodePaie->fresh()->loadCount('bulletins')->loadSum('bulletins as masse_salariale', 'salaire_net')
+        );
     }
 
     public function bulletins(Request $request, PeriodePaie $periodePaie): AnonymousResourceCollection
@@ -117,7 +124,9 @@ class PeriodePaieController extends Controller
             ->where('statut', 'brouillon')
             ->update(['statut' => 'valide']);
 
-        return new PeriodePaieResource($periodePaie->fresh()->loadCount('bulletins'));
+        return new PeriodePaieResource(
+            $periodePaie->fresh()->loadCount('bulletins')->loadSum('bulletins as masse_salariale', 'salaire_net')
+        );
     }
 
     public function cloturer(Request $request, PeriodePaie $periodePaie): PeriodePaieResource
@@ -126,7 +135,9 @@ class PeriodePaieController extends Controller
 
         $periodePaie->update(['statut' => 'cloturee']);
 
-        return new PeriodePaieResource($periodePaie);
+        return new PeriodePaieResource(
+            $periodePaie->fresh()->loadCount('bulletins')->loadSum('bulletins as masse_salariale', 'salaire_net')
+        );
     }
 
     public function destroy(Request $request, PeriodePaie $periodePaie): Response

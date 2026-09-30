@@ -309,6 +309,8 @@ export type PeriodePaie = {
   statut: "brouillon" | "validee" | "cloturee" | string;
   commentaire: string | null;
   bulletins_count?: number;
+  /** Somme des salaires nets de la période (visible à tout profil paie.view). */
+  masse_salariale?: number | string | null;
 };
 
 export type BulletinPaie = {
@@ -352,7 +354,7 @@ export type CompteTresorerie = {
 export type MouvementTresorerie = {
   id: string;
   compte_tresorerie_id: string;
-  direction: "entree" | "sortie" | string;
+  direction: "entree" | "sortie" | "retour" | "approvisionnement" | string;
   montant: string | number;
   date_mouvement: string;
   mode: ModePaiement | string;
@@ -401,6 +403,11 @@ export type TresorerieStats = {
     type: string;
     solde: number;
   }>;
+  chiffre_affaires_mois: {
+    total_ttc: number;
+    total_ht: number;
+    count: number;
+  };
   entrees_mois: {
     total: number;
     count: number;

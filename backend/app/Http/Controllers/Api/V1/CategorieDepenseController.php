@@ -80,8 +80,7 @@ class CategorieDepenseController extends Controller
     {
         $user = $request->user();
         abort_unless(
-            $user?->can('grades.manage')
-            || $user?->can('tresorerie.manage')
+            $user?->can('tresorerie.manage')
             || $user?->can('tresorerie.view')
             || $user?->can('depenses.view')
             || $user?->can('depenses.manage')
@@ -94,8 +93,7 @@ class CategorieDepenseController extends Controller
     {
         $user = $request->user();
         abort_unless(
-            $user?->can('grades.manage')
-            || $user?->can('tresorerie.manage')
+            $user?->can('tresorerie.manage')
             || $user?->hasRole('super-admin'),
             403,
         );

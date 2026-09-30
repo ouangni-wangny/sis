@@ -275,7 +275,7 @@ export const navigation: NavGroup[] = [
         href: "/parametres",
         label: "Paramètres",
         icon: Settings2,
-        permissions: ["grades.manage"],
+        permissions: ["grades.manage", "tresorerie.manage"],
         feature: "module.parametres",
       },
       {

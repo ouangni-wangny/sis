@@ -1274,43 +1274,76 @@ function ModesTab({ canManage }: { canManage: boolean }) {
 }
 
 export default function ParametresPage() {
-  const [tab, setTab] = useState("grades");
   const { user } = useAuth();
-  const canManage = can(user, "grades.manage");
+  const canManageGrades = can(user, "grades.manage");
+  const canTreso = can(user, ["tresorerie.view", "tresorerie.manage"]);
+  const canManageTreso = can(user, "tresorerie.manage");
+
+  const tabItems = useMemo(
+    () => [
+      ...(canManageGrades
+        ? [
+            { id: "grades", label: "Grades" },
+            { id: "villes", label: "Villes" },
+          ]
+        : []),
+      ...(canTreso
+        ? [
+            { id: "categories", label: "Catégories" },
+            { id: "comptes", label: "Comptes" },
+          ]
+        : []),
+      ...(canManageGrades || canManageTreso
+        ? [{ id: "modes", label: "Modes" }]
+        : []),
+    ],
+    [canManageGrades, canTreso, canManageTreso],
+  );
+
+  const [tab, setTab] = useState(() => tabItems[0]?.id ?? "grades");
 
   return (
-    <PermissionGate permission="grades.manage" title="Paramètres">
+    <PermissionGate
+      permission={["grades.manage", "tresorerie.manage"]}
+      title="Paramètres"
+    >
       <div className="space-y-4">
         <PageHeader
           title="Paramètres"
-          description="Grades, villes, catégories, comptes et modes de paiement."
+          description={
+            canManageGrades && canTreso
+              ? "Grades, villes, catégories, comptes et modes de paiement."
+              : canTreso
+                ? "Catégories, comptes et modes de paiement."
+                : "Grades, villes et modes de paiement."
+          }
         />
-        <Tabs
-          items={[
-            { id: "grades", label: "Grades" },
-            { id: "villes", label: "Villes" },
-            { id: "categories", label: "Catégories" },
-            { id: "comptes", label: "Comptes" },
-            { id: "modes", label: "Modes" },
-          ]}
-          value={tab}
-          onChange={setTab}
-        />
-        <TabPanel when="grades" active={tab}>
-          <GradesTab canManage={canManage} />
-        </TabPanel>
-        <TabPanel when="villes" active={tab}>
-          <VillesTab canManage={canManage} />
-        </TabPanel>
-        <TabPanel when="categories" active={tab}>
-          <CategoriesTab canManage={canManage} />
-        </TabPanel>
-        <TabPanel when="comptes" active={tab}>
-          <ComptesTab canManage={canManage} />
-        </TabPanel>
-        <TabPanel when="modes" active={tab}>
-          <ModesTab canManage={canManage} />
-        </TabPanel>
+        <Tabs items={tabItems} value={tab} onChange={setTab} />
+        {canManageGrades ? (
+          <>
+            <TabPanel when="grades" active={tab}>
+              <GradesTab canManage={canManageGrades} />
+            </TabPanel>
+            <TabPanel when="villes" active={tab}>
+              <VillesTab canManage={canManageGrades} />
+            </TabPanel>
+          </>
+        ) : null}
+        {canTreso ? (
+          <>
+            <TabPanel when="categories" active={tab}>
+              <CategoriesTab canManage={canManageTreso} />
+            </TabPanel>
+            <TabPanel when="comptes" active={tab}>
+              <ComptesTab canManage={canManageTreso} />
+            </TabPanel>
+          </>
+        ) : null}
+        {canManageGrades || canManageTreso ? (
+          <TabPanel when="modes" active={tab}>
+            <ModesTab canManage={canManageGrades || canManageTreso} />
+          </TabPanel>
+        ) : null}
       </div>
     </PermissionGate>
   );

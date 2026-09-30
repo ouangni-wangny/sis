@@ -353,6 +353,8 @@ export const facturesApi = {
     statut?: string;
     periodicite?: string;
     statut_paiement?: string;
+    mois?: number | string;
+    annee?: number | string;
     echeance_30j?: boolean;
     a_recouvrer?: boolean;
     retard?: boolean;
@@ -375,6 +377,7 @@ export const facturesApi = {
     date_debut_service?: string | null;
     date_fin_service?: string | null;
     delai_paiement_jours?: number;
+    appliquer_tva?: boolean;
     notes?: string | null;
     conditions_paiement?: string | null;
     delai_validite?: string | null;
@@ -403,6 +406,7 @@ export const facturesApi = {
       date_debut_service?: string | null;
       date_fin_service?: string | null;
       delai_paiement_jours?: number;
+      appliquer_tva?: boolean;
       notes?: string | null;
       conditions_paiement?: string | null;
       delai_validite?: string | null;
@@ -939,7 +943,7 @@ export const tresorerieApi = {
     }),
   ajustement: (payload: {
     compte_tresorerie_id: string;
-    direction: "entree" | "sortie";
+    direction: "retour" | "sortie";
     montant: number;
     date_mouvement: string;
     mode?: string;
@@ -979,6 +983,8 @@ export const tresorerieApi = {
       compte_id?: string;
       from?: string;
       to?: string;
+      mois?: number | string;
+      annee?: number | string;
       statut?: string;
     },
   ) =>
@@ -987,8 +993,6 @@ export const tresorerieApi = {
     }),
   createDepense: (payload: Record<string, unknown>) =>
     api.post<DataResponse<Depense>>("/depenses", payload),
-  deleteDepense: (id: string) =>
-    api.delete<DataResponse<Depense>>(`/depenses/${id}`),
 };
 
 export const notificationsApi = {

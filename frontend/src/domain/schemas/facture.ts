@@ -31,6 +31,8 @@ export const proformaFactureSchema = z
     delai_paiement_jours: z.coerce
       .number({ error: "Délai de paiement requis" })
       .refine((v) => [0, 15, 30, 45, 60].includes(v), "Délai de paiement invalide"),
+    /** true = TVA 18 %, false = exonéré */
+    appliquer_tva: z.boolean(),
     notes: z.string().optional().or(z.literal("")),
     conditions_paiement: z.string().optional().or(z.literal("")),
     delai_validite: z.string().optional().or(z.literal("")),

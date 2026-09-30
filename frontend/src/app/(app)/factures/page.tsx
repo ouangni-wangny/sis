@@ -38,7 +38,7 @@ import { useToast } from "@/presentation/providers/ToastProvider";
 import { apiClient } from "@/infrastructure/http/apiClient";
 import { getApiErrorMessage } from "@/shared/lib/api-error";
 import { can } from "@/shared/lib/can";
-import { formatDate, formatFcfa, labelize } from "@/shared/lib/format";
+import { formatDate, formatFcfa, labelize, MOIS_LABELS } from "@/shared/lib/format";
 
 type FactureTab = "proformas" | "factures" | "annulees";
 
@@ -113,6 +113,8 @@ function FacturesPageContent() {
   const [clientFilter, setClientFilter] = useState("");
   const [periodiciteFilter, setPeriodiciteFilter] = useState("");
   const [statutPaiementFilter, setStatutPaiementFilter] = useState("");
+  const [filterMois, setFilterMois] = useState("");
+  const [filterAnnee, setFilterAnnee] = useState("");
   const [echeance30jOnly, setEcheance30jOnly] = useState(false);
   const search = useDebouncedValue(q);
   const [pdfLoadingId, setPdfLoadingId] = useState<string | null>(null);
@@ -148,6 +150,28 @@ function FacturesPageContent() {
     [clientsData],
   );
 
+  const moisFilterOptions = useMemo(
+    () => [
+      { value: "", label: "Tous les mois" },
+      ...MOIS_LABELS.map((label, i) => ({
+        value: String(i + 1),
+        label,
+      })),
+    ],
+    [],
+  );
+
+  const anneeFilterOptions = useMemo(() => {
+    const current = new Date().getFullYear();
+    return [
+      { value: "", label: "Toutes les années" },
+      ...Array.from({ length: 6 }, (_, i) => {
+        const year = String(current - i);
+        return { value: year, label: year };
+      }),
+    ];
+  }, []);
+
   const { data, isLoading } = useFactures({
     page,
     per_page: perPage,
@@ -159,6 +183,8 @@ function FacturesPageContent() {
       tab === "factures" && statutPaiementFilter
         ? statutPaiementFilter
         : undefined,
+    mois: filterMois || undefined,
+    annee: filterAnnee || undefined,
     echeance_30j: echeance30jOnly || undefined,
   });
 
@@ -500,6 +526,27 @@ function FacturesPageContent() {
               }}
               toolbar={
                 <div className="flex flex-wrap items-center gap-2">
+                  <Select
+                    className="min-w-[10rem]"
+                    value={filterMois}
+                    options={moisFilterOptions}
+                    onChange={(event) => {
+                      setFilterMois(event.target.value);
+                      if (event.target.value && !filterAnnee) {
+                        setFilterAnnee(String(new Date().getFullYear()));
+                      }
+                      resetPage();
+                    }}
+                  />
+                  <Select
+                    className="min-w-[9rem]"
+                    value={filterAnnee}
+                    options={anneeFilterOptions}
+                    onChange={(event) => {
+                      setFilterAnnee(event.target.value);
+                      resetPage();
+                    }}
+                  />
                   <Select
                     className="min-w-[12rem]"
                     value={clientFilter}

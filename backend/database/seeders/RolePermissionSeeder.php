@@ -143,8 +143,7 @@ class RolePermissionSeeder extends Seeder
             'documents.manage',
             'grades.manage',
 
-            // Lecture soldes pour règlement
-            'tresorerie.view',
+            // Pas de tresorerie.* : soldes / journal réservés comptable (ADR-0001)
 
             // Consultation ops
             'controles.view',
@@ -165,11 +164,12 @@ class RolePermissionSeeder extends Seeder
             'abonnements.view', 'abonnements.create', 'abonnements.update',
             'paiements.view', 'paiements.create', 'paiements.update',
 
-            // Compte pour encaissement
-            'tresorerie.view',
+            // Consultation masse salariale / périodes (sans montants individuels)
+            'paie.view',
         ]);
 
         // Comptabilité — trésorerie + règlement paie (sans voir les salaires)
+        // + mêmes droits commercial (clients, factures, offres, abonnements, paiements)
         $comptable = Role::findOrCreate('comptable', 'web');
         $comptable->syncPermissions([
             'dashboard.view',
@@ -186,6 +186,13 @@ class RolePermissionSeeder extends Seeder
 
             // Consultation effectif (contexte paie / soldes)
             'agents.view',
+
+            // = droits commercial
+            'clients.view', 'clients.create', 'clients.update', 'clients.delete',
+            'factures.view', 'factures.create', 'factures.update',
+            'offres.view', 'offres.create', 'offres.update',
+            'abonnements.view', 'abonnements.create', 'abonnements.update',
+            'paiements.view', 'paiements.create', 'paiements.update',
         ]);
 
         // Comptes mobile — agent posté

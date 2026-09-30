@@ -17,6 +17,7 @@ use App\Models\Facture;
 use App\Support\ListQuery;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Carbon;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class FactureController extends Controller
@@ -31,6 +32,19 @@ class FactureController extends Controller
             ->when($request->client_id, fn ($q, $v) => $q->where('client_id', $v))
             ->when($request->statut, fn ($q, $v) => $q->where('statut', $v))
             ->when($request->filled('periodicite'), fn ($q) => $q->where('periodicite', $request->string('periodicite')))
+            ->when($request->filled('mois') && $request->filled('annee'), function ($q) use ($request) {
+                $debut = Carbon::create(
+                    $request->integer('annee'),
+                    $request->integer('mois'),
+                    1,
+                )->startOfMonth();
+                $fin = (clone $debut)->endOfMonth();
+                $q->whereBetween('date_emission', [$debut->toDateString(), $fin->toDateString()]);
+            })
+            ->when(
+                $request->filled('annee') && ! $request->filled('mois'),
+                fn ($q) => $q->whereYear('date_emission', $request->integer('annee')),
+            )
             ->when($request->boolean('a_recouvrer'), fn ($q) => $this->applyARecouvrerFilter($q))
             ->when(
                 $request->filled('statut_paiement') && ! $request->boolean('a_recouvrer'),

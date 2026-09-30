@@ -217,11 +217,10 @@ Route::prefix('v1')->group(function () {
             Route::get('depenses', [DepenseController::class, 'index']);
             Route::post('depenses', [DepenseController::class, 'store']);
             Route::get('depenses/{depense}', [DepenseController::class, 'show']);
-            Route::delete('depenses/{depense}', [DepenseController::class, 'destroy']);
         });
 
-        // Alias options (compat formulaires paie / encaissements)
-        Route::get('comptes-tresorerie-options', [CompteTresorerieController::class, 'index']);
+        // Options sans soldes (formulaires paie / encaissements / dépenses)
+        Route::get('comptes-tresorerie-options', [CompteTresorerieController::class, 'options']);
 
         Route::middleware('feature:module.users')->group(function () {
             Route::apiResource('users', UserController::class);

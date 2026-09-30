@@ -46,6 +46,14 @@ final class UpdateProformaFactureAction
             }
 
             $tauxTva = 18.0;
+            if (array_key_exists('appliquer_tva', $data)) {
+                $tauxTva = filter_var($data['appliquer_tva'], FILTER_VALIDATE_BOOLEAN) ? 18.0 : 0.0;
+            } elseif (array_key_exists('taux_tva', $data) && $data['taux_tva'] !== null && $data['taux_tva'] !== '') {
+                $tauxTva = (float) $data['taux_tva'] > 0 ? 18.0 : 0.0;
+            } elseif ($facture->taux_tva !== null) {
+                $tauxTva = (float) $facture->taux_tva > 0 ? 18.0 : 0.0;
+            }
+
             $montantHt = 0.0;
             $prepared = [];
 

@@ -3,8 +3,11 @@
 namespace App\Application\Tresorerie;
 
 use App\Models\CompteTresorerie;
+use App\Domain\Shared\Enums\DirectionMouvementTresorerie;
 use App\Domain\Shared\Enums\StatutDepense;
+use App\Domain\Shared\Enums\StatutFacture;
 use App\Models\Depense;
+use App\Models\Facture;
 use App\Models\MouvementTresorerie;
 use App\Domain\Shared\Enums\SourceMouvementTresorerie;
 use Illuminate\Support\Carbon;
@@ -86,25 +89,46 @@ final class GetTresorerieStatsAction
             ->where('source_type', '!=', SourceMouvementTresorerie::Transfert->value)
             ->get();
 
-        $entrees = $mouvementsMois->where('direction', 'entree');
-        $sorties = $mouvementsMois->where('direction', 'sortie');
-
-        $encaissements = $entrees->filter(
-            fn ($m) => $m->source_type === SourceMouvementTresorerie::FacturePaiement,
+        // Entrées = encaissements facture uniquement (pas transferts / retours / ajustements).
+        $entrees = $mouvementsMois->filter(
+            fn ($m) => $m->direction?->value === 'entree'
+                && $m->source_type === SourceMouvementTresorerie::FacturePaiement,
         );
+        $sorties = $mouvementsMois->where('direction', DirectionMouvementTresorerie::Sortie);
+        $retours = $mouvementsMois->where('direction', DirectionMouvementTresorerie::Retour);
+
+        // CA = factures validées émises sur le mois (date_emission), hors proformas / annulées.
+        $facturesEmises = Facture::query()
+            ->where('statut', StatutFacture::Valide)
+            ->whereBetween('date_emission', [$debut->toDateString(), $fin->toDateString()])
+            ->get();
+
+        $caHt = round($facturesEmises->sum(fn (Facture $f) => (float) $f->montant_ht), 2);
+        $caTtc = round($facturesEmises->sum(fn (Facture $f) => (float) $f->montant_ttc), 2);
+
+        $entreesTotal = round($entrees->sum(fn ($m) => (float) $m->montant), 2);
 
         return [
             'periode' => ['mois' => $mois, 'annee' => $annee],
             'solde_consolide' => $soldeConsolide,
             'comptes' => $comptes,
+            'chiffre_affaires_mois' => [
+                'total_ttc' => $caTtc,
+                'total_ht' => $caHt,
+                'count' => $facturesEmises->count(),
+            ],
             'entrees_mois' => [
-                'total' => round($entrees->sum(fn ($m) => (float) $m->montant), 2),
+                'total' => $entreesTotal,
                 'count' => $entrees->count(),
-                'encaissements' => round($encaissements->sum(fn ($m) => (float) $m->montant), 2),
+                'encaissements' => $entreesTotal,
             ],
             'sorties_mois' => [
                 'total' => round($sorties->sum(fn ($m) => (float) $m->montant), 2),
                 'count' => $sorties->count(),
+            ],
+            'retours_mois' => [
+                'total' => round($retours->sum(fn ($m) => (float) $m->montant), 2),
+                'count' => $retours->count(),
             ],
             'depenses_mois' => [
                 'total' => round($depensesMois->sum(fn (Depense $d) => (float) $d->montant), 2),

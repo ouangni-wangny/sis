@@ -140,7 +140,6 @@ final class GenererFacturesRecurrentesAction
         string $periodeFin,
     ): Facture {
         $client = $abonnement->client;
-        $tauxTva = 18.0;
         $montantHt = 0.0;
         $prepared = [];
 
@@ -163,14 +162,20 @@ final class GenererFacturesRecurrentesAction
             ];
         }
 
-        $montantTva = round($montantHt * ($tauxTva / 100), 2);
-        $montantTtc = round($montantHt + $montantTva, 2);
-
-        $dateEmission = now()->timezone('Africa/Abidjan')->toDateString();
+        // Émission = fin de période (30/31), pas la date de création technique.
+        $dateEmission = ConditionsCommerciales::dateEmissionPourPeriode($periodeFin);
         $lastFacture = Facture::query()
             ->where('abonnement_id', $abonnement->id)
             ->orderByDesc('date_emission')
             ->first();
+
+        // Hérite du taux TVA de la dernière facture (ex. proforma exonérée → 0 %).
+        $tauxTva = $lastFacture && (float) ($lastFacture->taux_tva ?? 18) <= 0
+            ? 0.0
+            : 18.0;
+        $montantTva = round($montantHt * ($tauxTva / 100), 2);
+        $montantTtc = round($montantHt + $montantTva, 2);
+
         $delaiPaiementJours = (int) ($lastFacture?->delai_paiement_jours ?? 30);
         if (! in_array($delaiPaiementJours, ConditionsCommerciales::delaisPaiementJours(), true)) {
             $delaiPaiementJours = 30;

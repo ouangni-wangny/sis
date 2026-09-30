@@ -64,6 +64,7 @@ const emptyDefaults: ProformaFactureFormValues = {
   date_debut_service: "",
   date_fin_service: "",
   delai_paiement_jours: 0,
+  appliquer_tva: true,
   notes: "",
   conditions_paiement: "Paiement au comptant avant la mise en place",
   delai_validite: "1 mois",
@@ -147,6 +148,7 @@ export default function ModifierFactureProformaPage() {
   const delaiPaiement = useWatch({ control, name: "delai_paiement_jours" });
   const periodicite = useWatch({ control, name: "periodicite" });
   const notes = useWatch({ control, name: "notes" });
+  const appliquerTva = useWatch({ control, name: "appliquer_tva" });
 
   const { data: abonnementsData } = useAbonnements({
     all: true,
@@ -191,6 +193,7 @@ export default function ModifierFactureProformaPage() {
         ?? "",
       date_fin_service: facture.date_fin_service?.slice(0, 10) ?? "",
       delai_paiement_jours: facture.delai_paiement_jours ?? 0,
+      appliquer_tva: Number(facture.taux_tva ?? 18) > 0,
       notes: facture.notes ?? "",
       conditions_paiement: facture.conditions_paiement ?? "",
       delai_validite: facture.delai_validite ?? "",
@@ -243,10 +246,10 @@ export default function ModifierFactureProformaPage() {
       const pu = Number(l?.prix_unitaire) || 0;
       return sum + q * pu;
     }, 0);
-    const tva = Math.round(ht * TVA);
+    const tva = appliquerTva ? Math.round(ht * TVA) : 0;
     const ttc = ht + tva;
     return { ht, tva, ttc };
-  }, [lignes]);
+  }, [lignes, appliquerTva]);
 
   useEffect(() => {
     if (totals.ht <= 0) return;
@@ -335,6 +338,7 @@ export default function ModifierFactureProformaPage() {
                         date_debut_service: values.date_debut_service || null,
                         date_fin_service: values.date_fin_service || null,
                         delai_paiement_jours: Number(values.delai_paiement_jours),
+                        appliquer_tva: values.appliquer_tva,
                         notes: values.notes || null,
                         conditions_paiement: values.conditions_paiement || null,
                         delai_validite: values.delai_validite || null,
@@ -699,6 +703,33 @@ export default function ModifierFactureProformaPage() {
                       </p>
                     </div>
                     <div className="space-y-2.5 px-4 py-4 text-sm">
+                      <fieldset>
+                        <legend className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-ink-muted">
+                          TVA
+                        </legend>
+                        <div className="flex gap-4">
+                          <label className="inline-flex cursor-pointer items-center gap-2 text-ink">
+                            <input
+                              type="radio"
+                              className="size-4 accent-teal"
+                              disabled={locked}
+                              checked={appliquerTva === true}
+                              onChange={() => setValue("appliquer_tva", true)}
+                            />
+                            Appliquer (18 %)
+                          </label>
+                          <label className="inline-flex cursor-pointer items-center gap-2 text-ink">
+                            <input
+                              type="radio"
+                              className="size-4 accent-teal"
+                              disabled={locked}
+                              checked={appliquerTva === false}
+                              onChange={() => setValue("appliquer_tva", false)}
+                            />
+                            Sans TVA
+                          </label>
+                        </div>
+                      </fieldset>
                       <div className="flex justify-between text-ink-muted">
                         <span>Numéro</span>
                         <span className="font-mono text-xs tabular-nums text-ink">
@@ -718,7 +749,7 @@ export default function ModifierFactureProformaPage() {
                         </span>
                       </div>
                       <div className="flex justify-between text-ink-muted">
-                        <span>TVA 18 %</span>
+                        <span>{appliquerTva ? "TVA 18 %" : "TVA"}</span>
                         <span className="tabular-nums text-ink">
                           {formatFcfa(totals.tva)}
                         </span>
