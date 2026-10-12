@@ -4,7 +4,6 @@ namespace App\Application\Paie;
 
 use App\Domain\Paie\CalculRemunerationCi;
 use App\Domain\Shared\Enums\StatutBulletinPaie;
-use App\Models\Agent;
 use App\Models\BulletinPaie;
 use App\Models\Contrat;
 use App\Models\PeriodePaie;
@@ -13,6 +12,23 @@ use Illuminate\Validation\ValidationException;
 
 final class GenerateBulletinsPaieAction
 {
+    /** Contrats payables : un contrat terminé ou résilié reste dû pour ses jours travaillés. */
+    private const STATUTS_PAYABLES = ['actif', 'termine', 'resilie'];
+
+    /**
+     * Génère (ou complète) les bulletins de la période.
+     *
+     * - Un bulletin par agent dont un contrat couvre au moins un jour de la
+     *   période, quel que soit son statut actuel : un CDD ou stage terminé en
+     *   cours de mois (contrat clôturé, agent archivé) doit encore être payé.
+     * - Solde de tout compte : contrat terminé le mois précédant la période et
+     *   jamais payé (aucun bulletin) — ex. fin au 31 août, paie de septembre.
+     * - Relancer la génération ne touche pas aux bulletins déjà renseignés,
+     *   validés ou payés : seuls les manquants et les brouillons vierges sont
+     *   (re)calculés.
+     *
+     * @return int nombre de bulletins créés ou recalculés
+     */
     public function execute(PeriodePaie $periode): int
     {
         if ($periode->statut->value === 'cloturee') {
@@ -21,17 +37,18 @@ final class GenerateBulletinsPaieAction
             ]);
         }
 
-        $agents = Agent::query()
-            ->whereHas('contratActif')
-            ->with('contratActif')
-            ->get();
-
         $count = 0;
 
-        DB::transaction(function () use ($agents, $periode, &$count) {
-            foreach ($agents as $agent) {
-                $contrat = $agent->contratActif;
-                if (! $contrat) {
+        DB::transaction(function () use ($periode, &$count) {
+            $existants = BulletinPaie::query()
+                ->where('periode_paie_id', $periode->id)
+                ->get()
+                ->keyBy('agent_id');
+
+            foreach ($this->contratsAPayer($periode) as [$contrat, $motif]) {
+                $agent = $contrat->agent;
+                $existant = $existants->get($agent->id);
+                if ($existant && ! $this->recalculable($existant)) {
                     continue;
                 }
 
@@ -76,6 +93,9 @@ final class GenerateBulletinsPaieAction
                             'contrat_type' => $contrat->type instanceof \BackedEnum
                                 ? $contrat->type->value
                                 : (string) $contrat->type,
+                            'contrat_fin' => $contrat->date_fin?->toDateString(),
+                            // periode | fin_contrat (terminé dans la période) | solde_tout_compte
+                            'motif' => $motif,
                             'parts_igr' => $calc['parts_igr'],
                             'cnps_taux' => CalculRemunerationCi::CNPS_SALARIE_TAUX,
                             'rubriques' => [
@@ -95,5 +115,70 @@ final class GenerateBulletinsPaieAction
         });
 
         return $count;
+    }
+
+    /**
+     * Contrat retenu par agent pour la période, avec le motif d’inclusion.
+     *
+     * @return list<array{0: Contrat, 1: string}>
+     */
+    private function contratsAPayer(PeriodePaie $periode): array
+    {
+        $debut = $periode->date_debut->toDateString();
+        $fin = $periode->date_fin->toDateString();
+
+        $retenus = [];
+
+        // 1. Contrats couvrant au moins un jour de la période (le plus récent par agent).
+        $couvrants = Contrat::query()
+            ->whereIn('statut', self::STATUTS_PAYABLES)
+            ->whereDate('date_debut', '<=', $fin)
+            ->where(fn ($q) => $q->whereNull('date_fin')->orWhereDate('date_fin', '>=', $debut))
+            ->whereHas('agent')
+            ->with('agent')
+            ->orderByDesc('date_debut')
+            ->get();
+
+        foreach ($couvrants as $contrat) {
+            if (isset($retenus[$contrat->agent_id])) {
+                continue;
+            }
+            $termineDansPeriode = $contrat->date_fin !== null
+                && $contrat->date_fin->toDateString() <= $fin
+                && $contrat->statut !== 'actif';
+            $retenus[$contrat->agent_id] = [$contrat, $termineDansPeriode ? 'fin_contrat' : 'periode'];
+        }
+
+        // 2. Solde de tout compte : terminé le mois précédent, jamais payé.
+        $moisPrecedent = $periode->date_debut->copy()->subMonthNoOverflow()->toDateString();
+        $soldes = Contrat::query()
+            ->whereIn('statut', self::STATUTS_PAYABLES)
+            ->whereNotNull('date_fin')
+            ->whereDate('date_fin', '>=', $moisPrecedent)
+            ->whereDate('date_fin', '<', $debut)
+            ->whereDoesntHave(
+                'bulletinsPaie',
+                fn ($q) => $q->where('periode_paie_id', '!=', $periode->id),
+            )
+            ->whereHas('agent')
+            ->with('agent')
+            ->orderByDesc('date_fin')
+            ->get();
+
+        foreach ($soldes as $contrat) {
+            $retenus[$contrat->agent_id] ??= [$contrat, 'solde_tout_compte'];
+        }
+
+        return array_values($retenus);
+    }
+
+    /** Brouillon jamais renseigné : peut être recalculé sans perdre de saisie. */
+    private function recalculable(BulletinPaie $bulletin): bool
+    {
+        $details = is_array($bulletin->details) ? $bulletin->details : [];
+
+        return $bulletin->statut === StatutBulletinPaie::Brouillon
+            && ! array_key_exists('salaire_percu', $details)
+            && ! array_key_exists('salaire_renseigne_le', $details);
     }
 }
