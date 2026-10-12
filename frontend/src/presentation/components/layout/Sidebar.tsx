@@ -3,7 +3,7 @@
 import { ChevronDown, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useAuth } from "@/presentation/providers/AuthProvider";
 import { navigation } from "@/shared/config/navigation";
 import { canAny } from "@/shared/lib/can";
@@ -74,21 +74,12 @@ export function Sidebar({
     [groups],
   );
 
-  const allLabels = useMemo(() => groups.map((g) => g.label), [groups]);
-  const [openLabels, setOpenLabels] = useState<string[]>(() =>
-    navigation.map((g) => g.label),
-  );
-
-  useEffect(() => {
-    setOpenLabels((current) => {
-      const known = current.filter((label) => allLabels.includes(label));
-      const missing = allLabels.filter((label) => !known.includes(label));
-      return [...known, ...missing];
-    });
-  }, [allLabels]);
+  // Groupes fermés par l’utilisateur : un groupe nouvellement visible est
+  // ouvert par défaut, et un groupe fermé le reste quand le menu se recalcule.
+  const [closedLabels, setClosedLabels] = useState<string[]>([]);
 
   const toggleGroup = (label: string) => {
-    setOpenLabels((current) =>
+    setClosedLabels((current) =>
       current.includes(label)
         ? current.filter((item) => item !== label)
         : [...current, label],
@@ -134,7 +125,7 @@ export function Sidebar({
       <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         <ul className="space-y-1">
           {groups.map((group) => {
-            const open = openLabels.includes(group.label);
+            const open = !closedLabels.includes(group.label);
             const hasActive = groupContainsPath(group.items, pathname, allHrefs);
 
             return (

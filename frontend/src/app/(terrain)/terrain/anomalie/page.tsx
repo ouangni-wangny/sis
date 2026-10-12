@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Check,
   Construction,
@@ -9,6 +9,7 @@ import {
   Shield,
   TriangleAlert,
 } from "lucide-react";
+import { useChargement } from "@/application/hooks/useChargement";
 import { useAuth } from "@/presentation/providers/AuthProvider";
 import { anomaliesApi, sitesApi } from "@/infrastructure/http/resources";
 import { Button } from "@/presentation/components/ui/Button";
@@ -39,10 +40,8 @@ export default function TerrainAnomaliePage() {
   const [type, setType] = useState("intrusion");
   const [gravite, setGravite] = useState("moyenne");
   const [commentaire, setCommentaire] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [loadingSites, setLoadingSites] = useState(true);
 
   const zoneIds = useMemo(() => {
     const ids = (user?.agent?.perimetres ?? [])
@@ -53,39 +52,33 @@ export default function TerrainAnomaliePage() {
 
   const noPerimetre = zoneIds.length === 0;
 
-  const loadSites = useCallback(async () => {
-    setLoadingSites(true);
-    setError(null);
-    try {
-      if (zoneIds.length === 0) {
-        setSites([]);
-        setSiteId(null);
-        return;
-      }
-      const results = await Promise.all(
-        zoneIds.map((zone_id) => sitesApi.list({ zone_id, per_page: 100 })),
-      );
-      const map = new Map<string, Site>();
-      for (const res of results) {
-        for (const s of res.data) map.set(s.id, s);
-      }
-      const list = [...map.values()].sort((a, b) =>
-        a.nom.localeCompare(b.nom, "fr"),
-      );
-      setSites(list);
-      setSiteId((prev) =>
-        prev && list.some((s) => s.id === prev) ? prev : (list[0]?.id ?? null),
-      );
-    } catch (err) {
-      setError(getApiErrorMessage(err, "Impossible de charger les sites."));
-    } finally {
-      setLoadingSites(false);
+  /** Sites des zones du périmètre (rechargés si le périmètre change). */
+  const chargerSites = useCallback(async () => {
+    // Aucune zone : Promise.all([]) → liste vide, site null.
+    const results = await Promise.all(
+      zoneIds.map((zone_id) => sitesApi.list({ zone_id, per_page: 100 })),
+    );
+    const map = new Map<string, Site>();
+    for (const res of results) {
+      for (const s of res.data) map.set(s.id, s);
     }
+    return [...map.values()].sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
   }, [zoneIds]);
-
-  useEffect(() => {
-    void loadSites();
-  }, [loadSites]);
+  const appliquerSites = useCallback((list: Site[]) => {
+    setSites(list);
+    setSiteId((prev) =>
+      prev && list.some((s) => s.id === prev) ? prev : (list[0]?.id ?? null),
+    );
+  }, []);
+  const {
+    loading: loadingSites,
+    error,
+    setError,
+  } = useChargement(
+    chargerSites,
+    appliquerSites,
+    "Impossible de charger les sites.",
+  );
 
   const selectedSite = sites.find((s) => s.id === siteId);
   const canSubmit = Boolean(siteId && user?.agent?.id && !busy);

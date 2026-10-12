@@ -281,10 +281,7 @@ export default function AgentDetailPage() {
         canVacations,
     },
   );
-  const reposDayIndex = useMemo(
-    () => (agent?.jour_repos ? weekdayIndex(agent.jour_repos) : null),
-    [agent?.jour_repos],
-  );
+  const reposDayIndex = agent?.jour_repos ? weekdayIndex(agent.jour_repos) : null;
   const { data: contratsData, isLoading: contratsLoading } = useContrats(
     { agent_id: id, page: contratsPage, per_page: contratsPerPage },
     { enabled: tab === "contrats" && !!id },

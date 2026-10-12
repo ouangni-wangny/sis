@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { useChargement } from "@/application/hooks/useChargement";
 import { systemApi } from "@/infrastructure/http/resources";
 import type {
   SystemPermission,
@@ -21,26 +22,17 @@ import { getApiErrorMessage } from "@/shared/lib/api-error";
 
 export function PermissionsTab() {
   const [permissions, setPermissions] = useState<SystemPermission[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await systemApi.permissions();
-        setPermissions(res.data ?? []);
-      } catch (err) {
-        setError(
-          getApiErrorMessage(err, "Impossible de charger les permissions."),
-        );
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+  const chargerPermissions = useCallback(
+    async () => (await systemApi.permissions()).data ?? [],
+    [],
+  );
+  const { loading, error } = useChargement(
+    chargerPermissions,
+    setPermissions,
+    "Impossible de charger les permissions.",
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -231,12 +223,20 @@ function RoleFormModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    setName(role?.name ?? "");
-    setSelected(new Set(role?.permissions ?? []));
-    setError(null);
-  }, [open, role]);
+  // Réinitialise le formulaire à chaque ouverture / changement de rôle
+  // (ajustement pendant le rendu plutôt que setState dans un effet).
+  const [initialisePour, setInitialisePour] = useState<{
+    open: boolean;
+    role: SystemRole | null;
+  }>({ open: false, role: null });
+  if (open !== initialisePour.open || role !== initialisePour.role) {
+    setInitialisePour({ open, role });
+    if (open) {
+      setName(role?.name ?? "");
+      setSelected(new Set(role?.permissions ?? []));
+      setError(null);
+    }
+  }
 
   const isEdit = !!role;
   const nameLocked = !!role?.protected;
@@ -328,33 +328,27 @@ export function RolesTab() {
   const { toast } = useToast();
   const [roles, setRoles] = useState<SystemRole[]>([]);
   const [permissions, setPermissions] = useState<SystemPermission[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<SystemRole | null>(null);
   const [pendingDelete, setPendingDelete] = useState<SystemRole | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [rolesRes, permsRes] = await Promise.all([
-        systemApi.roles(),
-        systemApi.permissions(),
-      ]);
+  const chargerRoles = useCallback(
+    () => Promise.all([systemApi.roles(), systemApi.permissions()]),
+    [],
+  );
+  const appliquerRoles = useCallback(
+    ([rolesRes, permsRes]: Awaited<ReturnType<typeof chargerRoles>>) => {
       setRoles(rolesRes.data ?? []);
       setPermissions(permsRes.data ?? []);
-    } catch (err) {
-      setError(getApiErrorMessage(err, "Impossible de charger les rôles."));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+    },
+    [],
+  );
+  const { loading, error } = useChargement(
+    chargerRoles,
+    appliquerRoles,
+    "Impossible de charger les rôles.",
+  );
 
   const openCreate = () => {
     setEditingRole(null);

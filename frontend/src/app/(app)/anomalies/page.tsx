@@ -93,6 +93,7 @@ export default function AnomaliesPage() {
   });
   const updateStatut = useUpdateAnomalieStatut();
   const [busyId, setBusyId] = useState<string | null>(null);
+  const userId = user?.id;
 
   const advance = useCallback(
     async (anomalie: Anomalie) => {
@@ -103,8 +104,8 @@ export default function AnomaliesPage() {
         const payload: { statut: StatutAnomalie; assigne_a_id?: string | null } = {
           statut: target,
         };
-        if (target === "en_cours" && !anomalie.assigne_a_id && user?.id) {
-          payload.assigne_a_id = user.id;
+        if (target === "en_cours" && !anomalie.assigne_a_id && userId) {
+          payload.assigne_a_id = userId;
         }
         await updateStatut.mutateAsync({ id: anomalie.id, payload });
         toast(
@@ -121,7 +122,7 @@ export default function AnomaliesPage() {
         setBusyId(null);
       }
     },
-    [toast, updateStatut, user?.id],
+    [toast, updateStatut, userId],
   );
 
   const columns = useMemo<ColumnDef<Anomalie>[]>(
