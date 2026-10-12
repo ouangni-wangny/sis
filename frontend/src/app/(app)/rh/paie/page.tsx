@@ -114,6 +114,21 @@ async function downloadBulletinPdf(bulletinId: string) {
   URL.revokeObjectURL(objectUrl);
 }
 
+
+/** Agent sorti (fin de CDD / stage) : rappel à côté du nom pour la saisie. */
+function motifBulletin(details: Record<string, unknown> | null): string | null {
+  const motif = details?.motif;
+  const fin =
+    typeof details?.contrat_fin === "string"
+      ? formatDate(details.contrat_fin)
+      : null;
+  if (motif === "solde_tout_compte") {
+    return fin ? `Solde de tout compte · fin ${fin}` : "Solde de tout compte";
+  }
+  if (motif === "fin_contrat") return fin ? `Fin de contrat le ${fin}` : "Fin de contrat";
+  return null;
+}
+
 export default function PaiePage() {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -699,10 +714,22 @@ export default function PaiePage() {
       {
         id: "agent",
         header: "Agent",
-        cell: ({ row }) =>
-          row.original.agent
+        cell: ({ row }) => {
+          const nom = row.original.agent
             ? `${row.original.agent.prenom} ${row.original.agent.nom}`
-            : "—",
+            : "—";
+          const motif = motifBulletin(row.original.details);
+          return motif ? (
+            <span className="inline-flex flex-col gap-0.5">
+              <span>{nom}</span>
+              <span className="text-[10px] font-medium uppercase text-warning">
+                {motif}
+              </span>
+            </span>
+          ) : (
+            nom
+          );
+        },
       },
       {
         id: "matricule",
