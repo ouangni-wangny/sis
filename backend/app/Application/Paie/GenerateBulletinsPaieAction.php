@@ -38,8 +38,11 @@ final class GenerateBulletinsPaieAction
         }
 
         $count = 0;
+        $statutNouveau = $periode->statut->value === 'validee'
+            ? StatutBulletinPaie::Valide->value
+            : StatutBulletinPaie::Brouillon->value;
 
-        DB::transaction(function () use ($periode, &$count) {
+        DB::transaction(function () use ($periode, $statutNouveau, &$count) {
             $existants = BulletinPaie::query()
                 ->where('periode_paie_id', $periode->id)
                 ->get()
@@ -85,7 +88,8 @@ final class GenerateBulletinsPaieAction
                         'retenue_cnps' => $calc['retenue_cnps'],
                         'montant_igr' => $calc['montant_igr'],
                         'salaire_net' => $calc['salaire_net'],
-                        'statut' => StatutBulletinPaie::Brouillon->value,
+                        // Période déjà validée : le bulletin ajouté l’est aussi.
+                        'statut' => $statutNouveau,
                         'details' => [
                             'matricule' => $agent->matricule,
                             'agent' => trim($agent->prenom.' '.$agent->nom),

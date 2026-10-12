@@ -161,3 +161,36 @@ it('explique la situation d’un agent avec la commande de diagnostic', function
     // Lecture seule : aucun bulletin créé par le diagnostic.
     expect(BulletinPaie::query()->count())->toBe(0);
 });
+
+it('crée en « validé » les bulletins ajoutés à une période déjà validée', function () {
+    $present = ($this->agent)('CDI-AVANT', 'cdi', '2025-01-01', null);
+    ($this->generer)();
+    $this->actingAs($this->rh)->postJson("/api/v1/periodes-paie/{$this->septembre->id}/valider")->assertOk();
+
+    $tardif = ($this->agent)('CDD-TARD', 'cdd', '2025-10-01', '2027-03-30');
+    ($this->generer)();
+
+    expect(($this->bulletin)($present)->statut->value)->toBe('valide')
+        ->and(($this->bulletin)($tardif)->statut->value)->toBe('valide');
+});
+
+it('trace dans le journal d’audit la saisie du salaire par la RH', function () {
+    $agent = ($this->agent)('CDI-AUDIT', 'cdi', '2025-01-01', null);
+    ($this->generer)();
+    $bulletin = ($this->bulletin)($agent);
+
+    $this->actingAs($this->rh)
+        ->postJson("/api/v1/bulletins-paie/{$bulletin->id}/salaire-percu", ['salaire_net' => 91000])
+        ->assertOk();
+
+    $entree = \App\Models\JournalAudit::query()
+        ->where('auditable_id', $bulletin->id)
+        ->where('action', 'updated')
+        ->latest('created_at')
+        ->first();
+
+    expect($entree)->not->toBeNull()
+        ->and($entree->user_id)->toBe($this->rh->id)
+        ->and((float) $entree->nouveau['salaire_net'])->toBe(91000.0)
+        ->and($entree->resume)->toContain('Bulletin 09/2026');
+});
