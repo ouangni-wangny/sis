@@ -55,7 +55,7 @@ describe("can / permissions métier", () => {
     expect(can(comptable, "tresorerie.view")).toBe(true);
     expect(canViewPaie(comptable)).toBe(true);
     expect(canPayerPaie(comptable)).toBe(true);
-    expect(canSeeSalaire(comptable)).toBe(false);
+    expect(canSeeSalaire(comptable)).toBe(true);
   });
 
   it("refuse la paie au commercial et l’autorise au comptable", () => {
@@ -70,7 +70,7 @@ describe("can / permissions métier", () => {
 
     expect(canViewPaie(commercial)).toBe(false);
     expect(canViewPaie(comptable)).toBe(true);
-    expect(canSeeSalaire(comptable)).toBe(false);
+    expect(canSeeSalaire(comptable)).toBe(true);
   });
 });
 

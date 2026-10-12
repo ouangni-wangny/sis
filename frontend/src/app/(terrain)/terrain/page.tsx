@@ -1,14 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertCircle, ChevronRight, RefreshCw } from "lucide-react";
+import { useChargement } from "@/application/hooks/useChargement";
 import { useAuth } from "@/presentation/providers/AuthProvider";
 import { controlesApi, vacationsApi } from "@/infrastructure/http/resources";
 import { Button } from "@/presentation/components/ui/Button";
 import { Spinner } from "@/presentation/components/ui/Spinner";
-import { getApiErrorMessage } from "@/shared/lib/api-error";
 import {
   hintPassagesRequis,
   indexControlesParPassage,
@@ -30,17 +30,17 @@ export default function TerrainHomePage() {
   const [statusByVacation, setStatusByVacation] = useState(
     () => new Map<string, PassageStatus>(),
   );
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [vacRes, ctrlRes] = await Promise.all([
+  const chargerMission = useCallback(
+    () =>
+      Promise.all([
         vacationsApi.list({ en_poste: 1, per_page: 50 }),
         controlesApi.list({ aujourd_hui: 1, mes_controles: 1, per_page: 100 }),
-      ]);
+      ]),
+    [],
+  );
+  const appliquerMission = useCallback(
+    ([vacRes, ctrlRes]: Awaited<ReturnType<typeof chargerMission>>) => {
       setVacations(vacRes.data);
       const byAgent = indexControlesParPassage(
         ctrlRes.data
@@ -56,16 +56,18 @@ export default function TerrainHomePage() {
         map.set(v.id, statusControleVacation(v, byAgent));
       }
       setStatusByVacation(map);
-    } catch (err) {
-      setError(getApiErrorMessage(err, "Impossible de charger la mission."));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+    },
+    [],
+  );
+  const {
+    loading,
+    error,
+    recharger: load,
+  } = useChargement(
+    chargerMission,
+    appliquerMission,
+    "Impossible de charger la mission.",
+  );
 
   const hour = new Date().getHours();
   const greeting =

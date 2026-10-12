@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, ArrowRightLeft, ChevronLeft, ChevronRight, Repeat } from "lucide-react";
@@ -213,11 +213,20 @@ function PlanifierReleveForm() {
     readyZones[0] ??
     null;
 
-  useEffect(() => {
-    if (zoneIdParam && readyZones.some((z) => z.id === zoneIdParam)) {
-      setSelectedId(zoneIdParam);
-    }
-  }, [zoneIdParam, readyZones]);
+  // Zone de l’URL : appliquée quand le paramètre change (ou devient valide une
+  // fois les zones chargées) — pas à chaque rechargement des zones, ce qui
+  // écrasait le choix de l’utilisateur.
+  const zoneParamValide =
+    zoneIdParam && readyZones.some((z) => z.id === zoneIdParam)
+      ? zoneIdParam
+      : null;
+  const [zoneParamAppliquee, setZoneParamAppliquee] = useState<string | null>(
+    null,
+  );
+  if (zoneParamValide !== zoneParamAppliquee) {
+    setZoneParamAppliquee(zoneParamValide);
+    if (zoneParamValide) setSelectedId(zoneParamValide);
+  }
 
   const controleurs = selected ? zoneControleurs(selected) : [];
   const [ordreIds, setOrdreIds] = useState<string[]>([]);
@@ -230,8 +239,19 @@ function PlanifierReleveForm() {
   });
   const [calendarMonth, setCalendarMonth] = useState(monthOf(todayIso()));
 
-  useEffect(() => {
-    if (!selected) return;
+  // Zone choisie (ou ses contrôleurs / relève modifiés) : réinitialise l’ordre
+  // et la période de relève — ajustement pendant le rendu, pas dans un effet.
+  const cleZone = selected
+    ? `${selected.id}|${(selected.controleurs ?? [])
+        .map(
+          (c) =>
+            `${c.id}:${c.indice_releve}:${c.releve_depuis}:${c.releve_jusque}`,
+        )
+        .join("|")}`
+    : null;
+  const [zoneInitialisee, setZoneInitialisee] = useState<string | null>(null);
+  if (selected && cleZone !== zoneInitialisee) {
+    setZoneInitialisee(cleZone);
     const ctrls = zoneControleurs(selected);
     setOrdreIds(ctrls.map((c) => c.id));
     const depuis = ctrls[0]?.releve_depuis ?? todayIso();
@@ -245,16 +265,7 @@ function PlanifierReleveForm() {
     setReleveJusque(jusque);
     setCalendarMonth(monthOf(depuis));
     if (!selectedId) setSelectedId(selected.id);
-  }, [
-    selected?.id,
-    selectedId,
-    selected?.controleurs
-      ?.map(
-        (c) =>
-          `${c.id}:${c.indice_releve}:${c.releve_depuis}:${c.releve_jusque}`,
-      )
-      .join("|"),
-  ]);
+  }
 
   const ordered = useMemo(() => {
     if (!ordreIds.length) return controleurs;

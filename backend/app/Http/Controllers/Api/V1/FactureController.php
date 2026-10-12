@@ -4,11 +4,9 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Application\Commercial\CreateAbonnementsFromProformaAction;
 use App\Application\Commercial\CreateProformaFactureAction;
-use App\Application\Commercial\GenererFactureDepuisVacationsAction;
 use App\Application\Commercial\UpdateProformaFactureAction;
 use App\Domain\Shared\Enums\StatutFacture;
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Facture\GenererFactureRequest;
 use App\Http\Requests\Facture\StoreProformaFactureRequest;
 use App\Http\Requests\Facture\UpdateFactureStatutRequest;
 use App\Http\Resources\FactureResource;
@@ -18,6 +16,7 @@ use App\Support\ListQuery;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class FactureController extends Controller
@@ -109,14 +108,6 @@ class FactureController extends Controller
         return new FactureResource($action->execute($facture, $request->validated()));
     }
 
-    public function generer(GenererFactureRequest $request, GenererFactureDepuisVacationsAction $action): FactureResource
-    {
-        $this->authorize('create', Facture::class);
-        $data = $request->validated();
-
-        return new FactureResource($action->execute($data['client_id'], $data['date_debut'], $data['date_fin']));
-    }
-
     public function updateStatut(
         UpdateFactureStatutRequest $request,
         Facture $facture,
@@ -124,10 +115,21 @@ class FactureController extends Controller
     ): FactureResource {
         $this->authorize('update', $facture);
         $statut = $request->validated('statut');
-        $facture->update(['statut' => $statut]);
+        $statutAvant = $facture->statut?->value;
 
-        if ((string) $statut === StatutFacture::Valide->value) {
-            $facture = $createAbonnements->execute($facture->fresh());
+        // Tout ou rien : si la création d’abonnement échoue (périodicité,
+        // destinataire manquant…), la proforma reste en attente.
+        $facture = DB::transaction(function () use ($facture, $statut, $createAbonnements) {
+            $facture->update(['statut' => $statut]);
+
+            return (string) $statut === StatutFacture::Valide->value
+                ? $createAbonnements->execute($facture->fresh())
+                : $facture;
+        });
+
+        // Le PDF suit le statut : proforma → facture définitive (mentions retirées).
+        if ($statutAvant !== (string) $statut || $facture->fresh()->getFirstMedia('pdf') === null) {
+            GenererFacturePdfJob::dispatchSync($facture->id);
         }
 
         return new FactureResource($facture->fresh()->load(['client', 'abonnement', 'lignes', 'media']));

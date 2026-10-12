@@ -31,10 +31,16 @@ import {
   hasInsufficientReposMs,
   inferQuartFromHours,
   isCycle24h,
+  addOneDayIso,
   isOvernight,
   rangesOverlapMs,
-  vacationRangeMs,
 } from "@/domain/time/shift-interval";
+import {
+  lastPriseDePosteDay,
+  minusOneDayIso,
+  shiftWindowOnDayMs,
+  vacationWindowsAroundDayMs,
+} from "@/domain/time/vacation-days";
 import { DataTable } from "@/presentation/components/tables/DataTable";
 import { TableActions } from "@/presentation/components/tables/TableActions";
 import { Alert } from "@/presentation/components/ui/Alert";
@@ -58,6 +64,9 @@ import { can } from "@/shared/lib/can";
 import { cn } from "@/shared/lib/cn";
 import { formatDate } from "@/shared/lib/format";
 import { WeekGrid, type WeekCoverageStats, type CreateForDayContext } from "./WeekGrid";
+
+/** Plafond d’une saisie sur période (aligné DecouperPeriodeVacation::MAX_JOURS). */
+const MAX_JOURS_PERIODE = 366;
 
 const emptyDefaults: VacationFormValues = {
   agent_id: "",
@@ -301,6 +310,8 @@ function VacationsPageContent() {
     defaultValues: emptyDefaults,
   });
 
+  /** Remplacement d’un collègue absent : autorise la reconduction sans repos minimum. */
+  const [remplacement, setRemplacement] = useState(false);
   const agentId = watch("agent_id");
   const siteId = watch("site_id");
   const posteId = watch("poste_id");
@@ -309,12 +320,28 @@ function VacationsPageContent() {
   const heureDebut = watch("heure_debut");
   const heureFin = watch("heure_fin");
 
-  /** Vacations déjà actives ce jour (tous sites) — pour filtrer les agents libres. */
+  /** Jours de prise de poste saisis (période plafonnée, comme l’API). */
+  const joursSaisis = useMemo(() => {
+    if (!creating || !dateDebut) return [];
+    const debut = dateDebut.slice(0, 10);
+    const fin = dateFin && dateFin.slice(0, 10) > debut ? dateFin.slice(0, 10) : debut;
+    const jours: string[] = [];
+    for (let d = debut; d <= fin && jours.length < MAX_JOURS_PERIODE; d = addOneDayIso(d)) {
+      jours.push(d);
+    }
+    return jours;
+  }, [creating, dateDebut, dateFin]);
+
+  /** Vacations (tous sites) autour de la période — pour filtrer les agents libres. */
   const { data: busyDayVacations } = useVacations(
-    creating && dateDebut
-      ? { en_poste: 1, date: dateDebut, per_page: 200 }
+    joursSaisis.length > 0
+      ? {
+          date_from: minusOneDayIso(joursSaisis[0]),
+          date_to: addOneDayIso(joursSaisis[joursSaisis.length - 1]),
+          per_page: 2000,
+        }
       : undefined,
-    { enabled: creating && !!dateDebut },
+    { enabled: joursSaisis.length > 0 },
   );
   const { data: absencesApprouvees } = useAbsences(
     creating ? { statut: "approuvee", per_page: 200 } : undefined,
@@ -354,10 +381,21 @@ function VacationsPageContent() {
     () => (agentsData?.data ?? []).find((a) => a.id === agentId)?.jour_repos,
     [agentsData, agentId],
   );
+  const saisiePeriode = joursSaisis.length > 1;
+  // Un seul jour : avertissement si c’est le jour de repos (exception voulue).
   const restDayConflict =
+    !saisiePeriode &&
     !!selectedAgentJourRepos &&
     !!dateDebut &&
     frenchWeekday(dateDebut) === selectedAgentJourRepos;
+  // Période : les jours de repos de l’agent sont exclus à l’enregistrement.
+  const joursReposExclus = useMemo(
+    () =>
+      saisiePeriode && selectedAgentJourRepos
+        ? joursSaisis.filter((d) => frenchWeekday(d) === selectedAgentJourRepos)
+        : [],
+    [saisiePeriode, selectedAgentJourRepos, joursSaisis],
+  );
 
   const busy =
     isSubmitting || updateVacation.isPending || createVacation.isPending;
@@ -365,61 +403,57 @@ function VacationsPageContent() {
   const agentOptions = useMemo(() => {
     const assignable = new Set(["disponible", "en_activite"]);
     const weekday = dateDebut ? frenchWeekday(dateDebut) : null;
-    const proposed =
-      creating && dateDebut && heureDebut && heureFin
-        ? vacationRangeMs(
-            dateDebut,
-            heureDebut,
-            heureFin,
-            dateFin || dateDebut,
-          )
-        : null;
-
+    const periode = joursSaisis.length > 1;
+    // Période : jours de repos exclus côté API → pas de conflit à vérifier ces jours-là.
+    const reposParAgent = new Map(
+      (agentsData?.data ?? []).map((a) => [a.id, a.jour_repos ?? null]),
+    );
     const busyAgentIds = new Set<string>();
     const reposBlockedIds = new Set<string>();
-    if (creating && proposed) {
+    if (creating && joursSaisis.length > 0 && heureDebut && heureFin) {
       const proposedNight = isOvernight(heureDebut, heureFin);
       const proposedCycle = isCycle24h(heureDebut, heureFin);
+      // Chaque jour de la période est un créneau (l’API crée une vacation par
+      // jour, tout ou rien) : l’agent doit être libre sur tous ces créneaux.
       for (const v of busyDayVacations?.data ?? []) {
-        if (!v.agent_id) continue;
-        const other = vacationRangeMs(
-          v.date_debut,
-          v.heure_debut,
-          v.heure_fin,
-          v.date_fin,
-        );
-        if (rangesOverlapMs(proposed, other)) {
-          busyAgentIds.add(v.agent_id);
-          continue;
-        }
+        if (!v.agent_id || busyAgentIds.has(v.agent_id)) continue;
+        if (v.statut === "annulee" || v.statut === "a_recouvrir") continue;
         const otherNight = isOvernight(v.heure_debut, v.heure_fin);
         const otherCycle = isCycle24h(v.heure_debut, v.heure_fin);
-        if (
-          hasInsufficientReposMs(proposed, other, {
-            samePoste: !!posteId && v.poste_id === posteId,
-            proposedOvernight: proposedNight,
-            otherOvernight: otherNight,
-            proposedCycle,
-            otherCycle,
-          })
-        ) {
-          reposBlockedIds.add(v.agent_id);
+        const repos = periode ? reposParAgent.get(v.agent_id) : null;
+        for (const jour of joursSaisis) {
+          if (repos && frenchWeekday(jour) === repos) continue;
+          const proposed = shiftWindowOnDayMs(jour, heureDebut, heureFin);
+          // Créneaux réels de la vacation autour du jour, pas un bloc continu.
+          const windows = vacationWindowsAroundDayMs(v, jour);
+          if (windows.some((w) => rangesOverlapMs(proposed, w))) {
+            busyAgentIds.add(v.agent_id);
+            break;
+          }
+          if (
+            windows.some((w) =>
+              hasInsufficientReposMs(proposed, w, {
+                samePoste: !!posteId && v.poste_id === posteId,
+                proposedOvernight: proposedNight,
+                otherOvernight: otherNight,
+                proposedCycle,
+                otherCycle,
+              }),
+            )
+          ) {
+            reposBlockedIds.add(v.agent_id);
+          }
         }
       }
+      const premier = joursSaisis[0];
+      const dernier = joursSaisis[joursSaisis.length - 1];
+      const finCreneaux =
+        proposedNight || proposedCycle ? addOneDayIso(dernier) : dernier;
       for (const a of absencesApprouvees?.data ?? []) {
-        if (!a.agent_id || !dateDebut) continue;
+        if (!a.agent_id) continue;
         const aStart = a.date_debut.slice(0, 10);
         const aEnd = (a.date_fin ?? a.date_debut).slice(0, 10);
-        const day = dateDebut.slice(0, 10);
-        const next =
-          isOvernight(heureDebut, heureFin) || isCycle24h(heureDebut, heureFin)
-            ? (() => {
-                const d = new Date(`${day}T12:00:00`);
-                d.setDate(d.getDate() + 1);
-                return d.toISOString().slice(0, 10);
-              })()
-            : day;
-        if (aStart <= next && aEnd >= day) busyAgentIds.add(a.agent_id);
+        if (aStart <= finCreneaux && aEnd >= premier) busyAgentIds.add(a.agent_id);
       }
       for (const o of createContext?.occupied ?? []) {
         if (o.agent_id) busyAgentIds.add(o.agent_id);
@@ -430,16 +464,26 @@ function VacationsPageContent() {
       .filter((a) => {
         if (!creating) return true;
         if (!assignable.has(a.statut)) return false;
-        if (weekday && a.jour_repos === weekday) return false;
+        // Un seul jour : jour de repos exclu. Période : repos sauté à l’enregistrement.
+        if (!periode && weekday && a.jour_repos === weekday) return false;
         if (busyAgentIds.has(a.id)) return false;
-        if (reposBlockedIds.has(a.id)) return false;
+        // Remplacement : l’agent qui sort d’un jour / quart peut être reconduit.
+        if (reposBlockedIds.has(a.id) && !remplacement) return false;
         return true;
       })
       .map((a) => ({
         value: a.id,
         label: `${a.prenom} ${a.nom} (${a.matricule})${
           a.grade?.libelle ? ` — ${a.grade.libelle}` : ""
-        }${a.jour_repos ? ` · repos ${a.jour_repos}` : ""}`,
+        }${
+          a.jour_repos
+            ? periode
+              ? ` · repos ${a.jour_repos} exclu`
+              : ` · repos ${a.jour_repos}`
+            : ""
+        }${
+          creating && reposBlockedIds.has(a.id) ? " · reconduction" : ""
+        }`,
       }));
 
     if (editing?.agent && !options.some((o) => o.value === editing.agent!.id)) {
@@ -455,12 +499,13 @@ function VacationsPageContent() {
     creating,
     createContext,
     dateDebut,
-    dateFin,
+    joursSaisis,
     heureDebut,
     heureFin,
     busyDayVacations,
     absencesApprouvees,
     posteId,
+    remplacement,
   ]);
 
   // Si l’horaire change (quart), retirer un agent devenu indisponible.
@@ -513,6 +558,7 @@ function VacationsPageContent() {
     setOpen(false);
     setCreating(false);
     setCreateContext(null);
+    setRemplacement(false);
     setStep(1);
     setQuart("jour");
     setEditing(null);
@@ -532,6 +578,7 @@ function VacationsPageContent() {
       setEditing(null);
       setCreating(true);
       setCreateContext(ctx);
+      setRemplacement(false);
       setFormError(null);
       setQuart(suggested.quart);
       setStep(1);
@@ -589,7 +636,11 @@ function VacationsPageContent() {
         site_id: vacation.site_id,
         poste_id: vacation.poste_id ?? "",
         date_debut: toDateInput(vacation.date_debut),
-        date_fin: toDateInput(vacation.date_fin),
+        // Même sens qu’à la création : jour de la dernière prise de poste
+        // (une nuit du 04 s’affiche « 04 », pas le matin de relève du 05).
+        date_fin: vacation.date_fin
+          ? (lastPriseDePosteDay(vacation) ?? toDateInput(vacation.date_fin))
+          : "",
         heure_debut: toTimeInput(vacation.heure_debut),
         heure_fin: toTimeInput(vacation.heure_fin),
       });
@@ -723,6 +774,14 @@ function VacationsPageContent() {
           actions={
             <div className="flex flex-col items-stretch gap-2 sm:items-end">
               <div className="flex flex-wrap items-center justify-end gap-2">
+                <Link
+                  href="/vacations/pointage"
+                  title="Présent / absent / non contrôlé et heures comptées"
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-border bg-white px-4 text-sm font-medium text-ink shadow-sm transition-colors hover:bg-paper-muted"
+                >
+                  <ClipboardCheck className="size-4" />
+                  Pointage
+                </Link>
                 {canCreate ? <PlanifierLink /> : null}
               </div>
               <div className="inline-flex self-end rounded-md border border-border bg-white p-0.5">
@@ -1222,6 +1281,8 @@ function VacationsPageContent() {
                     heure_fin: values.heure_fin,
                     date_debut: values.date_debut,
                     date_fin: values.date_fin || values.date_debut,
+                    ...(remplacement ? { remplacement: true } : {}),
+                    ...(saisiePeriode ? { exclure_jour_repos: true } : {}),
                   });
                   toast("Agent ajouté pour ce jour.");
                   reset(emptyDefaults);
@@ -1240,7 +1301,13 @@ function VacationsPageContent() {
                     heure_debut: values.heure_debut,
                     heure_fin: values.heure_fin,
                     date_debut: values.date_debut,
-                    date_fin: values.date_fin || null,
+                    // API : date_fin = fin calendaire du dernier créneau (nuit → lendemain).
+                    date_fin: values.date_fin
+                      ? isOvernight(values.heure_debut, values.heure_fin) ||
+                        isCycle24h(values.heure_debut, values.heure_fin)
+                        ? addOneDayIso(values.date_fin)
+                        : values.date_fin
+                      : null,
                   },
                 });
                 toast("Affectation mise à jour avec succès.");
@@ -1275,7 +1342,9 @@ function VacationsPageContent() {
                   hint={
                     creating
                       ? heureDebut && heureFin
-                        ? `Disponibles pour ${heureDebut}–${heureFin} le ${formatDate(dateDebut)} (hors repos, conflit, absence).`
+                        ? joursSaisis.length > 1
+                          ? `Disponibles pour ${heureDebut}–${heureFin} chaque jour du ${formatDate(joursSaisis[0])} au ${formatDate(joursSaisis[joursSaisis.length - 1])} (hors repos, conflit, absence).`
+                          : `Disponibles pour ${heureDebut}–${heureFin} le ${formatDate(dateDebut)} (hors repos, conflit, absence).`
                         : "Choisissez d’abord les horaires si besoin."
                       : undefined
                   }
@@ -1283,6 +1352,24 @@ function VacationsPageContent() {
                   error={errors.agent_id?.message}
                   {...register("agent_id")}
                 />
+                {creating ? (
+                  <label className="flex items-start gap-2 text-sm text-ink">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 size-4 rounded border-border text-teal focus:ring-teal/40"
+                      checked={remplacement}
+                      onChange={(e) => setRemplacement(e.target.checked)}
+                    />
+                    <span>
+                      Remplacement d’un collègue absent
+                      <span className="block text-xs text-ink-faint">
+                        Permet de reconduire un agent qui vient de faire son jour
+                        ou son quart (repos minimum levé, chevauchement toujours
+                        interdit).
+                      </span>
+                    </span>
+                  </label>
+                ) : null}
                 {creating && agentOptions.length === 0 ? (
                   <Alert tone="warning">
                     Aucun agent libre pour cet horaire — conflit de planning,
@@ -1349,8 +1436,8 @@ function VacationsPageContent() {
                     optionalMark={!creating}
                     hint={
                       creating
-                        ? "Par défaut = ce jour uniquement (couverture jour par jour)."
-                        : "Laissez vide pour une affectation récurrente sans fin définie."
+                        ? "Dernier jour de prise de poste (une nuit du 04 se termine le 05 au matin). Par défaut = ce jour uniquement."
+                        : "Dernier jour de prise de poste (une nuit du 04 se termine le 05 au matin). Laissez vide pour une affectation sans fin."
                     }
                     error={errors.date_fin?.message}
                     {...register("date_fin")}
@@ -1367,6 +1454,13 @@ function VacationsPageContent() {
                         c’est une exception voulue.
                       </span>
                     </span>
+                  </Alert>
+                ) : null}
+                {joursReposExclus.length > 0 ? (
+                  <Alert tone="info">
+                    Jour de repos de l’agent ({selectedAgentJourRepos}) exclu
+                    de la période : pas de prise de poste le{" "}
+                    {joursReposExclus.map((d) => formatDate(d)).join(", ")}.
                   </Alert>
                 ) : null}
 
@@ -1583,6 +1677,13 @@ function VacationsPageContent() {
                   <Alert tone="warning">
                     Jour de repos habituel de l’agent ({selectedAgentJourRepos}
                     ).
+                  </Alert>
+                ) : null}
+                {joursReposExclus.length > 0 ? (
+                  <Alert tone="info">
+                    Jour de repos de l’agent ({selectedAgentJourRepos}) exclu
+                    de la période : pas de prise de poste le{" "}
+                    {joursReposExclus.map((d) => formatDate(d)).join(", ")}.
                   </Alert>
                 ) : null}
                 {posteCoverage &&

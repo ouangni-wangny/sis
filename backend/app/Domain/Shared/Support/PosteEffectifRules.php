@@ -63,7 +63,8 @@ final class PosteEffectifRules
     }
 
     /**
-     * Jours de planning touchés par une vacation (même sémantique que coverage).
+     * Jours de planning touchés par une vacation (même sémantique que coverage) :
+     * un jour par prise de poste, y compris pour une nuit / 24h saisie sur période.
      *
      * @return list<string> Y-m-d
      */
@@ -73,49 +74,13 @@ final class PosteEffectifRules
         string $heureFin,
         ?string $dateFin,
     ): array {
-        $debut = Carbon::parse($dateDebut)->startOfDay();
-        $hd = ShiftInterval::hm($heureDebut);
-        $hf = ShiftInterval::hm($heureFin);
-
-        // Nuit / cycle : rattaché au seul jour de prise de poste.
-        if (ShiftInterval::needsNextCalendarDay($hd, $hf)) {
-            return [$debut->toDateString()];
-        }
-
-        if ($dateFin === null || $dateFin === '') {
-            $fin = $debut->copy()->addYears(self::OPEN_ENDED_HORIZON_YEARS);
-        } else {
-            $fin = Carbon::parse($dateFin)->startOfDay();
-        }
-
-        $days = [];
-        for ($d = $debut->copy(); $d->lte($fin); $d->addDay()) {
-            $days[] = $d->toDateString();
-        }
-
-        return $days;
+        return ShiftSchedule::fromStored($dateDebut, $heureDebut, $heureFin, $dateFin)->days();
     }
 
     /** La vacation existante couvre-t-elle ce jour de planning ? */
     public static function vacationCoversPlanningDay(Vacation $v, Carbon $day): bool
     {
-        $start = $v->date_debut->copy()->startOfDay();
-        $hd = (string) $v->heure_debut;
-        $hf = (string) $v->heure_fin;
-
-        if (ShiftInterval::needsNextCalendarDay($hd, $hf)) {
-            return $day->equalTo($start);
-        }
-
-        if ($v->date_fin === null) {
-            $horizon = $start->copy()->addYears(self::OPEN_ENDED_HORIZON_YEARS);
-
-            return $day->between($start, $horizon, true);
-        }
-
-        $end = $v->date_fin->copy()->startOfDay();
-
-        return $day->between($start, $end, true);
+        return ShiftSchedule::fromVacation($v)->coversDay($day->toDateString());
     }
 
     /**

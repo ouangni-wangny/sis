@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, Suspense } from "react";
+import { useCallback, useMemo, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type ColumnDef } from "@tanstack/react-table";
 import {
@@ -203,13 +203,16 @@ function FacturesPageContent() {
     router.replace(`/factures?tab=${next}`, { scroll: false });
   };
 
-  useEffect(() => {
+  // URL → onglet (navigation arrière, lien direct) : ajustement pendant le
+  // rendu quand le paramètre change, plutôt qu’un setState dans un effet.
+  const [tabParamSuivi, setTabParamSuivi] = useState(tabParam);
+  if (tabParam !== tabParamSuivi) {
+    setTabParamSuivi(tabParam);
     if (isFactureTab(tabParam) && tabParam !== tab) {
       setTab(tabParam);
       setPage(1);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync URL → tab only
-  }, [tabParam]);
+  }
 
   const countProformas = useFactures({
     page: 1,

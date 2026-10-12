@@ -133,7 +133,7 @@ it('refuse au comptable de renseigner le salaire perçu', function () {
     )->assertForbidden();
 });
 
-it('masque les salaires au comptable et expose salaire_renseigne', function () {
+it('montre au comptable le salaire perçu saisi par la RH', function () {
     $this->bulletin->update([
         'details' => array_merge($this->bulletin->details ?? [], [
             'salaire_percu' => 110000,
@@ -147,10 +147,33 @@ it('masque les salaires au comptable et expose salaire_renseigne', function () {
     );
 
     $response->assertOk()
+        ->assertJsonPath('data.salaire_renseigne', true)
+        ->assertJsonPath('data.details.salaire_percu', 110000);
+
+    expect((float) $response->json('data.salaire_net'))->toBe(110000.0)
+        ->and((float) $response->json('data.salaire_brut'))->toBe(150000.0);
+});
+
+it('montre au comptable le salaire du contrat sur la fiche agent', function () {
+    $response = $this->actingAs($this->comptable)
+        ->getJson("/api/v1/agents/{$this->agent->id}")
+        ->assertOk();
+
+    expect(json_encode($response->json()))->toContain('120000');
+});
+
+it('masque les salaires à un rôle paie.view sans règlement', function () {
+    $lecteur = User::factory()->create([
+        'email' => 'lecteur-paie@sis.ci',
+        'password' => Hash::make('password'),
+    ]);
+    $lecteur->givePermissionTo('paie.view');
+
+    $this->actingAs($lecteur)
+        ->getJson("/api/v1/bulletins-paie/{$this->bulletin->id}")
+        ->assertOk()
         ->assertJsonPath('data.salaire_net', null)
-        ->assertJsonPath('data.salaire_brut', null)
-        ->assertJsonPath('data.details', null)
-        ->assertJsonPath('data.salaire_renseigne', true);
+        ->assertJsonPath('data.details', null);
 });
 
 it('refuse à la RH de marquer payé', function () {
@@ -189,8 +212,7 @@ it('permet au comptable de marquer payé sans envoyer le montant', function () {
     );
 
     $response->assertOk()
-        ->assertJsonPath('data.statut', 'paye')
-        ->assertJsonPath('data.salaire_net', null);
+        ->assertJsonPath('data.statut', 'paye');
 
     expect($this->bulletin->fresh())
         ->statut->value->toBe('paye')

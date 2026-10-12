@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Code2, RotateCcw, Search } from "lucide-react";
+import { useChargement } from "@/application/hooks/useChargement";
 import { systemApi } from "@/infrastructure/http/resources";
 import type {
   FeatureFlag,
@@ -320,39 +321,34 @@ function ParametresTab() {
   const { toast } = useToast();
   const [settings, setSettings] = useState<SystemSetting[]>([]);
   const [draft, setDraft] = useState<Record<string, string | boolean>>({});
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await systemApi.settings();
-      const rows = res.data ?? [];
-      setSettings(rows);
-      setDraft(
-        Object.fromEntries(
-          rows.map((s) => [
-            s.key,
-            s.type === "boolean" ? Boolean(s.value) : settingInputValue(s),
-          ]),
-        ),
-      );
-    } catch (err) {
-      setError(
-        getApiErrorMessage(err, "Impossible de charger les paramètres."),
-      );
-    } finally {
-      setLoading(false);
-    }
+  const chargerParametres = useCallback(
+    async () => (await systemApi.settings()).data ?? [],
+    [],
+  );
+  const appliquerParametres = useCallback((rows: SystemSetting[]) => {
+    setSettings(rows);
+    setDraft(
+      Object.fromEntries(
+        rows.map((s) => [
+          s.key,
+          s.type === "boolean" ? Boolean(s.value) : settingInputValue(s),
+        ]),
+      ),
+    );
   }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const {
+    loading,
+    error,
+    recharger: load,
+  } = useChargement(
+    chargerParametres,
+    appliquerParametres,
+    "Impossible de charger les paramètres.",
+  );
 
   const dirty = useMemo(
     () =>
@@ -557,25 +553,15 @@ function historyDiff(entry: SystemHistoryEntry): string[] {
 
 function HistoriqueTab() {
   const [entries, setEntries] = useState<SystemHistoryEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await systemApi.history();
-        setEntries(res.data ?? []);
-      } catch (err) {
-        setError(
-          getApiErrorMessage(err, "Impossible de charger l’historique."),
-        );
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+  const chargerHistorique = useCallback(
+    async () => (await systemApi.history()).data ?? [],
+    [],
+  );
+  const { loading, error } = useChargement(
+    chargerHistorique,
+    setEntries,
+    "Impossible de charger l’historique.",
+  );
 
   if (loading) {
     return (
@@ -636,10 +622,8 @@ export default function DeveloppeurPage() {
   const [tab, setTab] = useState<DevTab>("modules");
   const [flags, setFlags] = useState<FeatureFlag[]>([]);
   const [menuRows, setMenuRows] = useState<MenuRow[]>([]);
-  const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [busyGroup, setBusyGroup] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [pendingCritical, setPendingCritical] = useState<FeatureFlag | null>(
@@ -648,14 +632,12 @@ export default function DeveloppeurPage() {
 
   const navItems = useMemo(() => flatNavigationItems(), []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [flagsRes, menusRes] = await Promise.all([
-        systemApi.featureFlags(),
-        systemApi.menuOverrides(),
-      ]);
+  const chargerConsole = useCallback(
+    () => Promise.all([systemApi.featureFlags(), systemApi.menuOverrides()]),
+    [],
+  );
+  const appliquerConsole = useCallback(
+    ([flagsRes, menusRes]: Awaited<ReturnType<typeof chargerConsole>>) => {
       setFlags(flagsRes.data ?? []);
 
       const overrides = new Map(
@@ -675,18 +657,18 @@ export default function DeveloppeurPage() {
               : true,
           })),
       );
-    } catch (err) {
-      setError(
-        getApiErrorMessage(err, "Impossible de charger la console système."),
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [navItems]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+    },
+    [navItems],
+  );
+  const {
+    loading,
+    error,
+    recharger: load,
+  } = useChargement(
+    chargerConsole,
+    appliquerConsole,
+    "Impossible de charger la console système.",
+  );
 
   const applyFlagToggle = async (flag: FeatureFlag) => {
     setBusyKey(flag.key);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useId, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/presentation/components/ui/Button";
 import { cn } from "@/shared/lib/cn";
@@ -38,8 +38,8 @@ export function Modal({
 }) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  // Dernier onClose sans relancer l’effet (ni écrire une ref pendant le rendu).
+  const fermer = useEffectEvent(() => onClose());
 
   useEffect(() => {
     if (!open) return;
@@ -55,7 +55,7 @@ export function Modal({
     }, 30);
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !preventClose) onCloseRef.current();
+      if (e.key === "Escape" && !preventClose) fermer();
     };
     window.addEventListener("keydown", onKey);
 

@@ -93,32 +93,64 @@ final class BuildRapportDatasetAction
     {
         $query = Vacation::query()->with(['agent', 'site', 'poste'])->orderBy('date_debut')->orderBy('heure_debut');
         if ($from) {
-            $query->whereDate('date_debut', '>=', $from);
+            // Une vacation sur période commencée avant la borne reste incluse.
+            $query->where(function ($q) use ($from) {
+                $q->whereNull('date_fin')->orWhereDate('date_fin', '>=', $from);
+            });
         }
         if ($to) {
             $query->whereDate('date_debut', '<=', $to);
         }
 
-        $items = $query->get();
-        $rows = $items->map(fn (Vacation $v) => [
-            $v->date_debut?->format('d/m/Y') ?? '—',
-            substr((string) $v->heure_debut, 0, 5).' – '.substr((string) $v->heure_fin, 0, 5),
-            $v->agent ? trim($v->agent->prenom.' '.$v->agent->nom) : '—',
-            $v->site?->nom ?? '—',
-            $v->poste?->nom ?? '—',
-            $this->enum($v->statut),
-        ])->all();
+        // Une ligne par créneau, avec le pointage issu des contrôles :
+        // non contrôlé = ni présent ni absent, heures non comptabilisées.
+        $lignes = (new PointageVacationsAction)->execute(
+            $query->get(),
+            $from?->toDateString(),
+            $to?->toDateString(),
+        );
+        $controleLabels = [
+            PointageVacationsAction::PRESENT => 'Présent',
+            PointageVacationsAction::ABSENT => 'Absent',
+            PointageVacationsAction::NON_CONTROLE => 'Non contrôlé',
+        ];
+
+        $rows = array_map(function (array $ligne) use ($controleLabels) {
+            $v = $ligne['vacation'];
+
+            return [
+                Carbon::parse($ligne['date'])->format('d/m/Y'),
+                substr((string) $v->heure_debut, 0, 5).' – '.substr((string) $v->heure_fin, 0, 5),
+                $v->agent ? trim($v->agent->prenom.' '.$v->agent->nom) : '—',
+                $v->site?->nom ?? '—',
+                $v->poste?->nom ?? '—',
+                $this->enum($v->statut),
+                $controleLabels[$ligne['controle']],
+                $this->heures($ligne['heures_comptees']),
+            ];
+        }, $lignes);
+
+        $totaux = PointageVacationsAction::totaux($lignes);
 
         return [
             'title' => 'Rapport planning postes',
             'subtitle' => 'Affectations planifiées sur la période',
             'period_label' => $periodLabel,
-            'columns' => ['Date', 'Horaires', 'Agent', 'Site', 'Poste', 'Statut'],
+            'columns' => ['Date', 'Horaires', 'Agent', 'Site', 'Poste', 'Statut', 'Contrôle', 'Heures comptées'],
             'rows' => $rows,
             'summary' => [
-                ['label' => 'Affectations', 'value' => (string) count($rows)],
+                ['label' => 'Créneaux', 'value' => (string) count($rows)],
+                ['label' => 'Présents (contrôlés)', 'value' => (string) $totaux['present']],
+                ['label' => 'Absents', 'value' => (string) $totaux['absent']],
+                ['label' => 'Non contrôlés', 'value' => (string) $totaux['non_controle']],
+                ['label' => 'Heures comptées', 'value' => $this->heures($totaux['heures_comptees'])],
             ],
         ];
+    }
+
+    private function heures(float $heures): string
+    {
+        return rtrim(rtrim(number_format($heures, 2, ',', ' '), '0'), ',').' h';
     }
 
     private function pointages(?Carbon $from, ?Carbon $to, ?string $periodLabel): array

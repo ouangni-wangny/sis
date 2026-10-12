@@ -5,6 +5,7 @@ namespace App\Application\Operation;
 use App\Models\Agent;
 use App\Models\Vacation;
 use App\Domain\Shared\Support\ShiftInterval;
+use App\Domain\Shared\Support\ShiftSchedule;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
@@ -17,7 +18,7 @@ use Illuminate\Validation\ValidationException;
 final class AssertVacationDureeLegale
 {
     /**
-     * @param  array{allow_double_quart?: bool, poste_id?: string|null, exclude_ids?: list<string>}  $options
+     * @param  array{allow_double_quart?: bool, ignore_repos?: bool, poste_id?: string|null, exclude_ids?: list<string>}  $options
      */
     public static function execute(
         string $agentId,
@@ -63,21 +64,12 @@ final class AssertVacationDureeLegale
 
         $other = $blockers->first();
         $reposMin = (float) config('sis.vacation.repos_min_heures');
-        [$start, $end] = self::range($dateDebut, $heureDebut, $heureFin, $dateFin);
-        [$oStart, $oEnd] = self::range(
-            $other->date_debut->format('Y-m-d'),
-            $other->heure_debut,
-            $other->heure_fin,
-            $other->date_fin?->format('Y-m-d'),
-        );
-
-        if ($end->lte($oStart)) {
-            $gapMinutes = $end->diffInMinutes($oStart);
-            $relation = 'avant';
-        } else {
-            $gapMinutes = $oEnd->diffInMinutes($start);
-            $relation = 'après';
-        }
+        $closest = ShiftSchedule::fromStored($dateDebut, $heureDebut, $heureFin, $dateFin)
+            ->closestGap(ShiftSchedule::fromVacation($other));
+        $gapMinutes = $closest['gap'] ?? 0;
+        $relation = $closest !== null && $closest['mine'][1] <= $closest['other'][0]
+            ? 'avant'
+            : 'après';
 
         $lieu = self::vacationLieu($other);
         throw ValidationException::withMessages([
@@ -103,7 +95,7 @@ final class AssertVacationDureeLegale
     /**
      * Vacations du même agent trop proches (repos < minimum légal).
      *
-     * @param  array{allow_double_quart?: bool, poste_id?: string|null, exclude_ids?: list<string>}  $options
+     * @param  array{allow_double_quart?: bool, ignore_repos?: bool, poste_id?: string|null, exclude_ids?: list<string>}  $options
      * @return Collection<int, Vacation>
      */
     public static function findReposInsuffisant(
@@ -115,10 +107,13 @@ final class AssertVacationDureeLegale
         ?string $excludeId = null,
         array $options = [],
     ): Collection {
-        [$start, $end] = self::range($dateDebut, $heureDebut, $heureFin, $dateFin);
+        if ($options['ignore_repos'] ?? false) {
+            return collect();
+        }
+
+        $proposed = ShiftSchedule::fromStored($dateDebut, $heureDebut, $heureFin, $dateFin);
 
         $reposMin = (float) config('sis.vacation.repos_min_heures');
-        $allowDoubleQuart = (bool) ($options['allow_double_quart'] ?? false);
         $posteId = $options['poste_id'] ?? null;
         /** @var list<string> $excludeIds */
         $excludeIds = array_values(array_filter([
@@ -135,22 +130,16 @@ final class AssertVacationDureeLegale
             ->get();
 
         return $others
-            ->filter(function (Vacation $other) use ($start, $end, $reposMin, $allowDoubleQuart, $posteId, $heureDebut, $heureFin) {
-                [$oStart, $oEnd] = self::range(
-                    $other->date_debut->format('Y-m-d'),
-                    $other->heure_debut,
-                    $other->heure_fin,
-                    $other->date_fin?->format('Y-m-d'),
-                );
-
-                if ($end->lte($oStart)) {
-                    $gapMinutes = $end->diffInMinutes($oStart);
-                } elseif ($oEnd->lte($start)) {
-                    $gapMinutes = $oEnd->diffInMinutes($start);
-                } else {
-                    // Chevauchement temporel : géré par DetecterConflitsVacationAction.
+            ->filter(function (Vacation $other) use ($proposed, $reposMin, $posteId, $heureDebut, $heureFin) {
+                // Chevauchement (null) : géré par DetecterConflitsVacationAction.
+                $closest = $proposed->closestGap(ShiftSchedule::fromVacation($other));
+                if ($closest === null) {
                     return false;
                 }
+
+                $gapMinutes = $closest['gap'];
+                [$start, $end] = $closest['mine'];
+                [$oStart, $oEnd] = $closest['other'];
 
                 // Relève continue autorisée (même poste, gap ≤ 1 min) uniquement si :
                 // - cycle 24h → cycle 24h (relève→relève), ou
@@ -176,11 +165,11 @@ final class AssertVacationDureeLegale
                     );
 
                     // other puis proposed : jour → nuit
-                    if ($oEnd->equalTo($start) && ! $otherNight && ! $otherCycle && $proposedNight) {
+                    if ($oEnd === $start && ! $otherNight && ! $otherCycle && $proposedNight) {
                         return false;
                     }
                     // proposed puis other : jour → nuit
-                    if ($end->equalTo($oStart) && ! $proposedNight && ! $proposedCycle && $otherNight) {
+                    if ($end === $oStart && ! $proposedNight && ! $proposedCycle && $otherNight) {
                         return false;
                     }
                 }
@@ -218,15 +207,5 @@ final class AssertVacationDureeLegale
             $agent->nom,
             $agent->matricule,
         ));
-    }
-
-    /** @return array{0: Carbon, 1: Carbon} */
-    private static function range(
-        string $dateDebut,
-        string $heureDebut,
-        string $heureFin,
-        ?string $dateFin = null,
-    ): array {
-        return ShiftInterval::range($dateDebut, $heureDebut, $heureFin, $dateFin);
     }
 }

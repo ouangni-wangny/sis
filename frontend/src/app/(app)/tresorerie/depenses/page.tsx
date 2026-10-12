@@ -74,6 +74,7 @@ const STATUT_FILTER_OPTIONS = [
 export default function DepensesPage() {
   const now = new Date();
   const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(15);
   const [statutFilter, setStatutFilter] = useState("");
   const [filterMois, setFilterMois] = useState(String(now.getMonth() + 1));
   const [filterAnnee, setFilterAnnee] = useState(String(now.getFullYear()));
@@ -83,7 +84,7 @@ export default function DepensesPage() {
 
   const { data, isLoading } = useDepenses({
     page,
-    per_page: 15,
+    per_page: perPage,
     statut: statutFilter || undefined,
     mois: filterMois || undefined,
     annee: filterAnnee || undefined,
@@ -275,11 +276,16 @@ export default function DepensesPage() {
           columns={columns}
           data={data?.data ?? []}
           isLoading={isLoading}
-          page={page}
-          pageCount={data?.meta?.last_page ?? 1}
-          onPageChange={setPage}
-          perPage={15}
-          total={data?.meta?.total}
+          pagination={{
+            page,
+            perPage: data?.meta?.per_page ?? perPage,
+            total: data?.meta?.total ?? 0,
+            onPageChange: setPage,
+            onPerPageChange: (n) => {
+              setPerPage(n);
+              setPage(1);
+            },
+          }}
         />
       </div>
 

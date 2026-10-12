@@ -190,29 +190,6 @@ it('rejects self user deletion', function () {
         ->assertJsonValidationErrors(['user']);
 });
 
-it('rejects overlapping facture generation for same client period', function () {
-    Vacation::query()->create([
-        'agent_id' => $this->agent->id,
-        'site_id' => $this->site->id,
-        'date_debut' => '2026-07-10',
-        'heure_debut' => '08:00',
-        'heure_fin' => '16:00',
-        'statut' => 'planifiee',
-    ]);
-
-    $this->actingAs($this->admin)->postJson('/api/v1/factures/generer', [
-        'client_id' => $this->client->id,
-        'date_debut' => '2026-07-01',
-        'date_fin' => '2026-07-31',
-    ])->assertSuccessful();
-
-    $this->actingAs($this->admin)->postJson('/api/v1/factures/generer', [
-        'client_id' => $this->client->id,
-        'date_debut' => '2026-07-15',
-        'date_fin' => '2026-08-15',
-    ])->assertStatus(422);
-});
-
 it('rejects deleting offre with active abonnement', function () {
     Abonnement::query()->create([
         'client_id' => $this->client->id,

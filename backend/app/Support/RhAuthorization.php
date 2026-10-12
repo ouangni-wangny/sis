@@ -24,8 +24,12 @@ final class RhAuthorization
 
     public static function canSeeSalaire(?User $user): bool
     {
-        // Salaires réservés à la RH (gestion contrats), pas au règlement comptable.
-        return $user?->can('contrats.manage') ?? false;
+        // RH (saisie) + comptable (règlement) : lecture des montants saisis par la RH.
+        if (! $user) {
+            return false;
+        }
+
+        return $user->can('contrats.manage') || $user->can('paie.payer');
     }
 
     public static function canManageAbsences(?User $user): bool

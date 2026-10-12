@@ -24,7 +24,8 @@ import {
   planningCouvertureHint,
   planningCouvertureResume,
 } from "@/domain/schemas/poste-horaires";
-import { isCycle24h, isOvernight } from "@/domain/time/shift-interval";
+import { isOvernight } from "@/domain/time/shift-interval";
+import { vacationCoversDay } from "@/domain/time/vacation-days";
 import { Badge } from "@/presentation/components/ui/Badge";
 import { Button } from "@/presentation/components/ui/Button";
 import { Select } from "@/presentation/components/ui/Select";
@@ -171,6 +172,12 @@ function mondayOf(iso: string): Date {
   return d;
 }
 
+function dayBeforeIso(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() - 1);
+  return toIso(d);
+}
+
 function weekDates(mondayIso: string): string[] {
   const monday = new Date(`${mondayIso}T00:00:00`);
   return Array.from({ length: 7 }, (_, i) => {
@@ -180,18 +187,9 @@ function weekDates(mondayIso: string): string[] {
   });
 }
 
+/** Prise de poste ce jour (une nuit / 24h sur période s’affiche chaque jour). */
 function vacationShowsOnDate(v: Vacation, targetIso: string): boolean {
-  const startDate = v.date_debut.slice(0, 10);
-  // Overnight / cycle 24h : le créneau est rattaché au jour de début (relève).
-  if (
-    isOvernight(v.heure_debut, v.heure_fin) ||
-    isCycle24h(v.heure_debut, v.heure_fin)
-  ) {
-    return targetIso === startDate;
-  }
-  if (!v.date_fin) return targetIso >= startDate;
-  const endDate = v.date_fin.slice(0, 10);
-  return targetIso >= startDate && targetIso <= endDate;
+  return vacationCoversDay(v, targetIso);
 }
 
 function vacationCoversDate(v: Vacation, targetIso: string): boolean {
@@ -378,8 +376,17 @@ export function WeekGrid({
     siteId ? { site_id: siteId, all: true } : undefined,
     { enabled: !!siteId },
   );
+  // Période de la semaine (+ veille pour les nuits) : sans ce filtre, les
+  // 200 dernières vacations créées masquaient une partie du planning.
   const { data: vacationsData, isLoading: vacationsLoading } = useVacations(
-    siteId ? { site_id: siteId, per_page: 200 } : undefined,
+    siteId
+      ? {
+          site_id: siteId,
+          date_from: dayBeforeIso(dates[0]),
+          date_to: dates[6],
+          per_page: 1000,
+        }
+      : undefined,
   );
 
   const coverageQueries = useQueries({

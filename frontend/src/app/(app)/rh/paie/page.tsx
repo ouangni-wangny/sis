@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -273,19 +273,19 @@ export default function PaiePage() {
     [periodes.data?.data, selectedPeriodeId],
   );
 
-  // Par défaut : mois calendaire en cours s’il existe, sinon première période de la liste.
-  useEffect(() => {
-    if (selectedPeriodeId) return;
-    const list = periodes.data?.data ?? [];
-    if (!list.length) return;
+  // Par défaut : mois calendaire en cours s’il existe, sinon première période
+  // de la liste. Choisie une seule fois (ajustement pendant le rendu).
+  const periodesListe = periodes.data?.data ?? [];
+  if (!selectedPeriodeId && periodesListe.length > 0) {
     const now = new Date();
     const moisCourant = now.getMonth() + 1;
     const anneeCourante = now.getFullYear();
     const current =
-      list.find((p) => p.mois === moisCourant && p.annee === anneeCourante) ??
-      list[0];
+      periodesListe.find(
+        (p) => p.mois === moisCourant && p.annee === anneeCourante,
+      ) ?? periodesListe[0];
     setSelectedPeriodeId(current.id);
-  }, [periodes.data?.data, selectedPeriodeId]);
+  }
 
   const setStatutFilter = (statut: string) => {
     setFilterStatut((current) => (current === statut ? "" : statut));

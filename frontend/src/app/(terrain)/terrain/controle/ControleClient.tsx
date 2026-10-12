@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Camera, Check } from "lucide-react";
+import { useChargement } from "@/application/hooks/useChargement";
 import { useAuth } from "@/presentation/providers/AuthProvider";
 import { controlesApi, vacationsApi } from "@/infrastructure/http/resources";
 import { Button } from "@/presentation/components/ui/Button";
@@ -68,7 +69,8 @@ export default function ControleClient() {
   const searchParams = useSearchParams();
   const vacationId = searchParams.get("vacationId");
   const fileRef = useRef<HTMLInputElement>(null);
-  const openedRef = useRef<string | null>(null);
+  /** Vacation de l’URL déjà ouverte (une seule ouverture automatique par id). */
+  const [vacationOuverte, setVacationOuverte] = useState<string | null>(null);
 
   const [vacations, setVacations] = useState<Vacation[]>([]);
   const [history, setHistory] = useState<Controle[]>([]);
@@ -83,24 +85,26 @@ export default function ControleClient() {
   const [presence, setPresence] = useState<Presence>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [note, setNote] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [okMessage, setOkMessage] = useState<string | null>(null);
   const [doneResultat, setDoneResultat] = useState<ControleResultat | null>(
     null,
   );
   const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true);
   const noPerimetre = (user?.agent?.perimetres?.length ?? 0) === 0;
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [vacRes, todayCtrlRes, historyRes] = await Promise.all([
+  const chargerControles = useCallback(
+    () =>
+      Promise.all([
         vacationsApi.list({ en_poste: 1, per_page: 50 }),
         controlesApi.list({ aujourd_hui: 1, mes_controles: 1, per_page: 100 }),
         controlesApi.list({ mes_controles: 1, per_page: 30 }),
-      ]);
+      ]),
+    [],
+  );
+  const appliquerControles = useCallback(
+    ([vacRes, todayCtrlRes, historyRes]: Awaited<
+      ReturnType<typeof chargerControles>
+    >) => {
       setVacations(vacRes.data);
       const byAgent = indexControlesParPassage(
         todayCtrlRes.data
@@ -117,16 +121,19 @@ export default function ControleClient() {
       }
       setStatusByVacation(map);
       setHistory(historyRes.data);
-    } catch (err) {
-      setError(getApiErrorMessage(err, "Chargement impossible."));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+    },
+    [],
+  );
+  const {
+    loading,
+    error,
+    setError,
+    recharger: load,
+  } = useChargement(
+    chargerControles,
+    appliquerControles,
+    "Chargement impossible.",
+  );
 
   function resetForm() {
     setPhotoPreview(null);
@@ -141,7 +148,6 @@ export default function ControleClient() {
     setSelected(null);
     setError(null);
     setStep("list");
-    openedRef.current = null;
     router.replace("/terrain/controle");
   }
 
@@ -157,15 +163,15 @@ export default function ControleClient() {
     setStep("photo");
   }
 
-  useEffect(() => {
-    if (!vacationId || loading || vacations.length === 0) return;
-    if (openedRef.current === vacationId) return;
+  // Lien direct (?vacationId=…) : ouvre l’agent une fois les données chargées
+  // (ajustement pendant le rendu, pas de setState dans un effet).
+  if (vacationId && vacationId !== vacationOuverte && !loading) {
     const match = vacations.find((v) => v.id === vacationId);
-    if (!match) return;
-    openedRef.current = vacationId;
-    selectAgent(match);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vacationId, vacations, loading]);
+    if (match) {
+      setVacationOuverte(vacationId);
+      selectAgent(match);
+    }
+  }
 
   async function onPickPhoto(file: File | null) {
     if (!file) return;

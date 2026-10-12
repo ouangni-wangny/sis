@@ -103,15 +103,6 @@ export type ProformaFactureFormValues = z.infer<typeof proformaFactureSchema>;
 /** Forme brute des champs avant coercion (quantite/prix_unitaire saisis via inputs) — à utiliser comme TFieldValues de useForm. */
 export type ProformaFactureFormInput = z.input<typeof proformaFactureSchema>;
 
-/** @deprecated Conservé pour l’ancien endpoint /factures/generer */
-export const genererFactureSchema = z.object({
-  client_id: z.string().uuid("Client requis"),
-  date_debut: z.string().min(1, "Date de début requise"),
-  date_fin: z.string().min(1, "Date de fin requise"),
-});
-
-export type GenererFactureFormValues = z.infer<typeof genererFactureSchema>;
-
 export const PERIODICITE_FACTURE_FILTER_OPTIONS = [
   { value: "", label: "Toutes périodicités" },
   { value: "mensuel", label: "Mensuel" },

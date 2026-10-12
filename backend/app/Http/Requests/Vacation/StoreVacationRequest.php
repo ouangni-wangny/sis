@@ -23,6 +23,10 @@ class StoreVacationRequest extends FormRequest
             'heure_fin' => ['required', 'date_format:H:i'],
             'statut' => ['nullable', 'string'],
             'annuler_conflits' => ['sometimes', 'boolean'],
+            // Remplacement / reconduction : lève le repos minimum (pas le chevauchement).
+            'remplacement' => ['sometimes', 'boolean'],
+            // Période : ne pas planifier les jours de repos de l’agent.
+            'exclure_jour_repos' => ['sometimes', 'boolean'],
         ];
     }
 }
