@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Domain\Shared\Enums\StatutBulletinPaie;
+use App\Domain\Shared\Traits\Auditable;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,7 +12,8 @@ use Spatie\MediaLibrary\InteractsWithMedia;
 
 class BulletinPaie extends Model implements HasMedia
 {
-    use HasUuids, InteractsWithMedia;
+    // Journal d’audit : qui a saisi / modifié / réglé quel salaire, et quand.
+    use Auditable, HasUuids, InteractsWithMedia;
 
     protected $table = 'bulletins_paie';
 
@@ -67,5 +69,19 @@ class BulletinPaie extends Model implements HasMedia
     public function compteTresorerie(): BelongsTo
     {
         return $this->belongsTo(CompteTresorerie::class, 'compte_tresorerie_id');
+    }
+
+    /** Libellé du journal : « Bulletin 09/2026 — Prénom Nom (matricule) ». */
+    public function auditLabel(): ?string
+    {
+        $details = is_array($this->details) ? $this->details : [];
+        $periode = $this->periodePaie;
+        $qui = trim(($details['agent'] ?? '').(isset($details['matricule']) ? ' ('.$details['matricule'].')' : ''));
+
+        return trim(sprintf(
+            'Bulletin %s %s',
+            $periode ? sprintf('%02d/%d', $periode->mois, $periode->annee) : '',
+            $qui !== '' ? '— '.$qui : '',
+        ));
     }
 }
