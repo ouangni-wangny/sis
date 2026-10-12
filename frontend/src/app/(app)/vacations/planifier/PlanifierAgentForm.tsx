@@ -682,9 +682,13 @@ export function PlanifierAgentForm() {
     setValue,
   ]);
 
-  useEffect(() => {
+  // Le calendrier suit la date de début : ajustement pendant le rendu plutôt
+  // qu’un setState dans un effet (rendu en cascade).
+  const [moisSuiviPour, setMoisSuiviPour] = useState<string | undefined>(undefined);
+  if (dateDebut !== moisSuiviPour) {
+    setMoisSuiviPour(dateDebut);
     if (dateDebut) setCalendarMonth(monthOf(dateDebut));
-  }, [dateDebut]);
+  }
 
   const selectedAgentIds = useMemo(
     () => slots.map((s) => s.agent_id).filter(Boolean),

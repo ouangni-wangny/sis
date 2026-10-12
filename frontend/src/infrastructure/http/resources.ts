@@ -103,12 +103,16 @@ export const zonesApi = {
   destroy: (id: string) => api.delete<void>(`/zones/${id}`),
 };
 
-export type SiteCreatePayload = Partial<Site> & {
+export type SiteCreatePayload = Omit<Partial<Site>, "postes"> & {
+  /** Brouillons de postes créés avec le site (cf. toPostesPayload). */
   postes?: Array<{
     nom: string;
     agents_requis?: number;
-    heure_debut?: string;
-    heure_fin?: string;
+    heure_debut?: string | null;
+    heure_fin?: string | null;
+    heure_debut_nuit?: string | null;
+    heure_fin_nuit?: string | null;
+    mode_effectif?: Poste["mode_effectif"];
   }>;
 };
 
@@ -250,6 +254,8 @@ export const vacationsApi = {
     annuler_conflits?: boolean;
     /** Remplacement / reconduction : lève le repos minimum (pas le chevauchement). */
     remplacement?: boolean;
+    /** Période : ne pas planifier les jours de repos de l’agent. */
+    exclure_jour_repos?: boolean;
   }) => api.post<DataResponse<Vacation>>("/vacations", payload),
   createBulk: (payload: {
     vacations: Array<{

@@ -22,6 +22,7 @@ use App\Http\Requests\Vacation\StoreBulkVacationsRequest;
 use App\Http\Requests\Vacation\StoreVacationRequest;
 use App\Http\Requests\Vacation\UpdateVacationRequest;
 use App\Http\Resources\VacationResource;
+use App\Models\Agent;
 use App\Models\Ronde;
 use App\Models\Vacation;
 use Illuminate\Http\JsonResponse;
@@ -96,7 +97,13 @@ class VacationController extends Controller
     ): VacationResource {
         $this->authorize('create', Vacation::class);
 
-        $rows = DecouperPeriodeVacation::rows($request->validated());
+        $data = $request->validated();
+        // Période : les jours de repos de l’agent sont exclus (comme « Planifier un agent »).
+        $jourRepos = $request->boolean('exclure_jour_repos')
+            ? Agent::query()->find($data['agent_id'])?->jour_repos
+            : null;
+        unset($data['exclure_jour_repos']);
+        $rows = DecouperPeriodeVacation::rows($data, $jourRepos);
         if (count($rows) === 1) {
             return new VacationResource($action->execute($rows[0]));
         }

@@ -350,3 +350,59 @@ it('détecte un chevauchement nuit → matin suivant et ignore les plages disjoi
         ->and($nuit->overlaps(ShiftSchedule::fromStored('2026-11-03', '07:00', '12:00', '2026-11-03')))->toBeFalse()
         ->and($nuit->closestGap(ShiftSchedule::fromStored('2026-11-03', '07:00', '12:00', '2026-11-03'))['gap'])->toBe(60);
 });
+
+// ── Jour de repos sur une période ────────────────────────────────────────
+
+it('exclut le jour de repos de l’agent d’une saisie sur période', function () {
+    // Du lundi 02/11 au dimanche 08/11, repos le mercredi.
+    $this->titulaire->update(['jour_repos' => 'mercredi']);
+
+    $this->actingAs($this->admin)->postJson('/api/v1/vacations', [
+        'agent_id' => $this->titulaire->id,
+        'site_id' => $this->siteA->id,
+        'poste_id' => $this->posteNuitA->id,
+        'date_debut' => '2026-11-02',
+        'date_fin' => '2026-11-08',
+        'heure_debut' => '19:00',
+        'heure_fin' => '07:00',
+        'exclure_jour_repos' => true,
+    ])->assertCreated()->assertJsonPath('meta.created', 6);
+
+    $jours = Vacation::query()->where('agent_id', $this->titulaire->id)
+        ->orderBy('date_debut')->pluck('date_debut')
+        ->map(fn ($d) => $d->toDateString())->all();
+
+    expect($jours)->not->toContain('2026-11-04')
+        ->and($jours)->toHaveCount(6);
+});
+
+it('planifie tous les jours sans l’option d’exclusion du repos', function () {
+    $this->titulaire->update(['jour_repos' => 'mercredi']);
+
+    $this->actingAs($this->admin)->postJson('/api/v1/vacations', [
+        'agent_id' => $this->titulaire->id,
+        'site_id' => $this->siteA->id,
+        'poste_id' => $this->posteJourA->id,
+        'date_debut' => '2026-11-02',
+        'date_fin' => '2026-11-08',
+        'heure_debut' => '07:00',
+        'heure_fin' => '19:00',
+    ])->assertCreated()->assertJsonPath('meta.created', 7);
+});
+
+it('garde une saisie d’un seul jour même si c’est le jour de repos (exception voulue)', function () {
+    $this->titulaire->update(['jour_repos' => 'mercredi']);
+
+    $this->actingAs($this->admin)->postJson('/api/v1/vacations', [
+        'agent_id' => $this->titulaire->id,
+        'site_id' => $this->siteA->id,
+        'poste_id' => $this->posteJourA->id,
+        'date_debut' => '2026-11-04',
+        'date_fin' => '2026-11-04',
+        'heure_debut' => '07:00',
+        'heure_fin' => '19:00',
+        'exclure_jour_repos' => true,
+    ])->assertCreated();
+
+    expect(Vacation::query()->count())->toBe(1);
+});

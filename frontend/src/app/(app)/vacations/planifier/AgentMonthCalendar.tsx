@@ -247,7 +247,8 @@ export function AgentMonthCalendar({
     for (const a of absences) {
       if (a.statut !== "approuvee") continue;
       const from = a.date_debut.slice(0, 10);
-      const to = a.date_fin.slice(0, 10);
+      // Absence sans date de fin = un seul jour.
+      const to = (a.date_fin ?? a.date_debut).slice(0, 10);
       for (const key of eachDateInclusive(from, to)) {
         const list = map.get(key) ?? [];
         list.push(a);

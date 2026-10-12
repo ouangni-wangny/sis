@@ -222,6 +222,7 @@ export function useCreateVacation() {
       statut?: Vacation["statut"];
       annuler_conflits?: boolean;
       remplacement?: boolean;
+      exclure_jour_repos?: boolean;
     }) => vacationsApi.create(payload),
     onSuccess: () => invalidateVacations(qc),
   });

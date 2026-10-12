@@ -381,10 +381,21 @@ function VacationsPageContent() {
     () => (agentsData?.data ?? []).find((a) => a.id === agentId)?.jour_repos,
     [agentsData, agentId],
   );
+  const saisiePeriode = joursSaisis.length > 1;
+  // Un seul jour : avertissement si c’est le jour de repos (exception voulue).
   const restDayConflict =
+    !saisiePeriode &&
     !!selectedAgentJourRepos &&
     !!dateDebut &&
     frenchWeekday(dateDebut) === selectedAgentJourRepos;
+  // Période : les jours de repos de l’agent sont exclus à l’enregistrement.
+  const joursReposExclus = useMemo(
+    () =>
+      saisiePeriode && selectedAgentJourRepos
+        ? joursSaisis.filter((d) => frenchWeekday(d) === selectedAgentJourRepos)
+        : [],
+    [saisiePeriode, selectedAgentJourRepos, joursSaisis],
+  );
 
   const busy =
     isSubmitting || updateVacation.isPending || createVacation.isPending;
@@ -392,6 +403,11 @@ function VacationsPageContent() {
   const agentOptions = useMemo(() => {
     const assignable = new Set(["disponible", "en_activite"]);
     const weekday = dateDebut ? frenchWeekday(dateDebut) : null;
+    const periode = joursSaisis.length > 1;
+    // Période : jours de repos exclus côté API → pas de conflit à vérifier ces jours-là.
+    const reposParAgent = new Map(
+      (agentsData?.data ?? []).map((a) => [a.id, a.jour_repos ?? null]),
+    );
     const busyAgentIds = new Set<string>();
     const reposBlockedIds = new Set<string>();
     if (creating && joursSaisis.length > 0 && heureDebut && heureFin) {
@@ -404,7 +420,9 @@ function VacationsPageContent() {
         if (v.statut === "annulee" || v.statut === "a_recouvrir") continue;
         const otherNight = isOvernight(v.heure_debut, v.heure_fin);
         const otherCycle = isCycle24h(v.heure_debut, v.heure_fin);
+        const repos = periode ? reposParAgent.get(v.agent_id) : null;
         for (const jour of joursSaisis) {
+          if (repos && frenchWeekday(jour) === repos) continue;
           const proposed = shiftWindowOnDayMs(jour, heureDebut, heureFin);
           // Créneaux réels de la vacation autour du jour, pas un bloc continu.
           const windows = vacationWindowsAroundDayMs(v, jour);
@@ -446,7 +464,8 @@ function VacationsPageContent() {
       .filter((a) => {
         if (!creating) return true;
         if (!assignable.has(a.statut)) return false;
-        if (weekday && a.jour_repos === weekday) return false;
+        // Un seul jour : jour de repos exclu. Période : repos sauté à l’enregistrement.
+        if (!periode && weekday && a.jour_repos === weekday) return false;
         if (busyAgentIds.has(a.id)) return false;
         // Remplacement : l’agent qui sort d’un jour / quart peut être reconduit.
         if (reposBlockedIds.has(a.id) && !remplacement) return false;
@@ -456,7 +475,13 @@ function VacationsPageContent() {
         value: a.id,
         label: `${a.prenom} ${a.nom} (${a.matricule})${
           a.grade?.libelle ? ` — ${a.grade.libelle}` : ""
-        }${a.jour_repos ? ` · repos ${a.jour_repos}` : ""}${
+        }${
+          a.jour_repos
+            ? periode
+              ? ` · repos ${a.jour_repos} exclu`
+              : ` · repos ${a.jour_repos}`
+            : ""
+        }${
           creating && reposBlockedIds.has(a.id) ? " · reconduction" : ""
         }`,
       }));
@@ -1257,6 +1282,7 @@ function VacationsPageContent() {
                     date_debut: values.date_debut,
                     date_fin: values.date_fin || values.date_debut,
                     ...(remplacement ? { remplacement: true } : {}),
+                    ...(saisiePeriode ? { exclure_jour_repos: true } : {}),
                   });
                   toast("Agent ajouté pour ce jour.");
                   reset(emptyDefaults);
@@ -1428,6 +1454,13 @@ function VacationsPageContent() {
                         c’est une exception voulue.
                       </span>
                     </span>
+                  </Alert>
+                ) : null}
+                {joursReposExclus.length > 0 ? (
+                  <Alert tone="info">
+                    Jour de repos de l’agent ({selectedAgentJourRepos}) exclu
+                    de la période : pas de prise de poste le{" "}
+                    {joursReposExclus.map((d) => formatDate(d)).join(", ")}.
                   </Alert>
                 ) : null}
 
@@ -1644,6 +1677,13 @@ function VacationsPageContent() {
                   <Alert tone="warning">
                     Jour de repos habituel de l’agent ({selectedAgentJourRepos}
                     ).
+                  </Alert>
+                ) : null}
+                {joursReposExclus.length > 0 ? (
+                  <Alert tone="info">
+                    Jour de repos de l’agent ({selectedAgentJourRepos}) exclu
+                    de la période : pas de prise de poste le{" "}
+                    {joursReposExclus.map((d) => formatDate(d)).join(", ")}.
                   </Alert>
                 ) : null}
                 {posteCoverage &&

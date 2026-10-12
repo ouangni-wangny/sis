@@ -23,7 +23,9 @@ export const siteSchema = z.object({
   zone_id: z.string().uuid("Zone requise"),
   nom: z.string().trim().min(1, "Nom requis").max(255),
   adresse: z.string().max(1000).optional().or(z.literal("")),
-  interne: z.boolean().optional().default(false),
+  // Défaut false porté par defaultValues : un .default() rendrait l’entrée
+  // optionnelle et casserait le typage du resolver react-hook-form.
+  interne: z.boolean(),
   postes: z.array(sitePosteDraftSchema),
 });
 

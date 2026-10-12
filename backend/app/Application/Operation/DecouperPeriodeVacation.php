@@ -2,6 +2,7 @@
 
 namespace App\Application\Operation;
 
+use App\Domain\Shared\Enums\JourSemaine;
 use Carbon\Carbon;
 use Illuminate\Validation\ValidationException;
 
@@ -21,9 +22,10 @@ final class DecouperPeriodeVacation
 
     /**
      * @param  array<string, mixed>  $data
+     * @param  JourSemaine|null  $jourRepos  jour de repos de l’agent, exclu de la période
      * @return list<array<string, mixed>>
      */
-    public static function rows(array $data): array
+    public static function rows(array $data, ?JourSemaine $jourRepos = null): array
     {
         $dateFin = $data['date_fin'] ?? null;
         if ($dateFin === null || $dateFin === '') {
@@ -45,11 +47,21 @@ final class DecouperPeriodeVacation
 
         $rows = [];
         for ($d = $debut->copy(); $d->lte($fin); $d->addDay()) {
+            // Jour de repos : pas de prise de poste ce jour-là (nuit incluse).
+            if ($jourRepos !== null && JourSemaine::fromCarbonDayOfWeek($d->dayOfWeek) === $jourRepos) {
+                continue;
+            }
             $rows[] = [
                 ...$data,
                 'date_debut' => $d->toDateString(),
                 'date_fin' => $d->toDateString(),
             ];
+        }
+
+        if ($rows === []) {
+            throw ValidationException::withMessages([
+                'date_fin' => 'La période ne contient que des jours de repos de cet agent.',
+            ]);
         }
 
         return $rows;
