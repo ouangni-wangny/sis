@@ -80,3 +80,10 @@ it('régénère le PDF quand le statut de la facture change', function () {
         fn (GenererFacturePdfJob $job) => $job->factureId === $facture->id,
     );
 });
+
+it('affiche « Signature & cachet » sans double échappement', function () {
+    $html = renderFacturePdf(makeFacturePdf(StatutFacture::Valide));
+
+    expect($html)->toContain('Signature &amp; cachet')
+        ->not->toContain('&amp;amp;');
+});

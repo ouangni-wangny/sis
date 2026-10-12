@@ -262,7 +262,7 @@
         <td style="width:46%; padding-left:8px; vertical-align:top;">
             <div class="sis-sign-box">
                 <p class="sis-sign-label">
-                    {{ $facture->signataire_fonction ?: 'Signature &amp; cachet' }}
+                    {{ $facture->signataire_fonction ?: 'Signature & cachet' }}
                 </p>
                 <div style="height:48px;"></div>
                 @if($facture->signataire_nom)
