@@ -70,8 +70,13 @@ final class CreateVacationAction
             $data['date_fin'],
         );
 
+        // Remplacement / reconduction : un agent qui vient de faire un jour
+        // ou un quart peut enchaîner pour couvrir un collègue absent — le
+        // repos minimum ne bloque pas (le chevauchement reste interdit).
+        $remplacement = (bool) ($data['remplacement'] ?? false);
         $reposOptions = [
             'poste_id' => $data['poste_id'] ?? null,
+            'ignore_repos' => $remplacement,
         ];
 
         $reposBlockers = AssertVacationDureeLegale::findReposInsuffisant(
@@ -100,9 +105,16 @@ final class CreateVacationAction
                     );
                 }
             } elseif ($conflits->isNotEmpty()) {
+                $bloquante = $conflits->first();
                 throw new VacationConflitException(
-                    'Cet agent a déjà une vacation sur ce créneau (même site ou autre site).',
-                    (string) $conflits->first()->id,
+                    sprintf(
+                        'Cet agent a déjà une vacation sur ce créneau le %s (%s–%s, %s).',
+                        \Carbon\Carbon::parse($data['date_debut'])->format('d/m/Y'),
+                        substr((string) $bloquante->heure_debut, 0, 5),
+                        substr((string) $bloquante->heure_fin, 0, 5),
+                        $bloquante->site?->nom ?? 'autre site',
+                    ),
+                    (string) $bloquante->id,
                 );
             } else {
                 // Repos insuffisant : message détaillé via assert.
@@ -136,7 +148,7 @@ final class CreateVacationAction
             $data['date_fin'],
         );
 
-        unset($data['annuler_conflits']);
+        unset($data['annuler_conflits'], $data['remplacement']);
 
         $vacation = Vacation::query()->create($data);
 

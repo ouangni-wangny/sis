@@ -18,6 +18,8 @@ import type {
   ContratAlerte,
   Controle,
   DashboardStats,
+  PointageLigne,
+  PointageTotaux,
   Depense,
   Facture,
   FeatureFlag,
@@ -228,6 +230,8 @@ export const vacationsApi = {
       statut?: string;
       en_poste?: number | boolean;
       date?: string;
+      date_from?: string;
+      date_to?: string;
       site_interne?: number | boolean;
     },
   ) =>
@@ -244,6 +248,8 @@ export const vacationsApi = {
     heure_fin: string;
     statut?: StatutVacation;
     annuler_conflits?: boolean;
+    /** Remplacement / reconduction : lève le repos minimum (pas le chevauchement). */
+    remplacement?: boolean;
   }) => api.post<DataResponse<Vacation>>("/vacations", payload),
   createBulk: (payload: {
     vacations: Array<{
@@ -276,6 +282,17 @@ export const vacationsApi = {
   destroy: (id: string) => api.delete<void>(`/vacations/${id}`),
   recouvrir: (id: string, payload: { agent_id: string }) =>
     api.post<DataResponse<Vacation>>(`/vacations/${id}/recouvrir`, payload),
+  /** Pointage par créneau : présent / absent / non contrôlé (heures comptées si présent). */
+  pointage: (params: {
+    date_debut: string;
+    date_fin: string;
+    agent_id?: string;
+    site_id?: string;
+  }) =>
+    api.get<{ data: PointageLigne[]; meta: PointageTotaux }>(
+      "/vacations/pointage",
+      { params: toQuery(params) },
+    ),
   conflits: (params: {
     agent_id: string;
     date_debut: string;
@@ -425,11 +442,6 @@ export const facturesApi = {
   show: (id: string) => api.get<DataResponse<Facture>>(`/factures/${id}`),
   updateStatut: (id: string, statut: string) =>
     api.patch<DataResponse<Facture>>(`/factures/${id}/statut`, { statut }),
-  generer: (payload: {
-    client_id: string;
-    date_debut: string;
-    date_fin: string;
-  }) => api.post<DataResponse<Facture>>("/factures/generer", payload),
   genererPdf: (id: string) =>
     api.post<DataResponse<Facture>>(`/factures/${id}/generer-pdf`),
 };

@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="utf-8">
-    <title>FACTURE PRO FORMA {{ $facture->numero }}</title>
+    <title>{{ mb_strtoupper(\App\Domain\Commercial\MentionsFacture::pour($facture->statut)['titre']) }} {{ $facture->numero }}</title>
     @include('pdf.partials.styles')
     <style>
         /* Ajustements facture — grille commerciale */
@@ -116,12 +116,15 @@
     $statutFacture = $facture->statut instanceof \BackedEnum
         ? $facture->statut->value
         : (string) ($facture->statut ?? '');
+
+    // Proforma vs facture définitive (validée) : titres et mentions.
+    $mentions = \App\Domain\Commercial\MentionsFacture::pour($facture->statut);
 @endphp
 
 @include('pdf.partials.header', [
     'brand' => $brand,
     'docEyebrow' => 'Commercial',
-    'docTitle' => 'Facture pro forma',
+    'docTitle' => $mentions['titre'],
     'docSubtitle' => $facture->numero.' · '.$lieu.', le '.$dateFr,
 ])
 
@@ -214,17 +217,20 @@
 </table>
 
 <div class="sis-note">
-    Arrêté le présent devis à la somme de : <strong>{{ $lettres }}</strong>
+    {{ $mentions['arrete'] }} : <strong>{{ $lettres }}</strong>
 </div>
 
+@if($mentions['afficher_nb'])
 <p style="margin:0 0 14px 0; font-size:10px;">
     <span class="sis-badge">NB</span>
     <span style="margin-left:6px;">{{ $nbText }}</span>
 </p>
+@endif
 
 <table style="width:100%; border-collapse:collapse; margin-top:6px;">
     <tr>
         <td style="width:54%; padding-right:8px; vertical-align:top;">
+            @if($mentions['afficher_conditions'])
             <div class="sis-panel">
                 <p class="sis-panel-label">Conditions de mise en place</p>
                 @if($facture->periodicite)
@@ -251,6 +257,7 @@
                     <p>{{ $facture->duree_contrat_min }}</p>
                 @endif
             </div>
+            @endif
         </td>
         <td style="width:46%; padding-left:8px; vertical-align:top;">
             <div class="sis-sign-box">

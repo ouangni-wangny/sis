@@ -132,6 +132,7 @@ Route::prefix('v1')->group(function () {
 
         Route::middleware('feature:module.vacations')->group(function () {
             Route::get('vacations/conflits', [VacationController::class, 'conflits']);
+            Route::get('vacations/pointage', [VacationController::class, 'pointage']);
             Route::post('vacations/bulk', [VacationController::class, 'storeBulk']);
             Route::post('vacations/{vacation}/recouvrir', [VacationController::class, 'recouvrir']);
             Route::apiResource('vacations', VacationController::class);
@@ -200,7 +201,6 @@ Route::prefix('v1')->group(function () {
             Route::put('factures/{facture}/proforma', [FactureController::class, 'updateProforma']);
             Route::get('factures/{facture}', [FactureController::class, 'show']);
             Route::patch('factures/{facture}/statut', [FactureController::class, 'updateStatut']);
-            Route::post('factures/generer', [FactureController::class, 'generer']);
             Route::post('factures/{facture}/generer-pdf', [FactureController::class, 'genererPdf']);
             Route::get('factures/{facture}/pdf', [FactureController::class, 'telechargerPdf']);
         });

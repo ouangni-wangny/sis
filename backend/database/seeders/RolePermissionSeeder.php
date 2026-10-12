@@ -165,7 +165,7 @@ class RolePermissionSeeder extends Seeder
             'paiements.view', 'paiements.create', 'paiements.update',
         ]);
 
-        // Comptabilité — trésorerie + règlement paie (sans voir les salaires)
+        // Comptabilité — trésorerie + règlement paie (voit les salaires saisis par la RH)
         // + mêmes droits commercial (clients, factures, offres, abonnements, paiements)
         $comptable = Role::findOrCreate('comptable', 'web');
         $comptable->syncPermissions([

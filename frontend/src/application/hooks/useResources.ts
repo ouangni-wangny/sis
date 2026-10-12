@@ -178,6 +178,8 @@ export function useVacations(
     statut?: string;
     en_poste?: number | boolean;
     date?: string;
+    date_from?: string;
+    date_to?: string;
     site_interne?: number | boolean;
   },
   options?: { enabled?: boolean },
@@ -196,6 +198,16 @@ function invalidateVacations(qc: ReturnType<typeof useQueryClient>) {
   void qc.invalidateQueries({ queryKey: ["agents"] });
 }
 
+export function usePointageVacations(
+  params: Parameters<typeof vacationsApi.pointage>[0] | undefined,
+) {
+  return useQuery({
+    queryKey: ["vacations", "pointage", params],
+    queryFn: () => vacationsApi.pointage(params!),
+    enabled: !!params,
+  });
+}
+
 export function useCreateVacation() {
   const qc = useQueryClient();
   return useMutation({
@@ -209,6 +221,7 @@ export function useCreateVacation() {
       heure_fin: string;
       statut?: Vacation["statut"];
       annuler_conflits?: boolean;
+      remplacement?: boolean;
     }) => vacationsApi.create(payload),
     onSuccess: () => invalidateVacations(qc),
   });
@@ -404,14 +417,6 @@ export function useUpdateFactureStatut() {
       void qc.invalidateQueries({ queryKey: ["abonnements"] });
       void qc.invalidateQueries({ queryKey: ["clients"] });
     },
-  });
-}
-
-export function useGenererFacture() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: facturesApi.generer,
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["factures"] }),
   });
 }
 

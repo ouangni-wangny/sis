@@ -14,6 +14,7 @@ use App\Domain\Shared\Enums\TypeAbsence;
 use App\Domain\Shared\Enums\TypeAgent;
 use App\Domain\Shared\Enums\TypeAnomalie;
 use App\Domain\Shared\Exceptions\PresenceHorsZoneException;
+use App\Domain\Shared\Support\ShiftSchedule;
 use App\Models\Absence;
 use App\Models\Agent;
 use App\Models\Anomalie;
@@ -237,11 +238,8 @@ final class EnregistrerControleAction
 
         foreach ($vacations as $vacation) {
             foreach ($anchors as $anchor) {
-                $anchorDate = $anchor->toDateString();
-                if ($anchorDate < $vacation->date_debut->toDateString()) {
-                    continue;
-                }
-                if ($vacation->date_fin && $anchorDate > $vacation->date_fin->toDateString()) {
+                // Jour de prise de poste uniquement (nuit sur période incluse).
+                if (! ShiftSchedule::fromVacation($vacation)->coversDay($anchor->toDateString())) {
                     continue;
                 }
                 [$start, $end] = $this->windowOnDate($anchor, $vacation->heure_debut, $vacation->heure_fin);

@@ -876,3 +876,28 @@ export type AuthLoginResult = {
   token: string;
   user: User;
 };
+
+/** Résultat du pointage d’un créneau (contrôles de présence). */
+export type PointageControle = "present" | "absent" | "non_controle";
+
+export type PointageLigne = {
+  date: string;
+  vacation_id: string;
+  agent_id: string;
+  agent: string | null;
+  statut: Vacation["statut"] | null;
+  site: string | null;
+  poste: string | null;
+  heure_debut: string;
+  heure_fin: string;
+  controle: PointageControle;
+  heures_prevues: number;
+  heures_comptees: number;
+};
+
+export type PointageTotaux = {
+  present: number;
+  absent: number;
+  non_controle: number;
+  heures_comptees: number;
+};

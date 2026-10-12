@@ -92,9 +92,9 @@ export function isMenuVisible(
   return Boolean(overrides[navKey]);
 }
 
-/** Salaires visibles uniquement pour la RH (gestion contrats). */
+/** Salaires visibles par la RH (saisie) et le comptable (règlement, lecture seule). */
 export function canSeeSalaire(user: User | null | undefined): boolean {
-  return can(user, "contrats.manage");
+  return can(user, ["contrats.manage", "paie.payer"]);
 }
 
 export function canViewContrats(user: User | null | undefined): boolean {

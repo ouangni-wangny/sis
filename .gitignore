@@ -8,3 +8,6 @@ vendor/
 .env.production
 *.sqlite
 *.sqlite3
+
+# Docs / scripts locaux (hors repo)
+/local/

@@ -3,6 +3,7 @@
 namespace App\Application\Operation;
 
 use App\Domain\Shared\Enums\StatutVacation;
+use App\Domain\Shared\Support\ShiftSchedule;
 use App\Models\Agent;
 use App\Models\Vacation;
 use Illuminate\Support\Facades\DB;
@@ -36,15 +37,29 @@ final class RecouvrirVacationAction
             $remplacant = Agent::query()->findOrFail($remplacantId);
             $this->annulerVacationPoolSiege($remplacant, $trou);
 
-            $remplacement = $this->create->execute([
+            // Une vacation par jour de prise de poste : le remplaçant n’est
+            // occupé que sur ces créneaux, il reste affectable ailleurs.
+            $base = [
                 'agent_id' => $remplacantId,
                 'site_id' => $trou->site_id,
                 'poste_id' => $trou->poste_id,
-                'date_debut' => $trou->date_debut->format('Y-m-d'),
-                'date_fin' => $trou->date_fin?->format('Y-m-d'),
                 'heure_debut' => substr((string) $trou->heure_debut, 0, 5),
                 'heure_fin' => substr((string) $trou->heure_fin, 0, 5),
-            ]);
+                'remplacement' => true,
+            ];
+            $jours = $trou->date_fin
+                ? ShiftSchedule::fromVacation($trou)->days()
+                : [null];
+
+            $remplacement = null;
+            foreach ($jours as $jour) {
+                $created = $this->create->execute([
+                    ...$base,
+                    'date_debut' => $jour ?? $trou->date_debut->format('Y-m-d'),
+                    'date_fin' => $jour,
+                ], wrapInTransaction: false);
+                $remplacement ??= $created;
+            }
 
             $trou->update(['statut' => StatutVacation::Annulee->value]);
 
