@@ -10,6 +10,11 @@ enum StatutFacture: string
     case Rejetee = 'rejetee';
     /** Facture validée annulée (éventuellement après encaissement). */
     case Annulee = 'annulee';
+    /**
+     * @deprecated Ancien statut unique avant split rejetee/annulee.
+     * Conservé pour lire les lignes non encore migrées sans faire planter l’API.
+     */
+    case Annule = 'annule';
 
     public function label(): string
     {
@@ -17,13 +22,15 @@ enum StatutFacture: string
             self::EnAttente => 'En attente',
             self::Valide => 'Validé',
             self::Rejetee => 'Rejetée',
-            self::Annulee => 'Annulée',
+            self::Annulee, self::Annule => 'Annulée',
         };
     }
 
     /** Document « mort » : plus modifiable / plus payable. */
     public function estCloturee(): bool
     {
-        return $this === self::Rejetee || $this === self::Annulee;
+        return $this === self::Rejetee
+            || $this === self::Annulee
+            || $this === self::Annule;
     }
 }

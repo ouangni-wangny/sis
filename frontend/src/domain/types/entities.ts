@@ -574,7 +574,13 @@ export type Controle = {
   photos?: { url: string; thumb?: string }[];
 };
 
-export type StatutFacture = "en_attente" | "valide" | "rejetee" | "annulee";
+export type StatutFacture =
+  | "en_attente"
+  | "valide"
+  | "rejetee"
+  | "annulee"
+  /** @deprecated legacy avant split rejetee/annulee */
+  | "annule";
 
 export type Paiement = {
   id: string;

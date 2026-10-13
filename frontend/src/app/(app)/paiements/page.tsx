@@ -115,7 +115,9 @@ function PaiementsPageContent() {
     recent_30j: recent30jOnly || undefined,
     facture_id: prefillFactureId || undefined,
   });
-  const { data: facturesData } = useFactures({ all: true });
+  // Uniquement les factures validées (payables) — évite de charger proformas /
+  // rejetées / annulées et d’éventuels anciens statuts `annule` encore en base.
+  const { data: facturesData } = useFactures({ all: true, statut: "valide" });
   const { data: comptesRes } = useComptesTresorerieOptions();
   const comptes = comptesRes?.data ?? [];
   const { data: modesRes } = useModesPaiementOptions();
@@ -152,7 +154,14 @@ function PaiementsPageContent() {
   const factureOptions = useMemo(() => {
     const editingFactureId = editing?.facture_id;
     const rows = (facturesData?.data ?? []).filter((f) => {
-      if (f.statut === "rejetee" || f.statut === "annulee") return false;
+      if (
+        f.statut === "rejetee" ||
+        f.statut === "annulee" ||
+        f.statut === "annule" ||
+        f.statut === "en_attente"
+      ) {
+        return false;
+      }
       // En édition, garder la facture déjà liée même si soldée depuis.
       if (editingFactureId && f.id === editingFactureId) return true;
       if (f.statut_paiement === "soldee") return false;
