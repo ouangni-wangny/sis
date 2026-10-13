@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Application\Commercial\AnnulerFactureAction;
 use App\Application\Commercial\CreateAbonnementsFromProformaAction;
 use App\Application\Commercial\CreateProformaFactureAction;
 use App\Application\Commercial\UpdateProformaFactureAction;
@@ -112,20 +113,27 @@ class FactureController extends Controller
         UpdateFactureStatutRequest $request,
         Facture $facture,
         CreateAbonnementsFromProformaAction $createAbonnements,
+        AnnulerFactureAction $annulerFacture,
     ): FactureResource {
         $this->authorize('update', $facture);
         $statut = $request->validated('statut');
         $statutAvant = $facture->statut?->value;
 
-        // Tout ou rien : si la création d’abonnement échoue (périodicité,
-        // destinataire manquant…), la proforma reste en attente.
-        $facture = DB::transaction(function () use ($facture, $statut, $createAbonnements) {
-            $facture->update(['statut' => $statut]);
+        if ((string) $statut === StatutFacture::Annule->value) {
+            // Proforma : rejet classique. Facture validée (même payée) : réservé
+            // super-admin + contrepassation des encaissements.
+            $facture = $annulerFacture->execute($facture);
+        } else {
+            // Tout ou rien : si la création d’abonnement échoue (périodicité,
+            // destinataire manquant…), la proforma reste en attente.
+            $facture = DB::transaction(function () use ($facture, $statut, $createAbonnements) {
+                $facture->update(['statut' => $statut]);
 
-            return (string) $statut === StatutFacture::Valide->value
-                ? $createAbonnements->execute($facture->fresh())
-                : $facture;
-        });
+                return (string) $statut === StatutFacture::Valide->value
+                    ? $createAbonnements->execute($facture->fresh())
+                    : $facture;
+            });
+        }
 
         // Le PDF suit le statut : proforma → facture définitive (mentions retirées).
         if ($statutAvant !== (string) $statut || $facture->fresh()->getFirstMedia('pdf') === null) {

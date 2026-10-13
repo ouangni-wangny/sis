@@ -37,7 +37,7 @@ import { useAuth } from "@/presentation/providers/AuthProvider";
 import { useToast } from "@/presentation/providers/ToastProvider";
 import { apiClient } from "@/infrastructure/http/apiClient";
 import { getApiErrorMessage } from "@/shared/lib/api-error";
-import { can } from "@/shared/lib/can";
+import { can, hasRole } from "@/shared/lib/can";
 import { formatDate, formatFcfa, labelize, MOIS_LABELS } from "@/shared/lib/format";
 
 type FactureTab = "proformas" | "factures" | "annulees";
@@ -121,12 +121,15 @@ function FacturesPageContent() {
   const [statutUpdatingId, setStatutUpdatingId] = useState<string | null>(null);
   const [toValidate, setToValidate] = useState<Facture | null>(null);
   const [toReject, setToReject] = useState<Facture | null>(null);
+  const [toAnnuler, setToAnnuler] = useState<Facture | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
   const canCreate = can(user, "factures.create");
   const canUpdate = can(user, "factures.update");
   const canView = can(user, "factures.view");
   const canPay = can(user, "paiements.create");
+  /** Annulation d’une facture validée (même payée) : super-admin / développeur. */
+  const canAnnulerValidee = hasRole(user, "super-admin");
 
   const statut = TAB_STATUT[tab];
 
@@ -261,6 +264,10 @@ function FacturesPageContent() {
   const handleStatutChange = useCallback(
     async (facture: Facture, next: StatutFacture) => {
       if (!canUpdate || facture.statut === next) return;
+      if (next === "annule" && facture.statut === "valide" && !canAnnulerValidee) {
+        toast("Seuls les administrateurs peuvent annuler une facture validée.", "danger");
+        return;
+      }
       setStatutUpdatingId(facture.id);
       try {
         await updateStatut.mutateAsync({ id: facture.id, statut: next });
@@ -269,12 +276,15 @@ function FacturesPageContent() {
             ? !facture.client_id
               ? "Proforma validée — client créé depuis la proforma, puis abonnement créé."
               : "Proforma validée — abonnement créé."
-            : next === "annule"
-              ? "Proforma rejetée."
-              : `Statut mis à jour : ${labelFactureStatut(next)}.`,
+            : next === "annule" && facture.statut === "valide"
+              ? "Facture annulée — encaissements contrepassés."
+              : next === "annule"
+                ? "Proforma rejetée."
+                : `Statut mis à jour : ${labelFactureStatut(next)}.`,
         );
         setToValidate(null);
         setToReject(null);
+        setToAnnuler(null);
       } catch (err) {
         toast(
           getApiErrorMessage(err, "Échec de la mise à jour du statut."),
@@ -284,7 +294,7 @@ function FacturesPageContent() {
         setStatutUpdatingId(null);
       }
     },
-    [canUpdate, toast, updateStatut],
+    [canAnnulerValidee, canUpdate, toast, updateStatut],
   );
 
   const handleGenererProforma = useCallback(
@@ -470,6 +480,18 @@ function FacturesPageContent() {
                   },
                 ]
               : []),
+            ...(canAnnulerValidee && isValidee
+              ? [
+                  {
+                    key: "annuler",
+                    label: "Annuler la facture",
+                    icon: AlertTriangle,
+                    tone: "danger" as const,
+                    onClick: () => setToAnnuler(facture),
+                    disabled: busy,
+                  },
+                ]
+              : []),
           ];
 
           return (
@@ -485,6 +507,7 @@ function FacturesPageContent() {
       },
     ],
     [
+      canAnnulerValidee,
       canUpdate,
       canView,
       canPay,
@@ -676,6 +699,27 @@ function FacturesPageContent() {
           onConfirm={() => {
             if (!toReject) return;
             void handleStatutChange(toReject, "annule");
+          }}
+        />
+
+        <ConfirmDialog
+          open={!!toAnnuler}
+          onClose={() => {
+            if (statutBusy) return;
+            setToAnnuler(null);
+          }}
+          loading={statutBusy}
+          title="Annuler la facture"
+          description={
+            toAnnuler
+              ? `Confirmer l’annulation de « ${toAnnuler.numero} » ? Les encaissements liés seront annulés et la trésorerie contrepassée.`
+              : ""
+          }
+          confirmLabel="Annuler la facture"
+          confirmVariant="danger"
+          onConfirm={() => {
+            if (!toAnnuler) return;
+            void handleStatutChange(toAnnuler, "annule");
           }}
         />
       </div>
