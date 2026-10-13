@@ -1667,7 +1667,8 @@ class DemoSeeder extends Seeder
                     ? $this->weighted([
                         StatutFacture::Valide->value => 80,
                         StatutFacture::EnAttente->value => 15,
-                        StatutFacture::Annule->value => 5,
+                        StatutFacture::Rejetee->value => 3,
+                        StatutFacture::Annulee->value => 2,
                     ])
                     : StatutFacture::EnAttente->value;
 

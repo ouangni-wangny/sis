@@ -152,7 +152,7 @@ function PaiementsPageContent() {
   const factureOptions = useMemo(() => {
     const editingFactureId = editing?.facture_id;
     const rows = (facturesData?.data ?? []).filter((f) => {
-      if (f.statut === "annule") return false;
+      if (f.statut === "rejetee" || f.statut === "annulee") return false;
       // En édition, garder la facture déjà liée même si soldée depuis.
       if (editingFactureId && f.id === editingFactureId) return true;
       if (f.statut_paiement === "soldee") return false;

@@ -78,17 +78,27 @@ it('autorise le commercial à rejeter une proforma', function () {
     ]);
 
     $this->actingAs($this->commercial)
-        ->patchJson("/api/v1/factures/{$facture->id}/statut", ['statut' => 'annule'])
+        ->patchJson("/api/v1/factures/{$facture->id}/statut", ['statut' => 'rejetee'])
         ->assertOk()
-        ->assertJsonPath('data.statut', 'annule');
+        ->assertJsonPath('data.statut', 'rejetee');
 });
 
 it('refuse au commercial d’annuler une facture validée', function () {
     $facture = makeFactureValideePourAnnulation($this->client);
 
     $this->actingAs($this->commercial)
-        ->patchJson("/api/v1/factures/{$facture->id}/statut", ['statut' => 'annule'])
+        ->patchJson("/api/v1/factures/{$facture->id}/statut", ['statut' => 'annulee'])
         ->assertForbidden();
+
+    expect($facture->fresh()->statut)->toBe(StatutFacture::Valide);
+});
+
+it('refuse de rejeter une facture déjà validée', function () {
+    $facture = makeFactureValideePourAnnulation($this->client, 'SC-ABJ-2026-NO-REJ');
+
+    $this->actingAs($this->commercial)
+        ->patchJson("/api/v1/factures/{$facture->id}/statut", ['statut' => 'rejetee'])
+        ->assertStatus(422);
 
     expect($facture->fresh()->statut)->toBe(StatutFacture::Valide);
 });
@@ -109,11 +119,11 @@ it('permet au super-admin d’annuler une facture payée et contrepasser la tré
     expect($this->compte->soldeCourant())->toBe(118000.0);
 
     $this->actingAs($this->admin)
-        ->patchJson("/api/v1/factures/{$facture->id}/statut", ['statut' => 'annule'])
+        ->patchJson("/api/v1/factures/{$facture->id}/statut", ['statut' => 'annulee'])
         ->assertOk()
-        ->assertJsonPath('data.statut', 'annule');
+        ->assertJsonPath('data.statut', 'annulee');
 
-    expect($facture->fresh()->statut)->toBe(StatutFacture::Annule)
+    expect($facture->fresh()->statut)->toBe(StatutFacture::Annulee)
         ->and(Paiement::withTrashed()->find($paiement->id)?->trashed())->toBeTrue()
         ->and(Paiement::query()->where('facture_id', $facture->id)->count())->toBe(0)
         ->and($this->compte->soldeCourant())->toBe(0.0);

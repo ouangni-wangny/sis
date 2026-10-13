@@ -40,22 +40,29 @@ import { getApiErrorMessage } from "@/shared/lib/api-error";
 import { can, hasRole } from "@/shared/lib/can";
 import { formatDate, formatFcfa, labelize, MOIS_LABELS } from "@/shared/lib/format";
 
-type FactureTab = "proformas" | "factures" | "annulees";
+type FactureTab = "proformas" | "factures" | "rejetees" | "annulees";
 
 const TAB_STATUT: Record<FactureTab, StatutFacture> = {
   proformas: "en_attente",
   factures: "valide",
-  annulees: "annule",
+  rejetees: "rejetee",
+  annulees: "annulee",
 };
 
 function isFactureTab(value: string | null): value is FactureTab {
-  return value === "proformas" || value === "factures" || value === "annulees";
+  return (
+    value === "proformas" ||
+    value === "factures" ||
+    value === "rejetees" ||
+    value === "annulees"
+  );
 }
 
 const STATUT_LABELS: Record<string, string> = {
   en_attente: "Proforma",
   valide: "Validée",
-  annule: "Rejetée",
+  rejetee: "Rejetée",
+  annulee: "Annulée",
 };
 
 const STATUT_PAIEMENT_LABELS: Record<string, string> = {
@@ -227,10 +234,15 @@ function FacturesPageContent() {
     per_page: 1,
     statut: "valide",
   });
+  const countRejetees = useFactures({
+    page: 1,
+    per_page: 1,
+    statut: "rejetee",
+  });
   const countAnnulees = useFactures({
     page: 1,
     per_page: 1,
-    statut: "annule",
+    statut: "annulee",
   });
 
   const genererFacturePdf = useGenererFacturePdf();
@@ -249,14 +261,20 @@ function FacturesPageContent() {
         count: countFactures.data?.meta.total ?? 0,
       },
       {
-        id: "annulees" as const,
+        id: "rejetees" as const,
         label: "Rejetées",
+        count: countRejetees.data?.meta.total ?? 0,
+      },
+      {
+        id: "annulees" as const,
+        label: "Annulées",
         count: countAnnulees.data?.meta.total ?? 0,
       },
     ],
     [
       countProformas.data?.meta.total,
       countFactures.data?.meta.total,
+      countRejetees.data?.meta.total,
       countAnnulees.data?.meta.total,
     ],
   );
@@ -264,7 +282,7 @@ function FacturesPageContent() {
   const handleStatutChange = useCallback(
     async (facture: Facture, next: StatutFacture) => {
       if (!canUpdate || facture.statut === next) return;
-      if (next === "annule" && facture.statut === "valide" && !canAnnulerValidee) {
+      if (next === "annulee" && facture.statut === "valide" && !canAnnulerValidee) {
         toast("Seuls les administrateurs peuvent annuler une facture validée.", "danger");
         return;
       }
@@ -276,15 +294,29 @@ function FacturesPageContent() {
             ? !facture.client_id
               ? "Proforma validée — client créé depuis la proforma, puis abonnement créé."
               : "Proforma validée — abonnement créé."
-            : next === "annule" && facture.statut === "valide"
+            : next === "annulee"
               ? "Facture annulée — encaissements contrepassés."
-              : next === "annule"
+              : next === "rejetee"
                 ? "Proforma rejetée."
                 : `Statut mis à jour : ${labelFactureStatut(next)}.`,
         );
         setToValidate(null);
         setToReject(null);
         setToAnnuler(null);
+        // La liste courante filtre par statut : basculer pour garder la facture visible.
+        if (next === "rejetee") {
+          setTab("rejetees");
+          setPage(1);
+          router.replace("/factures?tab=rejetees", { scroll: false });
+        } else if (next === "annulee") {
+          setTab("annulees");
+          setPage(1);
+          router.replace("/factures?tab=annulees", { scroll: false });
+        } else if (next === "valide") {
+          setTab("factures");
+          setPage(1);
+          router.replace("/factures?tab=factures", { scroll: false });
+        }
       } catch (err) {
         toast(
           getApiErrorMessage(err, "Échec de la mise à jour du statut."),
@@ -294,7 +326,7 @@ function FacturesPageContent() {
         setStatutUpdatingId(null);
       }
     },
-    [canAnnulerValidee, canUpdate, toast, updateStatut],
+    [canAnnulerValidee, canUpdate, router, toast, updateStatut],
   );
 
   const handleGenererProforma = useCallback(
@@ -373,7 +405,11 @@ function FacturesPageContent() {
         header: "Paiement",
         cell: ({ row }) => {
           const f = row.original;
-          if (f.statut === "en_attente" || f.statut === "annule") {
+          if (
+            f.statut === "en_attente" ||
+            f.statut === "rejetee" ||
+            f.statut === "annulee"
+          ) {
             return <span className="text-xs text-ink-faint">—</span>;
           }
           const sp = f.statut_paiement ?? "non_payee";
@@ -410,7 +446,10 @@ function FacturesPageContent() {
           const isProforma = facture.statut === "en_attente";
           const isValidee = facture.statut === "valide";
           const busy = statutUpdatingId === facture.id;
-          const canEditRow = canUpdate && facture.statut !== "annule";
+          const canEditRow =
+            canUpdate &&
+            facture.statut !== "rejetee" &&
+            facture.statut !== "annulee";
           const canGenerate =
             canView && (canUpdate || Boolean(facture.pdf?.url));
           const canRecordPay =
@@ -522,7 +561,8 @@ function FacturesPageContent() {
   const emptyByTab: Record<FactureTab, string> = {
     proformas: "Aucune proforma",
     factures: "Aucune facture",
-    annulees: "Aucune proforma rejetée",
+    rejetees: "Aucune proforma rejetée",
+    annulees: "Aucune facture annulée",
   };
 
   const statutBusy = statutUpdatingId != null;
@@ -691,14 +731,14 @@ function FacturesPageContent() {
           title="Rejeter la proforma"
           description={
             toReject
-              ? `Confirmer le rejet de « ${toReject.numero} » ? Elle sera classée comme rejetée.`
+              ? `Confirmer le rejet de « ${toReject.numero} » ? Elle restera listée dans l’onglet Rejetées.`
               : ""
           }
           confirmLabel="Rejeter"
           confirmVariant="danger"
           onConfirm={() => {
             if (!toReject) return;
-            void handleStatutChange(toReject, "annule");
+            void handleStatutChange(toReject, "rejetee");
           }}
         />
 
@@ -712,14 +752,14 @@ function FacturesPageContent() {
           title="Annuler la facture"
           description={
             toAnnuler
-              ? `Confirmer l’annulation de « ${toAnnuler.numero} » ? Les encaissements liés seront annulés et la trésorerie contrepassée.`
+              ? `Confirmer l’annulation de « ${toAnnuler.numero} » ? Les encaissements liés seront contrepassés et la facture restera dans l’onglet Annulées.`
               : ""
           }
           confirmLabel="Annuler la facture"
           confirmVariant="danger"
           onConfirm={() => {
             if (!toAnnuler) return;
-            void handleStatutChange(toAnnuler, "annule");
+            void handleStatutChange(toAnnuler, "annulee");
           }}
         />
       </div>

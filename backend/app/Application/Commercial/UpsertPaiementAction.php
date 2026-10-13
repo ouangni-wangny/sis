@@ -137,9 +137,9 @@ final class UpsertPaiementAction
 
     private function assertFacturePayable(Facture $facture): void
     {
-        if ($facture->statut === StatutFacture::Annule) {
+        if ($facture->statut?->estCloturee()) {
             throw ValidationException::withMessages([
-                'facture_id' => 'Impossible d’enregistrer un paiement sur une facture annulée.',
+                'facture_id' => 'Impossible d’enregistrer un paiement sur une facture rejetée ou annulée.',
             ]);
         }
     }

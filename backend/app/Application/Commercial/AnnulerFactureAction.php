@@ -9,6 +9,7 @@ use App\Models\Facture;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 final class AnnulerFactureAction
@@ -17,31 +18,39 @@ final class AnnulerFactureAction
         private readonly PosterMouvementTresorerieAction $poster,
     ) {}
 
+    /**
+     * Annule une facture déjà validée (statut → annulee) et contrepassera les encaissements.
+     * Pour rejeter une proforma, utiliser le statut `rejetee` via updateStatut.
+     */
     public function execute(Facture $facture): Facture
     {
         return DB::transaction(function () use ($facture) {
             $facture = $facture->fresh(['paiements']) ?? $facture;
 
-            if ($facture->statut === StatutFacture::Annule) {
+            if ($facture->statut === StatutFacture::Annulee) {
                 return $facture;
             }
 
-            if ($facture->statut === StatutFacture::Valide) {
-                $this->assertPeutAnnulerFactureValidee(Auth::user());
-
-                foreach ($facture->paiements as $paiement) {
-                    if (PosterMouvementTresorerieAction::isModuleEnabled()) {
-                        $this->poster->reverseForSource(
-                            SourceMouvementTresorerie::FacturePaiement,
-                            $paiement->id,
-                            'Annulation facture',
-                        );
-                    }
-                    $paiement->delete();
-                }
+            if ($facture->statut !== StatutFacture::Valide) {
+                throw ValidationException::withMessages([
+                    'statut' => 'Seule une facture validée peut être annulée. Pour une proforma, utilisez le rejet.',
+                ]);
             }
 
-            $facture->update(['statut' => StatutFacture::Annule]);
+            $this->assertPeutAnnulerFactureValidee(Auth::user());
+
+            foreach ($facture->paiements as $paiement) {
+                if (PosterMouvementTresorerieAction::isModuleEnabled()) {
+                    $this->poster->reverseForSource(
+                        SourceMouvementTresorerie::FacturePaiement,
+                        $paiement->id,
+                        'Annulation facture',
+                    );
+                }
+                $paiement->delete();
+            }
+
+            $facture->update(['statut' => StatutFacture::Annulee]);
 
             return $facture->fresh(['client', 'abonnement', 'lignes', 'media', 'paiements']) ?? $facture;
         });

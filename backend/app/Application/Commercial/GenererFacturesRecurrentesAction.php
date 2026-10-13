@@ -112,7 +112,7 @@ final class GenererFacturesRecurrentesAction
                 $exists = Facture::query()
                     ->where('abonnement_id', $locked->id)
                     ->whereDate('periode_debut', $periodeDebut)
-                    ->where('statut', '!=', StatutFacture::Annule)
+                    ->whereNotIn('statut', [StatutFacture::Rejetee, StatutFacture::Annulee])
                     ->exists();
 
                 if (! $exists) {

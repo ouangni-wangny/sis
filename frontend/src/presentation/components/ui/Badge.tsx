@@ -86,6 +86,7 @@ export function statusTone(statut: string): Tone {
     // négatif
     annule: "danger",
     annulee: "danger",
+    rejetee: "danger",
     a_recouvrir: "danger",
     resilie: "danger",
     resiliee: "danger",

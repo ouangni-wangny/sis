@@ -72,7 +72,7 @@ it('régénère le PDF quand le statut de la facture change', function () {
     Bus::fake([GenererFacturePdfJob::class]);
 
     $this->actingAs($admin)
-        ->patchJson("/api/v1/factures/{$facture->id}/statut", ['statut' => 'annule'])
+        ->patchJson("/api/v1/factures/{$facture->id}/statut", ['statut' => 'rejetee'])
         ->assertOk();
 
     Bus::assertDispatchedSync(

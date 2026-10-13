@@ -119,10 +119,18 @@ class FactureController extends Controller
         $statut = $request->validated('statut');
         $statutAvant = $facture->statut?->value;
 
-        if ((string) $statut === StatutFacture::Annule->value) {
-            // Proforma : rejet classique. Facture validée (même payée) : réservé
-            // super-admin + contrepassation des encaissements.
+        if ((string) $statut === StatutFacture::Annulee->value) {
+            // Facture validée (même payée) : super-admin + contrepassation des encaissements.
             $facture = $annulerFacture->execute($facture);
+        } elseif ((string) $statut === StatutFacture::Rejetee->value) {
+            // Proforma refusée — pas de mouvement trésorerie.
+            abort_unless(
+                in_array($facture->statut, [StatutFacture::EnAttente, StatutFacture::Rejetee], true),
+                422,
+                'Seule une proforma en attente peut être rejetée.',
+            );
+            $facture->update(['statut' => StatutFacture::Rejetee]);
+            $facture = $facture->fresh();
         } else {
             // Tout ou rien : si la création d’abonnement échoue (périodicité,
             // destinataire manquant…), la proforma reste en attente.

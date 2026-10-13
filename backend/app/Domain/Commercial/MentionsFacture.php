@@ -20,7 +20,11 @@ final class MentionsFacture
     public static function pour(StatutFacture|string|null $statut): array
     {
         $value = $statut instanceof StatutFacture ? $statut->value : (string) $statut;
-        $definitive = $value === StatutFacture::Valide->value;
+        // Facture validée ou annulée après émission : mentions définitives.
+        $definitive = in_array($value, [
+            StatutFacture::Valide->value,
+            StatutFacture::Annulee->value,
+        ], true);
 
         return [
             'definitive' => $definitive,

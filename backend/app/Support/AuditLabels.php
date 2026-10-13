@@ -121,6 +121,8 @@ final class AuditLabels
         'en_cours' => 'En cours',
         'terminee' => 'Terminée',
         'annulee' => 'Annulée',
+        'rejetee' => 'Rejetée',
+        'annule' => 'Annulé',
         'a_recouvrir' => 'À recouvrir',
         'cdi' => 'CDI',
         'cdd' => 'CDD',

@@ -155,7 +155,8 @@ export default function ModifierFactureProformaPage() {
     client_id: clientId || undefined,
   });
 
-  const locked = facture?.statut === "annule";
+  const locked =
+    facture?.statut === "rejetee" || facture?.statut === "annulee";
   const busy = isSubmitting || updateProforma.isPending;
 
   useEffect(() => {
@@ -371,9 +372,17 @@ export default function ModifierFactureProformaPage() {
                   className="min-w-0 space-y-10 rounded-xl border border-border bg-white p-6 shadow-md sm:p-8"
                 >
                   {locked ? (
-                    <Alert tone="warning" title="Facture annulée">
-                      Cette facture proforma est annulée et ne peut plus être
-                      modifiée.
+                    <Alert
+                      tone="warning"
+                      title={
+                        facture.statut === "rejetee"
+                          ? "Proforma rejetée"
+                          : "Facture annulée"
+                      }
+                    >
+                      {facture.statut === "rejetee"
+                        ? "Cette proforma est rejetée et ne peut plus être modifiée."
+                        : "Cette facture est annulée et ne peut plus être modifiée."}
                     </Alert>
                   ) : null}
                   {formError ? <Alert tone="danger">{formError}</Alert> : null}

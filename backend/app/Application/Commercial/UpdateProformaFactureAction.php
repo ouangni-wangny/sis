@@ -21,9 +21,9 @@ final class UpdateProformaFactureAction
     public function execute(Facture $facture, array $data): Facture
     {
         return DB::transaction(function () use ($facture, $data) {
-            if ($facture->statut === StatutFacture::Annule) {
+            if ($facture->statut?->estCloturee()) {
                 throw ValidationException::withMessages([
-                    'facture' => 'Impossible de modifier une facture annulée.',
+                    'facture' => 'Impossible de modifier une facture rejetée ou annulée.',
                 ]);
             }
 

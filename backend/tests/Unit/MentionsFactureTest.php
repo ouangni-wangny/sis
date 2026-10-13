@@ -32,3 +32,8 @@ it('accepte le statut sous forme de chaîne', function () {
     expect(MentionsFacture::pour('valide')['definitive'])->toBeTrue()
         ->and(MentionsFacture::pour(null)['definitive'])->toBeFalse();
 });
+
+it('garde les mentions définitives sur une facture annulée après émission', function () {
+    expect(MentionsFacture::pour(StatutFacture::Annulee)['definitive'])->toBeTrue()
+        ->and(MentionsFacture::pour(StatutFacture::Rejetee)['definitive'])->toBeFalse();
+});
