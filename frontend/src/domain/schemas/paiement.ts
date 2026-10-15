@@ -24,6 +24,7 @@ export const MODE_PAIEMENT_FILTER_OPTIONS = [
   { value: "mtn", label: "MTN Money" },
   { value: "moov", label: "Moov Money" },
   { value: "orange", label: "Orange Money" },
+  { value: "djamo", label: "Djamo" },
   { value: "autre", label: "Autre" },
 ] as const;
 

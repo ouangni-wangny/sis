@@ -28,7 +28,8 @@ return new class extends Migration
             ['code' => 'mtn', 'libelle' => 'MTN Money', 'ordre' => 5],
             ['code' => 'moov', 'libelle' => 'Moov Money', 'ordre' => 6],
             ['code' => 'orange', 'libelle' => 'Orange Money', 'ordre' => 7],
-            ['code' => 'autre', 'libelle' => 'Autre', 'ordre' => 8],
+            ['code' => 'djamo', 'libelle' => 'Djamo', 'ordre' => 8],
+            ['code' => 'autre', 'libelle' => 'Autre', 'ordre' => 9],
         ];
 
         foreach ($modes as $mode) {
