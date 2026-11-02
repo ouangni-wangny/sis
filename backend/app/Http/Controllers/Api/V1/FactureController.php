@@ -13,6 +13,7 @@ use App\Http\Requests\Facture\UpdateFactureStatutRequest;
 use App\Http\Resources\FactureResource;
 use App\Jobs\GenererFacturePdfJob;
 use App\Models\Facture;
+use App\Models\Site;
 use App\Support\ListQuery;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -27,9 +28,10 @@ class FactureController extends Controller
         $this->authorize('viewAny', Facture::class);
 
         $items = Facture::query()
-            ->with(['client', 'abonnement', 'media'])
+            ->with(['client', 'abonnement', 'media', 'site:id,nom'])
             ->withSum('paiements as paiements_sum_montant', 'montant')
             ->when($request->client_id, fn ($q, $v) => $q->where('client_id', $v))
+            ->when($request->site_id, fn ($q, $v) => $v === 'sans_site' ? $q->whereNull('site_id') : $q->where('site_id', $v))
             ->when($request->statut, fn ($q, $v) => $q->where('statut', $v))
             ->when($request->filled('periodicite'), fn ($q) => $q->where('periodicite', $request->string('periodicite')))
             ->when($request->filled('mois') && $request->filled('annee'), function ($q) use ($request) {
@@ -75,6 +77,11 @@ class FactureController extends Controller
                 ->orderByRaw('CASE WHEN date_echeance IS NULL THEN 1 ELSE 0 END')
                 ->orderBy('date_echeance')
                 ->orderBy('numero');
+        } elseif ($request->filled('client_id')) {
+            // Un client : ses factures par mois, puis site par site.
+            $items->orderByRaw('COALESCE(periode_debut, date_emission) DESC')
+                ->orderBy(Site::query()->select('nom')->whereColumn('sites.id', 'factures.site_id'))
+                ->orderBy('numero');
         } else {
             $items->latest();
         }
@@ -87,7 +94,7 @@ class FactureController extends Controller
         $this->authorize('view', $facture);
 
         return new FactureResource(
-            $facture->load(['client', 'abonnement', 'lignes', 'media'])
+            $facture->load(['client', 'abonnement', 'lignes', 'media', 'site:id,nom'])
                 ->loadSum('paiements as paiements_sum_montant', 'montant')
         );
     }

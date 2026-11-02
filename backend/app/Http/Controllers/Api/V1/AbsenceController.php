@@ -10,6 +10,7 @@ use App\Http\Requests\Absence\StoreAbsenceRequest;
 use App\Http\Requests\Absence\UpdateAbsenceRequest;
 use App\Http\Resources\AbsenceResource;
 use App\Models\Absence;
+use App\Support\RechercheNom;
 use App\Support\RhAuthorization;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -35,6 +36,7 @@ class AbsenceController extends Controller
                         ->orWhereHas('agent', function ($agent) use ($term) {
                             $agent->where('nom', 'like', $term)
                                 ->orWhere('prenom', 'like', $term)
+                                ->tap(fn ($n) => RechercheNom::ouNomComplet($n, $term))
                                 ->orWhere('matricule', 'like', $term);
                         });
                 });

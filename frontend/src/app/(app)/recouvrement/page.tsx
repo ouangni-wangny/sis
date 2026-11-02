@@ -154,6 +154,11 @@ function RecouvrementPageContent() {
           ?? "—",
       },
       {
+        id: "site",
+        header: "Site",
+        cell: ({ row }) => row.original.site?.nom ?? "—",
+      },
+      {
         accessorKey: "date_emission",
         header: "Émission",
         cell: ({ getValue }) => formatDate(String(getValue())),

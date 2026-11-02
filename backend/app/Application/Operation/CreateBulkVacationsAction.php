@@ -75,7 +75,8 @@ final class CreateBulkVacationsAction
             ->where('poste_id', $replace['poste_id'])
             ->where('statut', '!=', StatutVacation::Annulee->value)
             ->whereDate('date_debut', '>=', $replace['date_debut'])
-            ->whereDate('date_debut', '<=', $replace['date_fin']);
+            // Au-delà de la période, seules les semaines reconduites suivaient l’ancien planning.
+            ->where(fn ($q) => $q->whereDate('date_debut', '<=', $replace['date_fin'])->orWhere('reconduite', true));
 
         // Planifier le poste : on vide TOUT le poste sur la période
         // (évite un 3ᵉ agent orphelin hors agent_ids).

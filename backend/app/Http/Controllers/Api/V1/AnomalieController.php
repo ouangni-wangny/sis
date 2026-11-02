@@ -9,6 +9,7 @@ use App\Http\Requests\Anomalie\StoreAnomalieRequest;
 use App\Http\Requests\Anomalie\UpdateAnomalieStatutRequest;
 use App\Http\Resources\AnomalieResource;
 use App\Models\Anomalie;
+use App\Support\RechercheNom;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
@@ -42,6 +43,7 @@ class AnomalieController extends Controller
                         ->orWhereHas('signalePar', function ($agent) use ($term) {
                             $agent->where('nom', 'like', $term)
                                 ->orWhere('prenom', 'like', $term)
+                                ->tap(fn ($n) => RechercheNom::ouNomComplet($n, $term))
                                 ->orWhere('matricule', 'like', $term);
                         });
                 });

@@ -35,13 +35,16 @@ final class SyncContratRemunerationAction
             $data['salaire_base'] = $data['salaire_brut'];
         }
 
+        // Un montant envoyé vide efface la prime : seul un champ absent garde la valeur du contrat.
+        $montant = fn (string $key) => array_key_exists($key, $data) ? $data[$key] : $existing?->{$key};
+
         $calc = CalculRemunerationCi::calculer([
-            'salaire_base' => $data['salaire_base'] ?? $existing?->salaire_base,
-            'indemnite_fonction' => $data['indemnite_fonction'] ?? $existing?->indemnite_fonction,
-            'prime_responsabilite' => $data['prime_responsabilite'] ?? $existing?->prime_responsabilite,
-            'prime_transport' => $data['prime_transport'] ?? $existing?->prime_transport,
-            'prime_entretien_tenue' => $data['prime_entretien_tenue'] ?? $existing?->prime_entretien_tenue,
-            'sursalaire' => $data['sursalaire'] ?? $existing?->sursalaire,
+            'salaire_base' => $montant('salaire_base'),
+            'indemnite_fonction' => $montant('indemnite_fonction'),
+            'prime_responsabilite' => $montant('prime_responsabilite'),
+            'prime_transport' => $montant('prime_transport'),
+            'prime_entretien_tenue' => $montant('prime_entretien_tenue'),
+            'sursalaire' => $montant('sursalaire'),
             'nombre_enfants' => $nombreEnfants,
             'situation_matrimoniale' => $situation,
             // Override RH exceptionnel uniquement si fourni explicitement

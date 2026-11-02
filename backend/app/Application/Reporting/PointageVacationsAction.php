@@ -3,6 +3,7 @@
 namespace App\Application\Reporting;
 
 use App\Domain\Shared\Enums\ResultatControle;
+use App\Domain\Shared\Enums\StatutAbsence;
 use App\Domain\Shared\Enums\StatutVacation;
 use App\Domain\Shared\Support\ShiftSchedule;
 use App\Models\Controle;
@@ -18,6 +19,8 @@ use Illuminate\Support\Collection;
  *   le créneau reste tel quel et ses heures ne sont PAS comptabilisées.
  *
  * - vacation « à recouvrir »            → absent (absence enregistrée), 0 h
+ * - vacation remplacée après une absence → absent aussi : le titulaire reste absent
+ *   même si un collègue a repris le poste.
  *
  * Un contrôle est rattaché à un seul créneau (celui qui le contient, sinon le
  * plus proche dans la tolérance) ; sur un même créneau, le plus récent l’emporte.
@@ -32,12 +35,13 @@ final class PointageVacationsAction
 
     /**
      * @param  Collection<int, Vacation>  $vacations
-     * @return list<array{vacation: Vacation, date: string, controle: string, heures_prevues: float, heures_comptees: float}>
+     * @return list<array{vacation: Vacation, date: string, controle: string, heures_prevues: float, heures_comptees: float, heures_supplementaires: float}>
      */
     public function execute(Collection $vacations, ?string $from = null, ?string $to = null): array
     {
+        $vacations->loadMissing('absence:id,statut');
         $vacations = $vacations
-            ->reject(fn (Vacation $v) => $v->statut === StatutVacation::Annulee)
+            ->reject(fn (Vacation $v) => $v->statut === StatutVacation::Annulee && ! $this->absenceRemplacee($v))
             ->values();
 
         if ($vacations->isEmpty()) {
@@ -92,7 +96,7 @@ final class PointageVacationsAction
         // 3. Lignes : « à recouvrir » = absence enregistrée (0 h).
         $lignes = [];
         foreach ($creneaux as $c) {
-            $resultat = $c['vacation']->statut === StatutVacation::ARecouvrir
+            $resultat = in_array($c['vacation']->statut, [StatutVacation::ARecouvrir, StatutVacation::Annulee], true)
                 ? self::ABSENT
                 : ($c['controle'] ?? self::NON_CONTROLE);
 
@@ -102,6 +106,9 @@ final class PointageVacationsAction
                 'controle' => $resultat,
                 'heures_prevues' => $c['heures'],
                 'heures_comptees' => $resultat === self::PRESENT ? $c['heures'] : 0.0,
+                'heures_supplementaires' => $resultat === self::PRESENT && $c['vacation']->heures_supplementaires
+                    ? $c['heures']
+                    : 0.0,
             ];
         }
 
@@ -136,18 +143,82 @@ final class PointageVacationsAction
 
     /**
      * @param  list<array{controle: string, heures_comptees: float}>  $lignes
-     * @return array{present: int, absent: int, non_controle: int, heures_comptees: float}
+     * @return array{present: int, absent: int, non_controle: int, heures_comptees: float, jours_supplementaires: int, heures_supplementaires: float}
      */
     public static function totaux(array $lignes): array
     {
-        $totaux = [self::PRESENT => 0, self::ABSENT => 0, self::NON_CONTROLE => 0, 'heures_comptees' => 0.0];
+        $totaux = [
+            self::PRESENT => 0,
+            self::ABSENT => 0,
+            self::NON_CONTROLE => 0,
+            'heures_comptees' => 0.0,
+            'heures_supplementaires' => 0.0,
+        ];
+        $joursSupp = [];
         foreach ($lignes as $ligne) {
             $totaux[$ligne['controle']]++;
             $totaux['heures_comptees'] += $ligne['heures_comptees'];
+            $totaux['heures_supplementaires'] += $ligne['heures_supplementaires'];
+            if ($ligne['heures_supplementaires'] > 0) {
+                $joursSupp[$ligne['vacation']->agent_id.'|'.$ligne['date']] = true;
+            }
         }
         $totaux['heures_comptees'] = round($totaux['heures_comptees'], 2);
+        $totaux['heures_supplementaires'] = round($totaux['heures_supplementaires'], 2);
+        $totaux['jours_supplementaires'] = count($joursSupp);
 
         return $totaux;
+    }
+
+    /**
+     * Présences, absences et jours supplémentaires de chaque agent.
+     * Les agents fournis sans créneau sur la période apparaissent à zéro.
+     *
+     * @param  list<array{vacation: Vacation, date: string, controle: string, heures_comptees: float, heures_supplementaires: float}>  $lignes
+     * @param  iterable<\App\Models\Agent>  $agents
+     * @return list<array{agent_id: string, agent: string, matricule: string|null, presences: int, absences: int, non_controles: int, jours_supplementaires: int, heures_comptees: float, heures_supplementaires: float}>
+     */
+    public static function synthese(array $lignes, iterable $agents = []): array
+    {
+        $parAgent = [];
+        foreach ($lignes as $ligne) {
+            $parAgent[(string) $ligne['vacation']->agent_id][] = $ligne;
+        }
+
+        $noms = [];
+        foreach ($agents as $agent) {
+            $noms[(string) $agent->id] = $agent;
+            $parAgent[(string) $agent->id] ??= [];
+        }
+
+        $rows = [];
+        foreach ($parAgent as $agentId => $lignesAgent) {
+            $agent = $noms[$agentId] ?? $lignesAgent[0]['vacation']->agent;
+            $totaux = self::totaux($lignesAgent);
+            $rows[] = [
+                'agent_id' => $agentId,
+                'agent' => $agent ? trim($agent->prenom.' '.$agent->nom) : '—',
+                'matricule' => $agent?->matricule,
+                'presences' => $totaux[self::PRESENT],
+                'absences' => $totaux[self::ABSENT],
+                'non_controles' => $totaux[self::NON_CONTROLE],
+                'jours_supplementaires' => $totaux['jours_supplementaires'],
+                'heures_comptees' => $totaux['heures_comptees'],
+                'heures_supplementaires' => $totaux['heures_supplementaires'],
+            ];
+        }
+
+        usort($rows, fn (array $a, array $b) => strcasecmp($a['agent'], $b['agent']));
+
+        return $rows;
+    }
+
+    /** Vacation annulée parce qu’un collègue a remplacé un titulaire absent. */
+    private function absenceRemplacee(Vacation $vacation): bool
+    {
+        $statut = $vacation->absence?->statut;
+
+        return $statut !== null && ! in_array($statut, [StatutAbsence::Refusee, StatutAbsence::Annulee], true);
     }
 
     /**

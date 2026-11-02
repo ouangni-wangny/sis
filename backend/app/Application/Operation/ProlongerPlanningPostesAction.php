@@ -1,0 +1,241 @@
+<?php
+
+namespace App\Application\Operation;
+
+use App\Domain\Shared\Enums\StatutAbsence;
+use App\Domain\Shared\Enums\StatutAgent;
+use App\Domain\Shared\Enums\StatutVacation;
+use App\Domain\Shared\Exceptions\DomainException;
+use App\Domain\Shared\Support\ShiftSchedule;
+use App\Models\Absence;
+use App\Models\Poste;
+use App\Models\Vacation;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
+
+/**
+ * Garde le planning de chaque poste rempli à l’avance : tant qu’un poste est
+ * planifié, son rythme récent (titulaires, jours, horaires) est reconduit.
+ *
+ * Rejouable et non bloquant : ce qui existe déjà n’est pas touché, et un agent
+ * qui ne peut plus être affecté (contrat fini, repos…) laisse la case vide.
+ */
+final class ProlongerPlanningPostesAction
+{
+    /** Historique lu pour retrouver le rythme du poste. */
+    private const HISTORIQUE_JOURS = 56;
+
+    private const MIN_JOURS_PLANIFIES = 7;
+
+    /** Un agent absent aujourd’hui peut reprendre à la date reconduite. */
+    private const STATUTS_RECONDUCTIBLES = [
+        StatutAgent::Disponible,
+        StatutAgent::EnActivite,
+        StatutAgent::Conge,
+        StatutAgent::Malade,
+    ];
+
+    public function __construct(
+        private readonly CreateVacationAction $create,
+    ) {}
+
+    /**
+     * @param  bool  $reprendre  Relance aussi les postes dont le planning s’est arrêté il y a moins d’un mois.
+     * @return array{postes: int, created: int, skipped: int, errors: list<string>}
+     */
+    public function execute(?string $aujourdhui = null, bool $reprendre = false): array
+    {
+        $today = ShiftSchedule::dayNumber($aujourdhui ?? now()->toDateString());
+        $horizon = $today + (int) config('sis.vacation.horizon_planning_jours', 42);
+        $stats = ['postes' => 0, 'created' => 0, 'skipped' => 0, 'errors' => []];
+
+        $postes = Poste::query()
+            ->where('planning_continu', true)
+            ->whereHas('site', fn ($s) => $s->where('interne', false)
+                ->whereHas('client', fn ($c) => $c->where('statut', 'actif')))
+            ->get();
+
+        foreach ($postes as $poste) {
+            try {
+                $resultat = $this->prolonger($poste, $today, $horizon, $reprendre);
+            } catch (\Throwable $e) {
+                Log::error('Reconduction du planning échouée', ['poste_id' => $poste->id, 'message' => $e->getMessage()]);
+                $stats['errors'][] = "{$poste->nom}: {$e->getMessage()}";
+
+                continue;
+            }
+
+            if ($resultat === null) {
+                continue;
+            }
+
+            $stats['postes']++;
+            $stats['created'] += $resultat['created'];
+            $stats['skipped'] += $resultat['skipped'];
+            array_push($stats['errors'], ...$resultat['errors']);
+        }
+
+        return $stats;
+    }
+
+    /** @return array{created: int, skipped: int, errors: list<string>}|null */
+    private function prolonger(Poste $poste, int $today, int $horizon, bool $reprendre): ?array
+    {
+        $parJour = $this->rythme($poste);
+        if ($parJour->isEmpty()) {
+            return null;
+        }
+
+        $dernier = (int) $parJour->keys()->max();
+        $arrete = $dernier < $today;
+
+        // Planning retiré exprès ou arrêté depuis longtemps : on ne le ressuscite pas seul.
+        if ($arrete && (! $reprendre || $dernier < $today - 30)) {
+            return null;
+        }
+        if ($dernier >= $horizon) {
+            return null;
+        }
+
+        $cycle = $this->cycle($parJour, $dernier);
+        if ($cycle === null) {
+            return null;
+        }
+
+        $resultat = ['created' => 0, 'skipped' => 0, 'errors' => []];
+
+        for ($jour = max($dernier + 1, $today); $jour <= $horizon; $jour++) {
+            // Les cycles font 7 × n jours : le jour de la semaine est conservé.
+            $source = $dernier - $cycle + 1 + (($jour - $dernier - 1) % $cycle);
+
+            foreach ($parJour->get($source, collect()) as $modele) {
+                $this->reconduire($modele, ShiftSchedule::isoFromDayNumber($jour), $resultat);
+            }
+        }
+
+        return $resultat;
+    }
+
+    /**
+     * Créneaux des titulaires par jour : un remplacement ponctuel ou des heures
+     * supplémentaires ne deviennent pas le nouveau planning du poste.
+     *
+     * @return Collection<int, Collection<int, Vacation>>
+     */
+    private function rythme(Poste $poste): Collection
+    {
+        $depuis = ShiftSchedule::isoFromDayNumber(
+            ShiftSchedule::dayNumber((string) (Vacation::query()
+                ->where('poste_id', $poste->id)
+                ->where('est_remplacement', false)
+                ->max('date_debut') ?? now()->toDateString())) - self::HISTORIQUE_JOURS,
+        );
+
+        return Vacation::query()
+            ->where('poste_id', $poste->id)
+            ->where('est_remplacement', false)
+            ->where('heures_supplementaires', false)
+            ->where(fn ($q) => $q->where('statut', '!=', StatutVacation::Annulee->value)->orWhereNotNull('absence_id'))
+            ->whereDate('date_debut', '>=', $depuis)
+            ->get()
+            ->groupBy(fn (Vacation $v) => ShiftSchedule::dayNumber($v->date_debut->toDateString()));
+    }
+
+    /**
+     * Plus petit cycle qui se répète dans l’historique (alternance sur 2 semaines…),
+     * sinon le plus long disponible, jusqu’à 4 semaines.
+     *
+     * @param  Collection<int, Collection<int, Vacation>>  $parJour
+     */
+    private function cycle(Collection $parJour, int $dernier): ?int
+    {
+        $etendue = $dernier - (int) $parJour->keys()->min() + 1;
+        if ($etendue < self::MIN_JOURS_PLANIFIES) {
+            return null;
+        }
+
+        $signature = function (int $debut, int $longueur) use ($parJour): array {
+            $jours = [];
+            for ($i = 0; $i < $longueur; $i++) {
+                $jours[] = $parJour->get($debut + $i, collect())
+                    ->map(fn (Vacation $v) => $v->agent_id.'|'.$v->heure_debut.'|'.$v->heure_fin)
+                    ->sort()
+                    ->values()
+                    ->all();
+            }
+
+            return $jours;
+        };
+
+        foreach ([7, 14, 21, 28] as $longueur) {
+            if ($etendue >= 2 * $longueur
+                && $signature($dernier - $longueur + 1, $longueur) === $signature($dernier - 2 * $longueur + 1, $longueur)) {
+                return $longueur;
+            }
+        }
+
+        return min(28, intdiv($etendue, 7) * 7);
+    }
+
+    /** @param  array{created: int, skipped: int, errors: list<string>}  $resultat */
+    private function reconduire(Vacation $modele, string $date, array &$resultat): void
+    {
+        $existe = Vacation::query()
+            ->where('agent_id', $modele->agent_id)
+            ->where('poste_id', $modele->poste_id)
+            ->whereDate('date_debut', $date)
+            ->where('heure_debut', $modele->heure_debut)
+            ->where('statut', '!=', StatutVacation::Annulee->value)
+            ->exists();
+
+        if ($existe) {
+            return;
+        }
+
+        $base = [
+            'agent_id' => $modele->agent_id,
+            'site_id' => $modele->site_id,
+            'poste_id' => $modele->poste_id,
+            'heure_debut' => substr((string) $modele->heure_debut, 0, 5),
+            'heure_fin' => substr((string) $modele->heure_fin, 0, 5),
+            'reconduite' => true,
+        ];
+
+        // Absence déjà approuvée ce jour-là : la case est à recouvrir, pas à remplir.
+        $absence = Absence::query()
+            ->where('agent_id', $modele->agent_id)
+            ->where('statut', StatutAbsence::Approuvee->value)
+            ->whereDate('date_debut', '<=', $date)
+            ->where(fn ($q) => $q->whereNull('date_fin')->orWhereDate('date_fin', '>=', $date))
+            ->first();
+
+        if ($absence) {
+            Vacation::query()->create([
+                ...$base,
+                'date_debut' => $date,
+                'date_fin' => $modele->date_debut->equalTo($modele->date_fin)
+                    ? $date
+                    : ShiftSchedule::isoFromDayNumber(ShiftSchedule::dayNumber($date) + 1),
+                'statut' => StatutVacation::ARecouvrir->value,
+                'absence_id' => $absence->id,
+            ]);
+            $resultat['created']++;
+
+            return;
+        }
+
+        try {
+            $this->create->execute([
+                ...$base,
+                'date_debut' => $date,
+                'date_fin' => $date,
+                'statuts_autorises' => self::STATUTS_RECONDUCTIBLES,
+            ]);
+            $resultat['created']++;
+        } catch (DomainException|ValidationException $e) {
+            $resultat['skipped']++;
+            $resultat['errors'][] = "{$date} {$modele->agent_id}: {$e->getMessage()}";
+        }
+    }
+}

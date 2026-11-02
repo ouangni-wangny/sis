@@ -94,6 +94,8 @@ it('ne compte que les heures des créneaux contrôlés présents', function () {
         'absent' => 1,
         'non_controle' => 1,
         'heures_comptees' => 12.0,
+        'heures_supplementaires' => 0.0,
+        'jours_supplementaires' => 0,
     ]);
 });
 

@@ -15,7 +15,7 @@ class Poste extends Model
     use Auditable, HasUuids, SoftDeletes;
 
     protected $fillable = [
-        'site_id', 'nom', 'agents_requis', 'mode_effectif',
+        'site_id', 'nom', 'agents_requis', 'mode_effectif', 'planning_continu',
         'heure_debut', 'heure_fin',
         'heure_debut_nuit', 'heure_fin_nuit',
     ];
@@ -25,6 +25,7 @@ class Poste extends Model
         return [
             'agents_requis' => 'integer',
             'mode_effectif' => ModeEffectifPoste::class,
+            'planning_continu' => 'boolean',
         ];
     }
 

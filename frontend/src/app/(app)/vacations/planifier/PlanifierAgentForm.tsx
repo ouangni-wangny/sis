@@ -1394,6 +1394,7 @@ export function PlanifierAgentForm() {
                       <DatePicker
                         label="Fin"
                         requiredMark
+                        hint="Ensuite, ce rythme se reconduit automatiquement."
                         error={errors.date_fin?.message}
                         {...register("date_fin")}
                       />

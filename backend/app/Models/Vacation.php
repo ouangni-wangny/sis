@@ -15,7 +15,8 @@ class Vacation extends Model
 
     protected $fillable = [
         'agent_id', 'absence_id', 'site_id', 'poste_id', 'date_debut', 'date_fin',
-        'heure_debut', 'heure_fin', 'statut',
+        'heure_debut', 'heure_fin', 'statut', 'heures_supplementaires',
+        'est_remplacement', 'reconduite',
     ];
 
     protected function casts(): array
@@ -24,7 +25,15 @@ class Vacation extends Model
             'date_debut' => 'date',
             'date_fin' => 'date',
             'statut' => StatutVacation::class,
+            'heures_supplementaires' => 'boolean',
+            'est_remplacement' => 'boolean',
+            'reconduite' => 'boolean',
         ];
+    }
+
+    public function absence(): BelongsTo
+    {
+        return $this->belongsTo(Absence::class);
     }
 
     public function agent(): BelongsTo

@@ -16,6 +16,7 @@ import {
   useDeleteVacationsBulk,
   usePostes,
   usePosteCoverage,
+  useAgentsDescendants,
   useRecouvrirVacation,
   useSites,
   useUpdateVacation,
@@ -232,6 +233,7 @@ function VacationsPageContent() {
   const [toDelete, setToDelete] = useState<Vacation | null>(null);
   const [toRecouvrir, setToRecouvrir] = useState<Vacation | null>(null);
   const [remplacantId, setRemplacantId] = useState("");
+  const [recouvrirHeuresSupp, setRecouvrirHeuresSupp] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
@@ -271,6 +273,11 @@ function VacationsPageContent() {
   const updateVacation = useUpdateVacation();
   const createVacation = useCreateVacation();
   const recouvrirVacation = useRecouvrirVacation();
+  const agentsDescendants = useAgentsDescendants(toRecouvrir?.id);
+  const descendants = agentsDescendants.data?.data ?? [];
+  const remplacantDescend = descendants.some(
+    (d) => d.agent_id === remplacantId,
+  );
   const deleteVacation = useDeleteVacation();
   const deleteBulk = useDeleteVacationsBulk();
 
@@ -610,6 +617,7 @@ function VacationsPageContent() {
       }
       setToRecouvrir(vacation);
       setRemplacantId("");
+      setRecouvrirHeuresSupp(false);
     },
     [canUpdate, toast],
   );
@@ -703,9 +711,16 @@ function VacationsPageContent() {
       {
         accessorKey: "statut",
         header: "Statut",
-        cell: ({ getValue }) => {
+        cell: ({ getValue, row }) => {
           const v = String(getValue());
-          return <Badge tone={statusTone(v)}>{statutLabel[v] ?? v}</Badge>;
+          return (
+            <span className="inline-flex flex-col items-start gap-1">
+              <Badge tone={statusTone(v)}>{statutLabel[v] ?? v}</Badge>
+              {row.original.heures_supplementaires ? (
+                <Badge tone="warning">Heures sup.</Badge>
+              ) : null}
+            </span>
+          );
         },
       },
       {
@@ -903,7 +918,7 @@ function VacationsPageContent() {
               title={view === "grille" ? "Grille site" : "Détail des vacations"}
               description={
                 view === "grille"
-                  ? "Vue hebdomadaire par poste — cliquez une case pour planifier."
+                  ? "Vue hebdomadaire par poste — cliquez une case pour planifier. Le planning se reconduit seul chaque semaine."
                   : "Liste filtrable des affectations jour par jour."
               }
               action={canCreate ? <PlanifierLink size="sm" /> : undefined}
@@ -1723,6 +1738,29 @@ function VacationsPageContent() {
           }
         >
           <div className="space-y-4">
+            {descendants.length > 0 ? (
+              <div className="rounded-lg border border-border bg-paper-muted/40 p-3">
+                <p className="mb-2 text-sm font-medium text-ink">
+                  Agent qui descend — peut continuer en heures supplémentaires
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {descendants.map((d) => (
+                    <Button
+                      key={d.agent_id}
+                      type="button"
+                      size="sm"
+                      variant={
+                        remplacantId === d.agent_id ? "primary" : "secondary"
+                      }
+                      onClick={() => setRemplacantId(d.agent_id)}
+                    >
+                      {d.agent} · fin {d.heure_fin}
+                      {d.meme_poste ? "" : ` · ${d.poste ?? "autre poste"}`}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <Select
               label="Agent remplaçant"
               placeholder="Choisir un agent disponible"
@@ -1730,6 +1768,23 @@ function VacationsPageContent() {
               value={remplacantId}
               onChange={(e) => setRemplacantId(e.target.value)}
             />
+            <label className="flex items-start gap-2 text-sm text-ink">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={remplacantDescend || recouvrirHeuresSupp}
+                disabled={remplacantDescend}
+                onChange={(e) => setRecouvrirHeuresSupp(e.target.checked)}
+              />
+              <span>
+                Compter en heures supplémentaires
+                {remplacantDescend ? (
+                  <span className="block text-xs text-ink-muted">
+                    Automatique : cet agent enchaîne après sa vacation.
+                  </span>
+                ) : null}
+              </span>
+            </label>
             {remplacantOptions.length === 0 ? (
               <p className="text-sm text-ink-muted">
                 Aucun agent disponible ou en activité pour ce remplacement.
@@ -1757,8 +1812,13 @@ function VacationsPageContent() {
                     await recouvrirVacation.mutateAsync({
                       id: toRecouvrir.id,
                       agent_id: remplacantId,
+                      heures_supplementaires: recouvrirHeuresSupp,
                     });
-                    toast("Poste recouvert avec le remplaçant.");
+                    toast(
+                      remplacantDescend || recouvrirHeuresSupp
+                        ? "Poste recouvert, en heures supplémentaires."
+                        : "Poste recouvert avec le remplaçant.",
+                    );
                     setToRecouvrir(null);
                     setRemplacantId("");
                   } catch (err) {

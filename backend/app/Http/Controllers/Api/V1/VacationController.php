@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Application\Operation\AgentsDescendantsQuery;
 use App\Application\Operation\CreateBulkVacationsAction;
 use App\Application\Operation\CreateVacationAction;
 use App\Application\Operation\DecouperPeriodeVacation;
@@ -25,6 +26,7 @@ use App\Http\Resources\VacationResource;
 use App\Models\Agent;
 use App\Models\Ronde;
 use App\Models\Vacation;
+use App\Support\RechercheNom;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -78,6 +80,7 @@ class VacationController extends Controller
                         ->orWhereHas('agent', function ($a) use ($term) {
                             $a->where('nom', 'like', $term)
                                 ->orWhere('prenom', 'like', $term)
+                                ->tap(fn ($n) => RechercheNom::ouNomComplet($n, $term))
                                 ->orWhere('matricule', 'like', $term);
                         })
                         ->orWhereHas('site', fn ($s) => $s->where('nom', 'like', $term))
@@ -281,6 +284,73 @@ class VacationController extends Controller
     {
         $this->authorize('viewAny', Vacation::class);
 
+        [$data, $vacations] = $this->vacationsDuPointage($request);
+
+        $lignes = $action->execute($vacations, $data['date_debut'], $data['date_fin']);
+
+        return response()->json([
+            'data' => array_map(fn (array $l) => [
+                'date' => $l['date'],
+                'vacation_id' => (string) $l['vacation']->id,
+                'agent_id' => (string) $l['vacation']->agent_id,
+                'agent' => $l['vacation']->agent
+                    ? trim($l['vacation']->agent->prenom.' '.$l['vacation']->agent->nom).' ('.$l['vacation']->agent->matricule.')'
+                    : null,
+                'statut' => $l['vacation']->statut?->value,
+                'site' => $l['vacation']->site?->nom,
+                'poste' => $l['vacation']->poste?->nom,
+                'heure_debut' => substr((string) $l['vacation']->heure_debut, 0, 5),
+                'heure_fin' => substr((string) $l['vacation']->heure_fin, 0, 5),
+                'controle' => $l['controle'],
+                'heures_prevues' => $l['heures_prevues'],
+                'heures_comptees' => $l['heures_comptees'],
+                'heures_supplementaires' => $l['heures_supplementaires'],
+            ], $lignes),
+            'meta' => PointageVacationsAction::totaux($lignes),
+        ]);
+    }
+
+    public function pointageSynthese(Request $request, PointageVacationsAction $action): JsonResponse
+    {
+        $this->authorize('viewAny', Vacation::class);
+
+        [$data, $vacations] = $this->vacationsDuPointage($request);
+        $lignes = $action->execute($vacations, $data['date_debut'], $data['date_fin']);
+
+        // « Tous les agents » : même ceux sans créneau, sauf vue restreinte.
+        $restreinte = ($data['agent_id'] ?? null) || ($data['site_id'] ?? null)
+            || $request->user()?->agent?->type === TypeAgent::Controleur;
+        $agents = $restreinte
+            ? collect()
+            : Agent::query()->avecContratValide($data['date_fin'])->get(['id', 'nom', 'prenom', 'matricule']);
+
+        return response()->json([
+            'data' => PointageVacationsAction::synthese($lignes, $agents),
+            'meta' => PointageVacationsAction::totaux($lignes),
+        ]);
+    }
+
+    public function agentsDescendants(Vacation $vacation): JsonResponse
+    {
+        $this->authorize('update', $vacation);
+
+        return response()->json([
+            'data' => AgentsDescendantsQuery::pour($vacation)->map(fn (Vacation $v) => [
+                'agent_id' => (string) $v->agent_id,
+                'agent' => $v->agent ? trim($v->agent->prenom.' '.$v->agent->nom) : null,
+                'matricule' => $v->agent?->matricule,
+                'poste' => $v->poste?->nom,
+                'meme_poste' => (string) $v->poste_id === (string) $vacation->poste_id,
+                'heure_fin' => substr((string) $v->heure_fin, 0, 5),
+            ])->values(),
+        ]);
+    }
+
+    /**
+     * @return array{0: array<string, mixed>, 1: \Illuminate\Database\Eloquent\Collection<int, Vacation>}
+     */
+    private function vacationsDuPointage(Request $request): array
+    {
         $data = $request->validate([
             'agent_id' => ['nullable', 'uuid'],
             'site_id' => ['nullable', 'uuid'],
@@ -306,27 +376,7 @@ class VacationController extends Controller
             })
             ->get();
 
-        $lignes = $action->execute($vacations, $data['date_debut'], $data['date_fin']);
-
-        return response()->json([
-            'data' => array_map(fn (array $l) => [
-                'date' => $l['date'],
-                'vacation_id' => (string) $l['vacation']->id,
-                'agent_id' => (string) $l['vacation']->agent_id,
-                'agent' => $l['vacation']->agent
-                    ? trim($l['vacation']->agent->prenom.' '.$l['vacation']->agent->nom).' ('.$l['vacation']->agent->matricule.')'
-                    : null,
-                'statut' => $l['vacation']->statut?->value,
-                'site' => $l['vacation']->site?->nom,
-                'poste' => $l['vacation']->poste?->nom,
-                'heure_debut' => substr((string) $l['vacation']->heure_debut, 0, 5),
-                'heure_fin' => substr((string) $l['vacation']->heure_fin, 0, 5),
-                'controle' => $l['controle'],
-                'heures_prevues' => $l['heures_prevues'],
-                'heures_comptees' => $l['heures_comptees'],
-            ], $lignes),
-            'meta' => PointageVacationsAction::totaux($lignes),
-        ]);
+        return [$data, $vacations];
     }
 
     public function recouvrir(
@@ -337,7 +387,11 @@ class VacationController extends Controller
         $this->authorize('update', $vacation);
 
         return new VacationResource(
-            $action->execute($vacation, $request->string('agent_id')->toString())
+            $action->execute(
+                $vacation,
+                $request->string('agent_id')->toString(),
+                $request->boolean('heures_supplementaires'),
+            )
         );
     }
 }

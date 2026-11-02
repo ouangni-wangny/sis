@@ -15,6 +15,7 @@ class RecouvrirVacationRequest extends FormRequest
     {
         return [
             'agent_id' => ['required', 'uuid', 'exists:agents,id'],
+            'heures_supplementaires' => ['nullable', 'boolean'],
         ];
     }
 }

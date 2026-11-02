@@ -22,6 +22,7 @@ class VacationResource extends JsonResource
         'heure_debut' => $this->heure_debut,
         'heure_fin' => $this->heure_fin,
         'statut' => $this->statut,
+        'heures_supplementaires' => (bool) $this->heures_supplementaires,
         'agent' => new AgentResource($this->whenLoaded('agent')),
         'site' => new SiteResource($this->whenLoaded('site')),
         'poste' => new PosteResource($this->whenLoaded('poste')),

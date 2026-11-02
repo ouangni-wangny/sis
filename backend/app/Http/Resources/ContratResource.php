@@ -36,6 +36,7 @@ class ContratResource extends JsonResource
             'salaire_net' => $canSeeSalaire ? $this->salaire_net : null,
             'salaire' => $canSeeSalaire ? ($this->salaire_brut ?? $this->salaire) : null,
             'statut' => $this->statut,
+            'est_renouvele' => $this->whenHas('avenants_exists', fn () => (bool) $this->avenants_exists),
             'document_url' => $this->when(
                 $this->relationLoaded('media') && $this->getFirstMedia('document'),
                 fn () => url("/api/v1/contrats/{$this->id}/document"),

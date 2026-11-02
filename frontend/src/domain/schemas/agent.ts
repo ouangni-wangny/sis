@@ -8,6 +8,7 @@ export const agentSchema = z.object({
     .enum(["monsieur", "madame", "mademoiselle", ""])
     .optional()
     .or(z.literal("")),
+  genre: z.enum(["homme", "femme", ""]).optional().or(z.literal("")),
   date_naissance: z.string().optional().or(z.literal("")),
   lieu_naissance: z.string().max(255).optional().or(z.literal("")),
   situation_matrimoniale: z

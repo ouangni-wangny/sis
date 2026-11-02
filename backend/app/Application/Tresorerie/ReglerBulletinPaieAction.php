@@ -2,6 +2,7 @@
 
 namespace App\Application\Tresorerie;
 
+use App\Application\Paie\DeduireAvancesSalaireAction;
 use App\Domain\Shared\Enums\DirectionMouvementTresorerie;
 use App\Domain\Shared\Enums\SourceMouvementTresorerie;
 use App\Domain\Shared\Enums\StatutBulletinPaie;
@@ -15,6 +16,7 @@ final class ReglerBulletinPaieAction
 {
     public function __construct(
         private readonly PosterMouvementTresorerieAction $poster,
+        private readonly DeduireAvancesSalaireAction $deduireAvances,
     ) {}
 
     /**
@@ -65,6 +67,10 @@ final class ReglerBulletinPaieAction
             $details['salaire_calcule_net'] = $details['salaire_calcule_net'] ?? $bulletin->salaire_net;
             $details['salaire_percu'] = $net;
 
+            $retenue = $this->deduireAvances->execute($bulletin, $net);
+            $details['avances_deduites'] = $retenue['avances'];
+            $details['reste_verse'] = $retenue['reste'];
+
             $bulletin->update([
                 'salaire_net' => $net,
                 'statut' => StatutBulletinPaie::Paye,
@@ -75,7 +81,8 @@ final class ReglerBulletinPaieAction
                 'details' => $details,
             ]);
 
-            if (PosterMouvementTresorerieAction::isModuleEnabled()) {
+            // Salaire entièrement couvert par les avances : aucun nouveau cash ne sort.
+            if ($retenue['reste'] > 0 && PosterMouvementTresorerieAction::isModuleEnabled()) {
                 $date = is_string($payeLe)
                     ? substr($payeLe, 0, 10)
                     : now()->toDateString();
@@ -83,7 +90,7 @@ final class ReglerBulletinPaieAction
                 $this->poster->execute([
                     'compte_tresorerie_id' => $data['compte_tresorerie_id'],
                     'direction' => DirectionMouvementTresorerie::Sortie,
-                    'montant' => $net,
+                    'montant' => $retenue['reste'],
                     'date_mouvement' => $date,
                     'mode' => $data['mode'],
                     'source_type' => SourceMouvementTresorerie::BulletinPaie,

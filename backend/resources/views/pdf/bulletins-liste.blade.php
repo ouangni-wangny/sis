@@ -38,8 +38,9 @@
                 <th style="width:10%;">Mode</th>
                 <th style="width:9%;">Payé le</th>
                 @if($canSeeSalaire)
-                    <th style="width:11%;" class="right">Brut</th>
-                    <th style="width:12%;" class="right">Net / perçu</th>
+                    <th style="width:8%;" class="right">Brut</th>
+                    <th style="width:8%;" class="right">Net / perçu</th>
+                    <th style="width:7%;" class="right">Avances</th>
                 @else
                     <th style="width:23%;">Salaire perçu</th>
                 @endif
@@ -74,6 +75,7 @@
                     @if($canSeeSalaire)
                         <td class="right">{{ $fmt($bulletin->salaire_brut) }}</td>
                         <td class="right">{{ $fmt($bulletin->salaire_net) }}</td>
+                        <td class="right">{{ $fmt($bulletin->totalAvances()) }}</td>
                     @else
                         <td>{{ $renseigne || $statut === 'paye' ? 'Saisi' : 'En attente RH' }}</td>
                     @endif

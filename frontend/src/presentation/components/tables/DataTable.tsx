@@ -168,9 +168,9 @@ export function DataTable<T>({
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-white/90 shadow-sm">
       {(search || toolbar) && (
-        <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center">
           {search ? (
-            <div className="relative min-w-0 flex-1 sm:max-w-md">
+            <div className="relative min-w-0 flex-1 sm:min-w-64 sm:max-w-md">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-faint" />
               <Input
                 value={search.value}
@@ -184,7 +184,7 @@ export function DataTable<T>({
             <div className="hidden min-w-0 flex-1 sm:block" />
           )}
           {toolbar ? (
-            <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:shrink-0 [&_button]:h-10 [&_button]:px-4 [&_button]:text-sm">
+            <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:max-w-full sm:shrink-0 [&_button]:h-10 [&_button]:px-4 [&_button]:text-sm">
               {toolbar}
             </div>
           ) : null}

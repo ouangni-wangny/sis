@@ -63,6 +63,11 @@ class Facture extends Model implements HasMedia
         return $this->belongsTo(Abonnement::class);
     }
 
+    public function site(): BelongsTo
+    {
+        return $this->belongsTo(Site::class)->withTrashed();
+    }
+
     public function lignes(): HasMany
     {
         return $this->hasMany(LigneFacture::class)->orderBy('ordre');

@@ -19,9 +19,13 @@ final class RecouvrirVacationAction
         private CreateVacationAction $create,
     ) {}
 
-    public function execute(Vacation $trou, string $remplacantId): Vacation
+    /**
+     * L’agent qui descend et enchaîne est toujours en heures supplémentaires ;
+     * pour un autre remplaçant (jour de repos), c’est au planificateur de l’indiquer.
+     */
+    public function execute(Vacation $trou, string $remplacantId, bool $heuresSupplementaires = false): Vacation
     {
-        return DB::transaction(function () use ($trou, $remplacantId) {
+        return DB::transaction(function () use ($trou, $remplacantId, $heuresSupplementaires) {
             if ($trou->statut !== StatutVacation::ARecouvrir) {
                 throw ValidationException::withMessages([
                     'vacation' => 'Seules les vacations « à recouvrir » peuvent être remplacées.',
@@ -46,6 +50,9 @@ final class RecouvrirVacationAction
                 'heure_debut' => substr((string) $trou->heure_debut, 0, 5),
                 'heure_fin' => substr((string) $trou->heure_fin, 0, 5),
                 'remplacement' => true,
+                'est_remplacement' => true,
+                'heures_supplementaires' => $heuresSupplementaires
+                    || AgentsDescendantsQuery::pour($trou)->contains('agent_id', $remplacantId),
             ];
             $jours = $trou->date_fin
                 ? ShiftSchedule::fromVacation($trou)->days()

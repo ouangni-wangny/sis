@@ -22,6 +22,7 @@ class UpdatePosteRequest extends FormRequest
             'heure_debut_nuit' => ['nullable', 'date_format:H:i', 'required_with:heure_fin_nuit'],
             'heure_fin_nuit' => ['nullable', 'date_format:H:i', 'required_with:heure_debut_nuit'],
             'mode_effectif' => ['nullable', 'in:ensemble,alternance'],
+            'planning_continu' => ['sometimes', 'boolean'],
         ];
     }
 }

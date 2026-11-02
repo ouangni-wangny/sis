@@ -24,6 +24,8 @@ class BulletinPaieResource extends JsonResource
             'retenue_cnps' => $canSeeSalaire ? $this->retenue_cnps : null,
             'montant_igr' => $canSeeSalaire ? $this->montant_igr : null,
             'salaire_net' => $canSeeSalaire ? $this->salaire_net : null,
+            'avances_total' => $canSeeSalaire ? $this->totalAvances() : null,
+            'reste_a_payer' => $canSeeSalaire ? $this->resteAPayer() : null,
             'salaire_renseigne' => $salaireRenseigne,
             'statut' => $this->statut,
             'paye_le' => $this->paye_le,

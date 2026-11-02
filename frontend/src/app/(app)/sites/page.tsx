@@ -107,6 +107,7 @@ export default function SitesPage() {
     useState<SitePosteDraft>(emptyPosteDraft);
   const [addingPoste, setAddingPoste] = useState(false);
   const [editingPosteId, setEditingPosteId] = useState<string | null>(null);
+  const [planningContinu, setPlanningContinu] = useState(true);
   const { toast } = useToast();
   const { user } = useAuth();
   const canCreate = can(user, "sites.create");
@@ -237,6 +238,7 @@ export default function SitesPage() {
 
   const startEditPoste = (poste: Poste) => {
     setEditingPosteId(poste.id);
+    setPlanningContinu(poste.planning_continu ?? true);
     const hours = normalizePosteHoraires({
       heure_debut: poste.heure_debut?.slice(0, 5) ?? "",
       heure_fin: poste.heure_fin?.slice(0, 5) ?? "",
@@ -254,6 +256,7 @@ export default function SitesPage() {
 
   const cancelEditPoste = () => {
     setEditingPosteId(null);
+    setPlanningContinu(true);
     setEditPosteDraft(emptyPosteDraft);
   };
 
@@ -275,6 +278,7 @@ export default function SitesPage() {
         editPosteDraft.agents_requis === ""
           ? undefined
           : Number(editPosteDraft.agents_requis),
+      planning_continu: planningContinu,
       ...hours,
     };
     try {
@@ -289,6 +293,7 @@ export default function SitesPage() {
       }
       setEditPosteDraft(emptyPosteDraft);
       setEditingPosteId(null);
+      setPlanningContinu(true);
       return true;
     } catch (err) {
       toast(
@@ -686,6 +691,22 @@ export default function SitesPage() {
                     }}
                     onChange={setEditPosteDraft}
                   />
+
+                  <label className="flex items-start gap-2 text-sm text-ink">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={planningContinu}
+                      onChange={(e) => setPlanningContinu(e.target.checked)}
+                    />
+                    <span>
+                      Reconduire le planning automatiquement
+                      <span className="block text-xs text-ink-muted">
+                        À décocher pour un poste temporaire : le planning
+                        s’arrêtera à sa dernière date.
+                      </span>
+                    </span>
+                  </label>
 
                   <div className="flex flex-wrap items-center gap-2">
                     {editingPosteId ? (

@@ -3,6 +3,7 @@
 namespace App\Application\Paie;
 
 use App\Domain\Shared\Enums\StatutBulletinPaie;
+use App\Models\AvanceSalaire;
 use App\Models\BulletinPaie;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -48,6 +49,21 @@ final class RenseignerSalairePercuBulkAction
                 ]);
             }
             $byId[$id] = $net;
+        }
+
+        AvanceSalaire::prechargerPour($bulletins->values());
+
+        foreach ($byId as $id => $net) {
+            $bulletin = $bulletins->get($id);
+            if ($net < $bulletin->totalAvances()) {
+                throw ValidationException::withMessages([
+                    'items' => sprintf(
+                        'Le salaire perçu de %s est inférieur aux avances déjà données (%s FCFA).',
+                        $bulletin->details['agent'] ?? 'cet agent',
+                        number_format($bulletin->totalAvances(), 0, ',', ' '),
+                    ),
+                ]);
+            }
         }
 
         $now = now()->toIso8601String();

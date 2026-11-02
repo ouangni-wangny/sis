@@ -6,9 +6,11 @@ use App\Application\Contrat\GenerateContratReferenceAction;
 use App\Application\Contrat\GenererListeContratsPdfAction;
 use App\Application\Contrat\HandleContratActivationAction;
 use App\Application\Contrat\HandleContratClotureAction;
+use App\Application\Contrat\RenouvelerContratAction;
 use App\Application\Contrat\SyncContratRemunerationAction;
 use App\Application\Rh\GetContratsAlertsAction;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Contrat\RenouvelerContratRequest;
 use App\Http\Requests\Contrat\StoreContratRequest;
 use App\Http\Requests\Contrat\UpdateContratRequest;
 use App\Http\Resources\ContratResource;
@@ -30,6 +32,7 @@ class ContratController extends Controller
 
         $items = GenererListeContratsPdfAction::filteredQuery($request)
             ->with(['agent', 'media', 'contratParent'])
+            ->withExists('avenants')
             ->latest()
             ->paginate($request->integer('per_page', 15));
 
@@ -111,6 +114,25 @@ class ContratController extends Controller
         $activation->execute($avenant->refresh());
 
         return new ContratResource($avenant->load(['media', 'agent', 'contratParent']));
+    }
+
+    public function renouveler(
+        RenouvelerContratRequest $request,
+        Contrat $contrat,
+        RenouvelerContratAction $renouveler,
+    ): ContratResource {
+        abort_unless(RhAuthorization::canManageContrats($request->user()), 403);
+
+        $nouveau = $renouveler->execute(
+            $contrat,
+            collect($request->validated())->except('document')->all(),
+        );
+
+        if ($request->hasFile('document')) {
+            $nouveau->addMediaFromRequest('document')->toMediaCollection('document');
+        }
+
+        return new ContratResource($nouveau->load(['media', 'agent', 'contratParent']));
     }
 
     public function show(Request $request, Contrat $contrat): ContratResource

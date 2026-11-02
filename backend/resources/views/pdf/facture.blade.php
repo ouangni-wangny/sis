@@ -147,6 +147,9 @@
             <div class="sis-panel">
                 <p class="sis-panel-label">Doit — Client</p>
                 <p style="font-weight:bold; font-size:11px;">{{ $clientNom }}</p>
+                @if($facture->site)
+                    <p style="margin-top:4px;"><strong>Site :</strong> {{ $facture->site->nom }}</p>
+                @endif
                 @if($clientAdresse)
                     <p style="margin-top:4px;">{{ $clientAdresse }}</p>
                 @else

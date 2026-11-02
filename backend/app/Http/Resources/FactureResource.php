@@ -14,6 +14,10 @@ class FactureResource extends JsonResource
             'client_id' => $this->client_id,
             'abonnement_id' => $this->abonnement_id,
             'site_id' => $this->site_id,
+            'site' => $this->whenLoaded('site', fn () => $this->site ? [
+                'id' => $this->site->id,
+                'nom' => $this->site->nom,
+            ] : null),
             'numero' => $this->numero,
             'date_emission' => $this->date_emission,
             'date_echeance' => $this->date_echeance,

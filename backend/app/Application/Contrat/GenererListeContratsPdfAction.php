@@ -5,6 +5,7 @@ namespace App\Application\Contrat;
 use App\Models\Contrat;
 use App\Support\PdfBrand;
 use App\Support\PdfListExport;
+use App\Support\RechercheNom;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -62,6 +63,7 @@ final class GenererListeContratsPdfAction
                         ->orWhereHas('agent', function ($agent) use ($term) {
                             $agent->where('nom', 'like', $term)
                                 ->orWhere('prenom', 'like', $term)
+                                ->tap(fn ($n) => RechercheNom::ouNomComplet($n, $term))
                                 ->orWhere('matricule', 'like', $term)
                                 ->orWhereHas('villeRef', fn ($v) => $v->where('libelle', 'like', $term));
                         });

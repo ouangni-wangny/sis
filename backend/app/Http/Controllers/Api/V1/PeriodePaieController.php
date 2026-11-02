@@ -7,12 +7,14 @@ use App\Application\Paie\GenererListeBulletinsPdfAction;
 use App\Domain\Shared\Enums\StatutPeriodePaie;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\PeriodePaieResource;
+use App\Models\AvanceSalaire;
 use App\Models\PeriodePaie;
 use App\Support\ListQuery;
 use App\Support\RhAuthorization;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Pagination\AbstractPaginator;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
@@ -100,9 +102,10 @@ class PeriodePaieController extends Controller
             ->with(['agent.grade', 'media'])
             ->orderBy('created_at');
 
-        return \App\Http\Resources\BulletinPaieResource::collection(
-            ListQuery::paginateOrAll($items, $request, 50),
-        );
+        $bulletins = ListQuery::paginateOrAll($items, $request, 50);
+        AvanceSalaire::prechargerPour($bulletins instanceof AbstractPaginator ? $bulletins->getCollection() : $bulletins);
+
+        return \App\Http\Resources\BulletinPaieResource::collection($bulletins);
     }
 
     public function exportBulletinsPdf(

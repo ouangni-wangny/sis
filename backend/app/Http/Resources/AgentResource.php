@@ -18,6 +18,7 @@ class AgentResource extends JsonResource
             'nom' => $this->nom,
             'prenom' => $this->prenom,
             'civilite' => $this->civilite,
+            'genre' => $this->genre,
             'date_naissance' => $this->date_naissance?->toDateString(),
             'lieu_naissance' => $this->lieu_naissance,
             'situation_matrimoniale' => $this->situation_matrimoniale,
