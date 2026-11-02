@@ -2,6 +2,7 @@
 
 namespace App\Application\Contrat;
 
+use App\Domain\Contrat\ContratValideQuery;
 use App\Domain\Shared\Enums\StatutAgent;
 use App\Domain\Shared\Enums\StatutVacation;
 use App\Models\Agent;
@@ -24,6 +25,11 @@ final class HandleContratClotureAction
 
         $agent = $contrat->agent;
         if (! $agent) {
+            return;
+        }
+
+        // Contrat renouvelé : l’agent reste en poste sous son nouveau contrat.
+        if (ContratValideQuery::agentHasValidContract($agent->id)) {
             return;
         }
 

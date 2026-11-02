@@ -11,6 +11,7 @@ import { Eye, FileDown, Pencil, Plus, Trash2 } from "lucide-react";
 import { useDebouncedValue } from "@/application/hooks/useDebouncedValue";
 import {
   useAgent,
+  useAgentEffectifsGenre,
   useAgents,
   useCreateAgent,
   useDeleteAgent,
@@ -36,6 +37,7 @@ import { Input } from "@/presentation/components/ui/Input";
 import { Modal } from "@/presentation/components/ui/Modal";
 import { PageHeader } from "@/presentation/components/ui/PageHeader";
 import { Select } from "@/presentation/components/ui/Select";
+import { StatCard } from "@/presentation/components/ui/StatCard";
 import { PermissionGate } from "@/presentation/components/auth/PermissionGate";
 import { useAuth } from "@/presentation/providers/AuthProvider";
 import { useToast } from "@/presentation/providers/ToastProvider";
@@ -48,6 +50,7 @@ const emptyDefaults: AgentFormValues = {
   nom: "",
   prenom: "",
   civilite: "",
+  genre: "",
   date_naissance: "",
   lieu_naissance: "",
   situation_matrimoniale: "",
@@ -86,6 +89,18 @@ const civiliteOptions = [
   { value: "monsieur", label: "Monsieur" },
   { value: "madame", label: "Madame" },
   { value: "mademoiselle", label: "Mademoiselle" },
+];
+
+const genreOptions = [
+  { value: "homme", label: "Homme" },
+  { value: "femme", label: "Femme" },
+];
+
+const genreFilterOptions = [
+  { value: "", label: "Tous les genres" },
+  { value: "homme", label: "Hommes" },
+  { value: "femme", label: "Femmes" },
+  { value: "non_renseigne", label: "Non renseigné" },
 ];
 
 const situationOptions = [
@@ -133,6 +148,7 @@ export default function AgentsPage() {
   const [filterStatut, setFilterStatut] = useState("");
   const [filterVilleId, setFilterVilleId] = useState("");
   const [filterType, setFilterType] = useState("");
+  const [filterGenre, setFilterGenre] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Agent | null>(null);
   const [toDelete, setToDelete] = useState<Agent | null>(null);
@@ -148,9 +164,7 @@ export default function AgentsPage() {
   const canDelete = can(user, "agents.delete");
   const canView = can(user, "agents.view");
 
-  const listParams = {
-    page,
-    per_page: perPage,
+  const effectifParams = {
     q: search || undefined,
     grade_id: filterGradeId || undefined,
     statut: filterStatut || undefined,
@@ -158,8 +172,16 @@ export default function AgentsPage() {
     type: filterType || undefined,
     contrat_valide: true as const,
   };
+  const listParams = {
+    ...effectifParams,
+    page,
+    per_page: perPage,
+    genre: filterGenre || undefined,
+  };
 
   const { data, isLoading } = useAgents(listParams);
+  const { data: effectifsData } = useAgentEffectifsGenre(effectifParams);
+  const effectifs = effectifsData?.data;
   const { data: gradesData } = useGrades({ all: true });
   const { data: villesData } = useVilles({ all: true });
   const { data: perimetresData } = usePerimetres();
@@ -293,6 +315,7 @@ export default function AgentsPage() {
         statut: filterStatut || undefined,
         ville_id: filterVilleId || undefined,
         type: filterType || undefined,
+        genre: filterGenre || undefined,
         contrat_valide: true,
       });
       const blob =
@@ -303,7 +326,7 @@ export default function AgentsPage() {
       const link = document.createElement("a");
       link.href = objectUrl;
       const suffix =
-        [filterType, filterStatut].filter(Boolean).join("-") || "tous";
+        [filterType, filterStatut, filterGenre].filter(Boolean).join("-") || "tous";
       link.download = `personnel-${suffix}-${new Date().toISOString().slice(0, 10)}.pdf`;
       link.rel = "noopener";
       document.body.appendChild(link);
@@ -334,6 +357,7 @@ export default function AgentsPage() {
         nom: agent.nom,
         prenom: agent.prenom,
         civilite: agent.civilite ?? "",
+        genre: agent.genre ?? "",
         date_naissance: agent.date_naissance ?? "",
         lieu_naissance: agent.lieu_naissance ?? "",
         situation_matrimoniale: agent.situation_matrimoniale ?? "",
@@ -370,6 +394,7 @@ export default function AgentsPage() {
       nom: values.nom,
       prenom: values.prenom,
       civilite: values.civilite || null,
+      genre: values.genre || null,
       date_naissance: values.date_naissance || null,
       lieu_naissance: values.lieu_naissance || null,
       situation_matrimoniale: values.situation_matrimoniale || null,
@@ -563,6 +588,17 @@ export default function AgentsPage() {
           title="Personnel"
           description="Effectifs terrain — agents postés, contrôleurs et administration."
         />
+        <div className="mb-4 grid gap-3 sm:grid-cols-3">
+          <StatCard label="Hommes" value={effectifs?.hommes ?? "—"} />
+          <StatCard label="Femmes" value={effectifs?.femmes ?? "—"} />
+          {effectifs?.non_renseigne ? (
+            <StatCard
+              label="Non renseigné"
+              value={effectifs.non_renseigne}
+              hint="Genre à compléter sur la fiche"
+            />
+          ) : null}
+        </div>
         <DataTable
           data={data?.data ?? []}
           columns={columns}
@@ -612,6 +648,18 @@ export default function AgentsPage() {
                   value={filterVilleId}
                   onChange={(e) => {
                     setFilterVilleId(e.target.value);
+                    setPage(1);
+                  }}
+                />
+              </div>
+              <div className="w-44 sm:w-52">
+                <Select
+                  aria-label="Filtrer par genre"
+                  placeholder="Tous les genres"
+                  options={genreFilterOptions}
+                  value={filterGenre}
+                  onChange={(e) => {
+                    setFilterGenre(e.target.value);
                     setPage(1);
                   }}
                 />
@@ -706,6 +754,14 @@ export default function AgentsPage() {
                 options={civiliteOptions}
                 error={errors.civilite?.message}
                 {...register("civilite")}
+              />
+              <Select
+                label="Genre"
+                optionalMark
+                placeholder="—"
+                options={genreOptions}
+                error={errors.genre?.message}
+                {...register("genre")}
               />
               <Input
                 label="Prénom"

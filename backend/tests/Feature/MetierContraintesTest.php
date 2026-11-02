@@ -135,6 +135,7 @@ it('rejects active abonnement with inactive offre or foreign site', function () 
     $this->actingAs($this->admin)->postJson('/api/v1/abonnements', [
         'client_id' => $this->client->id,
         'offre_id' => $this->offreInactive->id,
+        'site_id' => $this->site->id,
         'date_debut' => '2026-07-01',
         'periodicite' => 'mensuel',
         'statut' => StatutAbonnement::Actif->value,

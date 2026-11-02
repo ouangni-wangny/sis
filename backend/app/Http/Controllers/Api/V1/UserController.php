@@ -10,6 +10,7 @@ use App\Http\Requests\User\StoreUserRequest;
 use App\Http\Requests\User\UpdateUserRequest;
 use App\Http\Resources\UserResource;
 use App\Models\User;
+use App\Support\RechercheNom;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
@@ -30,6 +31,7 @@ class UserController extends Controller
                 $q->where(function ($inner) use ($term) {
                     $inner->where('nom', 'like', $term)
                         ->orWhere('prenom', 'like', $term)
+                        ->tap(fn ($n) => RechercheNom::ouNomComplet($n, $term))
                         ->orWhere('email', 'like', $term)
                         ->orWhere('name', 'like', $term);
                 });

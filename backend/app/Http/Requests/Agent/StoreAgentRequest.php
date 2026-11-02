@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Agent;
 
 use App\Domain\Shared\Enums\Civilite;
+use App\Domain\Shared\Enums\Genre;
 use App\Domain\Shared\Enums\JourSemaine;
 use App\Domain\Shared\Enums\SituationMatrimoniale;
 use App\Domain\Shared\Enums\StatutAgent;
@@ -25,6 +26,7 @@ class StoreAgentRequest extends FormRequest
             'nom' => ['required', 'string', 'max:255'],
             'prenom' => ['required', 'string', 'max:255'],
             'civilite' => ['nullable', 'string', Rule::enum(Civilite::class)],
+            'genre' => ['nullable', 'string', Rule::enum(Genre::class)],
             'date_naissance' => ['nullable', 'date', 'before:today'],
             'lieu_naissance' => ['nullable', 'string', 'max:255'],
             'situation_matrimoniale' => ['nullable', 'string', Rule::enum(SituationMatrimoniale::class)],

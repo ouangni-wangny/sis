@@ -29,6 +29,7 @@ final class AuditLabels
         'Facture' => 'Facture',
         'Paiement' => 'Paiement',
         'BulletinPaie' => 'Bulletin de paie',
+        'AvanceSalaire' => 'Avance sur salaire',
         'Controle' => 'Contrôle',
         'Anomalie' => 'Anomalie',
         'Ronde' => 'Ronde',

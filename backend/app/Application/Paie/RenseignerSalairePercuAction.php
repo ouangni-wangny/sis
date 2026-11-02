@@ -26,6 +26,16 @@ final class RenseignerSalairePercuAction
             ]);
         }
 
+        $avances = $bulletin->totalAvances();
+        if ($net < $avances) {
+            throw ValidationException::withMessages([
+                'salaire_net' => sprintf(
+                    'Le salaire perçu ne peut pas être inférieur aux avances déjà données (%s FCFA).',
+                    number_format($avances, 0, ',', ' '),
+                ),
+            ]);
+        }
+
         $details = is_array($bulletin->details) ? $bulletin->details : [];
         if (! array_key_exists('salaire_calcule_net', $details)) {
             $details['salaire_calcule_net'] = $bulletin->salaire_net;

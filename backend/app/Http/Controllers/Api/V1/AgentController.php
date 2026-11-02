@@ -10,6 +10,7 @@ use App\Application\Agent\UpdateAgentAction;
 use App\Application\Agent\UploadAgentDocumentAction;
 use App\Application\Agent\UploadAgentPhotoAction;
 use App\Application\Rh\AjusterSoldeCongesAction;
+use App\Domain\Shared\Enums\Genre;
 use App\Domain\Shared\Enums\StatutRonde;
 use App\Domain\Shared\Enums\StatutVacation;
 use App\Http\Controllers\Controller;
@@ -20,6 +21,7 @@ use App\Http\Requests\Agent\UploadAgentPhotoRequest;
 use App\Http\Resources\AgentResource;
 use App\Http\Resources\BulletinPaieResource;
 use App\Models\Agent;
+use App\Models\AvanceSalaire;
 use App\Models\BulletinPaie;
 use App\Models\Ronde;
 use App\Models\SoldeCongesMouvement;
@@ -46,6 +48,27 @@ class AgentController extends Controller
             ->latest();
 
         return AgentResource::collection(ListQuery::paginateOrAll($agents, $request));
+    }
+
+    /** Effectif par genre, selon les mêmes filtres que la liste. */
+    public function effectifsGenre(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Agent::class);
+
+        $parGenre = GenererListeAgentsPdfAction::filteredQuery($request)
+            ->selectRaw('genre, count(*) as effectif')
+            ->groupBy('genre')
+            ->toBase()
+            ->pluck('effectif', 'genre');
+
+        $hommes = (int) $parGenre->get(Genre::Homme->value, 0);
+        $femmes = (int) $parGenre->get(Genre::Femme->value, 0);
+
+        return response()->json(['data' => [
+            'hommes' => $hommes,
+            'femmes' => $femmes,
+            'non_renseigne' => (int) $parGenre->sum() - $hommes - $femmes,
+        ]]);
     }
 
     public function exportPdf(Request $request, GenererListeAgentsPdfAction $action): SymfonyResponse
@@ -173,6 +196,8 @@ class AgentController extends Controller
             ->when($request->filled('statut'), fn ($q) => $q->where('statut', $request->string('statut')))
             ->latest()
             ->paginate($request->integer('per_page', 15));
+
+        AvanceSalaire::prechargerPour($items->getCollection());
 
         return BulletinPaieResource::collection($items);
     }

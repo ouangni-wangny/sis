@@ -3,15 +3,24 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { type ColumnDef } from "@tanstack/react-table";
-import { ArrowLeft, CircleHelp, Clock, UserCheck, UserX } from "lucide-react";
+import {
+  ArrowLeft,
+  CalendarPlus,
+  CircleHelp,
+  Clock,
+  UserCheck,
+  UserX,
+} from "lucide-react";
 import {
   useAgents,
+  usePointageSynthese,
   usePointageVacations,
   useSites,
 } from "@/application/hooks/useResources";
 import type {
   PointageControle,
   PointageLigne,
+  PointageSyntheseAgent,
 } from "@/domain/types/entities";
 import { PermissionGate } from "@/presentation/components/auth/PermissionGate";
 import { DataTable } from "@/presentation/components/tables/DataTable";
@@ -22,6 +31,7 @@ import { DatePicker } from "@/presentation/components/ui/DatePicker";
 import { PageHeader } from "@/presentation/components/ui/PageHeader";
 import { Select } from "@/presentation/components/ui/Select";
 import { StatCard } from "@/presentation/components/ui/StatCard";
+import { TabPanel, Tabs } from "@/presentation/components/ui/Tabs";
 import { getApiErrorMessage } from "@/shared/lib/api-error";
 import { formatDate } from "@/shared/lib/format";
 
@@ -53,6 +63,10 @@ export default function PointagePage() {
   const [agentId, setAgentId] = useState("");
   const [siteId, setSiteId] = useState("");
   const [controle, setControle] = useState<"" | PointageControle>("");
+  const [vue, setVue] = useState<"synthese" | "detail">("synthese");
+  const [synthesePage, setSynthesePage] = useState(1);
+  const [synthesePerPage, setSynthesePerPage] = useState(15);
+  const [syntheseQ, setSyntheseQ] = useState("");
 
   const periodeValide = !!dateDebut && !!dateFin && dateDebut <= dateFin;
   const { data, isLoading, error } = usePointageVacations(
@@ -65,6 +79,23 @@ export default function PointagePage() {
         }
       : undefined,
   );
+  const synthese = usePointageSynthese(
+    periodeValide && vue === "synthese"
+      ? {
+          date_debut: dateDebut,
+          date_fin: dateFin,
+          agent_id: agentId || undefined,
+          site_id: siteId || undefined,
+        }
+      : undefined,
+  );
+  const syntheseLignes = useMemo(() => {
+    const mots = syntheseQ.toLowerCase().split(/\s+/).filter(Boolean);
+    return (synthese.data?.data ?? []).filter((l) => {
+      const texte = `${l.agent} ${l.matricule ?? ""}`.toLowerCase();
+      return mots.every((m) => texte.includes(m));
+    });
+  }, [synthese.data, syntheseQ]);
   const { data: agentsData } = useAgents({ type: "agent", all: true });
   const { data: sitesData } = useSites({ all: true });
 
@@ -74,6 +105,40 @@ export default function PointagePage() {
     [data, controle],
   );
   const totaux = data?.meta;
+
+  const syntheseColumns = useMemo<ColumnDef<PointageSyntheseAgent>[]>(
+    () => [
+      {
+        accessorKey: "agent",
+        header: "Agent",
+        cell: ({ row }) => (
+          <span>
+            {row.original.agent}
+            {row.original.matricule ? (
+              <span className="ml-1 text-xs text-ink-faint">
+                {row.original.matricule}
+              </span>
+            ) : null}
+          </span>
+        ),
+      },
+      { accessorKey: "presences", header: "Présences" },
+      { accessorKey: "absences", header: "Absences" },
+      { accessorKey: "jours_supplementaires", header: "Jours supp." },
+      {
+        accessorKey: "heures_supplementaires",
+        header: "Heures supp.",
+        cell: ({ getValue }) => heures(getValue() as number),
+      },
+      { accessorKey: "non_controles", header: "Non contrôlés" },
+      {
+        accessorKey: "heures_comptees",
+        header: "Heures comptées",
+        cell: ({ getValue }) => heures(getValue() as number),
+      },
+    ],
+    [],
+  );
 
   const columns = useMemo<ColumnDef<PointageLigne>[]>(
     () => [
@@ -123,6 +188,18 @@ export default function PointagePage() {
         cell: ({ getValue }) => heures(getValue() as number),
       },
       {
+        id: "heures_supp",
+        header: "Dont sup.",
+        cell: ({ row }) =>
+          row.original.heures_supplementaires > 0 ? (
+            <Badge tone="warning">
+              {heures(row.original.heures_supplementaires)}
+            </Badge>
+          ) : (
+            "—"
+          ),
+      },
+      {
         accessorKey: "heures_comptees",
         header: "Comptées",
         cell: ({ getValue }) => (
@@ -150,7 +227,7 @@ export default function PointagePage() {
           }
         />
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <StatCard
             label="Présents"
             value={totaux?.present ?? 0}
@@ -162,6 +239,12 @@ export default function PointagePage() {
             value={totaux?.absent ?? 0}
             hint="Contrôle absent ou absence enregistrée"
             icon={<UserX className="size-4" />}
+          />
+          <StatCard
+            label="Jours supplémentaires"
+            value={totaux?.jours_supplementaires ?? 0}
+            hint={`${heures(totaux?.heures_supplementaires ?? 0)} de remplacement`}
+            icon={<CalendarPlus className="size-4" />}
           />
           <StatCard
             label="Non contrôlés"
@@ -256,15 +339,59 @@ export default function PointagePage() {
           </Alert>
         ) : null}
 
-        <DataTable
-          data={lignes}
-          columns={columns}
-          isLoading={isLoading}
-          selectable={false}
-          getRowId={(l) => `${l.vacation_id}-${l.date}`}
-          emptyTitle="Aucun créneau sur la période"
-          emptyDescription="Modifiez la période ou les filtres."
+        <Tabs
+          items={[
+            { id: "synthese", label: "Synthèse par agent" },
+            { id: "detail", label: "Détail des créneaux" },
+          ]}
+          value={vue}
+          onChange={(id) => setVue(id as "synthese" | "detail")}
         />
+
+        <TabPanel when="synthese" active={vue}>
+          <DataTable
+            data={syntheseLignes.slice(
+              (synthesePage - 1) * synthesePerPage,
+              synthesePage * synthesePerPage,
+            )}
+            columns={syntheseColumns}
+            isLoading={synthese.isLoading}
+            selectable={false}
+            getRowId={(l) => l.agent_id}
+            search={{
+              value: syntheseQ,
+              onChange: (value) => {
+                setSyntheseQ(value);
+                setSynthesePage(1);
+              },
+              placeholder: "Nom ou matricule…",
+            }}
+            pagination={{
+              page: synthesePage,
+              perPage: synthesePerPage,
+              total: syntheseLignes.length,
+              onPageChange: setSynthesePage,
+              onPerPageChange: (n) => {
+                setSynthesePerPage(n);
+                setSynthesePage(1);
+              },
+            }}
+            emptyTitle="Aucun agent sur la période"
+            emptyDescription="Modifiez la période ou les filtres."
+          />
+        </TabPanel>
+
+        <TabPanel when="detail" active={vue}>
+          <DataTable
+            data={lignes}
+            columns={columns}
+            isLoading={isLoading}
+            selectable={false}
+            getRowId={(l) => `${l.vacation_id}-${l.date}`}
+            emptyTitle="Aucun créneau sur la période"
+            emptyDescription="Modifiez la période ou les filtres."
+          />
+        </TabPanel>
       </div>
     </PermissionGate>
   );

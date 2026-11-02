@@ -26,6 +26,7 @@ import {
   useDeleteContrat,
   useExportContratsPdf,
   useUpdateAbsence,
+  useRenouvelerContrat,
   useUpdateContrat,
   useVilles,
 } from "@/application/hooks/useResources";
@@ -57,6 +58,7 @@ import {
   hintDateFin,
   hintPeriodeEssai,
   hintPeriodeEssaiVerrouillee,
+  suggestRenouvellementDates,
   type TypeContrat,
 } from "@/domain/schemas/contrat-rules";
 import type { Absence, Contrat } from "@/domain/types/entities";
@@ -131,6 +133,37 @@ const emptyContratDefaults: ContratFormValues = {
   parts_igr: "",
   statut: "actif",
 };
+
+function contratToFormValues(row: Contrat): ContratFormValues {
+  return {
+    agent_id: row.agent_id,
+    type: row.type as ContratFormValues["type"],
+    reference: row.reference ?? "",
+    date_debut: String(row.date_debut).slice(0, 10),
+    date_fin: row.date_fin ? String(row.date_fin).slice(0, 10) : "",
+    periode_essai_mois:
+      row.periode_essai_mois != null ? String(row.periode_essai_mois) : "",
+    salaire_base:
+      row.salaire_base != null
+        ? String(row.salaire_base)
+        : row.salaire_brut != null
+          ? String(row.salaire_brut)
+          : "",
+    indemnite_fonction:
+      row.indemnite_fonction != null ? String(row.indemnite_fonction) : "",
+    prime_responsabilite:
+      row.prime_responsabilite != null ? String(row.prime_responsabilite) : "",
+    prime_transport:
+      row.prime_transport != null ? String(row.prime_transport) : "",
+    prime_entretien_tenue:
+      row.prime_entretien_tenue != null
+        ? String(row.prime_entretien_tenue)
+        : "",
+    sursalaire: row.sursalaire != null ? String(row.sursalaire) : "",
+    parts_igr: row.parts_igr != null ? String(row.parts_igr) : "",
+    statut: (row.statut as ContratFormValues["statut"]) || "actif",
+  };
+}
 
 function toNumberOrNull(value: string | number | undefined | null) {
   if (value === "" || value == null) return null;
@@ -403,6 +436,7 @@ export default function RhPage() {
   const contratSearch = useDebouncedValue(contratQ);
   const [contratOpen, setContratOpen] = useState(false);
   const [editingContrat, setEditingContrat] = useState<Contrat | null>(null);
+  const [renewingContrat, setRenewingContrat] = useState<Contrat | null>(null);
   const [contratToDelete, setContratToDelete] = useState<Contrat | null>(null);
   const [contratFormError, setContratFormError] = useState<string | null>(null);
   const [contratSurveillanceOnly, setContratSurveillanceOnly] = useState(false);
@@ -432,6 +466,9 @@ export default function RhPage() {
 
   const contrats = useContrats(contratListParams, { enabled: canViewCont });
 
+  // Effectif réel : ne doit pas tomber à 0 quand la recherche ne trouve rien.
+  const contratsTous = useContrats({ per_page: 1 }, { enabled: canViewCont });
+  const contratsTotal = contratsTous.data?.meta.total ?? 0;
   const contratsCdi = useContrats(
     { type: "cdi", per_page: 1, valide: true },
     { enabled: canViewCont },
@@ -451,6 +488,7 @@ export default function RhPage() {
 
   const createContrat = useCreateContrat();
   const updateContrat = useUpdateContrat();
+  const renouvelerContrat = useRenouvelerContrat();
   const deleteContrat = useDeleteContrat();
   const exportContratsPdf = useExportContratsPdf();
 
@@ -548,7 +586,7 @@ export default function RhPage() {
     if (!contratOpen || editingContrat) return;
     if (!contratRegles.essaiVisible) {
       setValueContrat("periode_essai_mois", "");
-    } else if (contratRegles.essaiDefautMois != null) {
+    } else if (contratRegles.essaiDefautMois != null && !renewingContrat) {
       setValueContrat(
         "periode_essai_mois",
         String(contratRegles.essaiDefautMois),
@@ -560,6 +598,7 @@ export default function RhPage() {
   }, [
     contratOpen,
     editingContrat,
+    renewingContrat,
     contratRegles.essaiVisible,
     contratRegles.essaiDefautMois,
     contratRegles.needsDateFin,
@@ -588,12 +627,31 @@ export default function RhPage() {
     [remuWatch, selectedContratAgent],
   );
   const contratBusy =
-    contratSubmitting || createContrat.isPending || updateContrat.isPending;
+    contratSubmitting ||
+    createContrat.isPending ||
+    updateContrat.isPending ||
+    renouvelerContrat.isPending;
+
+  // Agent archivé ou absent de la liste : le garder affiché dans le champ figé.
+  const contratAgentOptions = useMemo(() => {
+    const agent = (editingContrat ?? renewingContrat)?.agent;
+    if (!agent || agentOptions.some((o) => o.value === agent.id)) {
+      return agentOptions;
+    }
+    return [
+      {
+        value: agent.id,
+        label: `${agent.prenom} ${agent.nom} (${agent.matricule})`,
+      },
+      ...agentOptions,
+    ];
+  }, [agentOptions, editingContrat, renewingContrat]);
 
   const closeContratModal = () => {
     if (contratBusy) return;
     setContratOpen(false);
     setEditingContrat(null);
+    setRenewingContrat(null);
     setContratFormError(null);
     resetContrat(emptyContratDefaults);
   };
@@ -604,6 +662,7 @@ export default function RhPage() {
       return;
     }
     setEditingContrat(null);
+    setRenewingContrat(null);
     resetContrat(emptyContratDefaults);
     setContratFormError(null);
     setContratOpen(true);
@@ -615,36 +674,34 @@ export default function RhPage() {
         toast("Vous n’avez pas le droit de modifier un contrat.", "danger");
         return;
       }
+      setRenewingContrat(null);
       setEditingContrat(row);
+      resetContrat(contratToFormValues(row));
+      setContratFormError(null);
+      setContratOpen(true);
+    },
+    [canContrats, resetContrat, toast],
+  );
+
+  const openRenewContrat = useCallback(
+    (row: Contrat) => {
+      if (!canContrats) {
+        toast("Vous n’avez pas le droit de renouveler un contrat.", "danger");
+        return;
+      }
+      setEditingContrat(null);
+      setRenewingContrat(row);
       resetContrat({
-        agent_id: row.agent_id,
-        type: row.type as ContratFormValues["type"],
-        reference: row.reference ?? "",
-        date_debut: String(row.date_debut).slice(0, 10),
-        date_fin: row.date_fin ? String(row.date_fin).slice(0, 10) : "",
-        periode_essai_mois:
-          row.periode_essai_mois != null ? String(row.periode_essai_mois) : "",
-        salaire_base:
-          row.salaire_base != null
-            ? String(row.salaire_base)
-            : row.salaire_brut != null
-              ? String(row.salaire_brut)
-              : "",
-        indemnite_fonction:
-          row.indemnite_fonction != null ? String(row.indemnite_fonction) : "",
-        prime_responsabilite:
-          row.prime_responsabilite != null
-            ? String(row.prime_responsabilite)
-            : "",
-        prime_transport:
-          row.prime_transport != null ? String(row.prime_transport) : "",
-        prime_entretien_tenue:
-          row.prime_entretien_tenue != null
-            ? String(row.prime_entretien_tenue)
-            : "",
-        sursalaire: row.sursalaire != null ? String(row.sursalaire) : "",
-        parts_igr: row.parts_igr != null ? String(row.parts_igr) : "",
-        statut: (row.statut as ContratFormValues["statut"]) || "actif",
+        ...contratToFormValues(row),
+        ...suggestRenouvellementDates({
+          date_debut: String(row.date_debut),
+          date_fin: row.date_fin ? String(row.date_fin) : null,
+        }),
+        reference: "",
+        // Pas de nouvel essai par défaut ; parts IGR recalculées depuis la fiche agent.
+        periode_essai_mois: "",
+        parts_igr: "",
+        statut: "actif",
       });
       setContratFormError(null);
       setContratOpen(true);
@@ -754,11 +811,21 @@ export default function RhPage() {
             canDelete={canContrats}
             onEdit={() => openEditContrat(row.original)}
             onDelete={() => setContratToDelete(row.original)}
+            items={[
+              {
+                key: "renew",
+                label: "Renouveler",
+                icon: tableActionIcons.renew,
+                tone: "accent",
+                hidden: !canContrats || row.original.est_renouvele === true,
+                onClick: () => openRenewContrat(row.original),
+              },
+            ]}
           />
         ),
       },
     ],
-    [canContrats, openEditContrat, user],
+    [canContrats, openEditContrat, openRenewContrat, user],
   );
 
   const rhTabs = useMemo(
@@ -768,7 +835,7 @@ export default function RhPage() {
           ? {
               id: "contrats" as const,
               label: "Contrats",
-              count: contrats.data?.meta.total ?? 0,
+              count: contratsTotal,
             }
           : null,
         canViewAbs
@@ -786,14 +853,13 @@ export default function RhPage() {
     [
       canViewCont,
       canViewAbs,
-      contrats.data?.meta.total,
+      contratsTotal,
       absences.data?.meta.total,
     ],
   );
 
   const canPaie = canViewPaie(user);
   const pendingAbsencesCount = absencesEnAttente.data?.meta.total ?? 0;
-  const contratsTotal = contrats.data?.meta.total ?? 0;
   const aSurveillerCount = useMemo(
     () => new Set(contratAlertes.map((a) => a.contrat_id)).size,
     [contratAlertes],
@@ -1452,11 +1518,19 @@ export default function RhPage() {
           onClose={closeContratModal}
           preventClose={contratBusy}
           size="2xl"
-          title={editingContrat ? "Modifier le contrat" : "Nouveau contrat"}
+          title={
+            editingContrat
+              ? "Modifier le contrat"
+              : renewingContrat
+                ? "Renouveler le contrat"
+                : "Nouveau contrat"
+          }
           description={
             editingContrat
               ? "Agent et type sont figés. Ajustez dates, primes et situation familiale IGR."
-              : "Rémunération = base + primes. Brut, parts IGR, CNPS et net sont calculés automatiquement."
+              : renewingContrat
+                ? "L’agent est conservé. Définissez les nouveaux termes : type, dates et rémunération."
+                : "Rémunération = base + primes. Brut, parts IGR, CNPS et net sont calculés automatiquement."
           }
           footer={
             <>
@@ -1496,7 +1570,19 @@ export default function RhPage() {
                 ? toNumberOrNull(values.periode_essai_mois)
                 : null;
               try {
-                if (editingContrat) {
+                if (renewingContrat) {
+                  await renouvelerContrat.mutateAsync({
+                    id: renewingContrat.id,
+                    payload: {
+                      type: values.type,
+                      date_debut: values.date_debut,
+                      date_fin: values.date_fin || null,
+                      periode_essai_mois: periodeEssai,
+                      ...moneyPayload,
+                    },
+                  });
+                  toast("Contrat renouvelé.");
+                } else if (editingContrat) {
                   await updateContrat.mutateAsync({
                     id: editingContrat.id,
                     payload: {
@@ -1532,12 +1618,19 @@ export default function RhPage() {
             {contratFormError ? (
               <Alert tone="danger">{contratFormError}</Alert>
             ) : null}
+            {renewingContrat ? (
+              <Alert tone="info">
+                Le contrat {renewingContrat.reference ?? "actuel"} reste dans
+                l’historique. Si le nouveau contrat démarre avant sa fin, il
+                s’arrêtera la veille du nouveau début.
+              </Alert>
+            ) : null}
             <div className="grid gap-3 sm:grid-cols-3">
               <Select
                 label="Agent"
                 requiredMark
-                disabled={!!editingContrat}
-                options={agentOptions}
+                disabled={!!editingContrat || !!renewingContrat}
+                options={contratAgentOptions}
                 placeholder="Choisir un agent"
                 error={contratErrors.agent_id?.message}
                 {...registerContrat("agent_id")}
@@ -1590,6 +1683,7 @@ export default function RhPage() {
               <Select
                 label="Statut"
                 requiredMark
+                disabled={!!renewingContrat}
                 options={[
                   { value: "actif", label: "Actif" },
                   { value: "suspendu", label: "Suspendu" },

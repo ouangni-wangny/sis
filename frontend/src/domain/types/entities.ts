@@ -79,6 +79,7 @@ export type Agent = {
   nom: string;
   prenom: string;
   civilite: "monsieur" | "madame" | "mademoiselle" | null;
+  genre: "homme" | "femme" | null;
   date_naissance: string | null;
   lieu_naissance: string | null;
   situation_matrimoniale: "celibataire" | "marie" | "divorce" | "veuf" | null;
@@ -134,6 +135,8 @@ export type Poste = {
   agents_requis: number;
   /** Sans quarts + effectif ≥ 2 : ensemble (en même temps) | alternance (tour de rôle). */
   mode_effectif?: "ensemble" | "alternance" | null;
+  /** Le planning de ce poste se reconduit automatiquement. */
+  planning_continu?: boolean;
   heure_debut: string | null;
   heure_fin: string | null;
   /** Quart nuit — un poste est "24h" (jour + nuit) dès que ces deux champs sont renseignés. */
@@ -267,6 +270,7 @@ export type Contrat = {
   salaire_net: string | number | null;
   salaire: string | number | null;
   statut: string;
+  est_renouvele?: boolean;
   agent?:
     | (Pick<Agent, "id" | "nom" | "prenom" | "matricule"> & {
         situation_matrimoniale?: Agent["situation_matrimoniale"];
@@ -322,6 +326,8 @@ export type BulletinPaie = {
   retenue_cnps: string | number | null;
   montant_igr: string | number | null;
   salaire_net: string | number | null;
+  avances_total?: number | null;
+  reste_a_payer?: number | null;
   /** True si la RH a saisi le salaire perçu (visible même sans voir le montant). */
   salaire_renseigne?: boolean;
   statut: "brouillon" | "valide" | "paye" | string;
@@ -340,6 +346,34 @@ export type BulletinPaie = {
     libelle: string;
     type: string;
   } | null;
+};
+
+export type SituationSalaireMois = {
+  salaire_net: number | null;
+  source: "bulletin" | "contrat" | null;
+  avances_total: number;
+  reste_a_payer: number | null;
+  bulletin_paye: boolean;
+};
+
+export type AvanceSalaire = {
+  id: string;
+  agent_id: string;
+  mois: number;
+  annee: number;
+  montant: string | number;
+  date_avance: string;
+  compte_tresorerie_id: string;
+  mode: string;
+  reference: string | null;
+  notes: string | null;
+  statut: "en_cours" | "deduite" | "annulee";
+  bulletin_paie_id: string | null;
+  annulee_le: string | null;
+  motif_annulation: string | null;
+  situation: SituationSalaireMois | null;
+  agent?: Pick<Agent, "id" | "nom" | "prenom" | "matricule"> | null;
+  compte?: { id: string; libelle: string } | null;
 };
 
 export type CompteTresorerie = {
@@ -491,6 +525,7 @@ export type Vacation = {
   heure_debut: string;
   heure_fin: string;
   statut: StatutVacation;
+  heures_supplementaires?: boolean;
   agent?: Pick<Agent, "id" | "nom" | "prenom" | "matricule">;
   site?: Pick<Site, "id" | "nom">;
   poste?: Pick<
@@ -612,6 +647,7 @@ export type Facture = {
   client_id: string | null;
   abonnement_id?: string | null;
   site_id?: string | null;
+  site?: { id: string; nom: string } | null;
   numero: string;
   date_emission: string;
   date_echeance: string | null;
@@ -899,6 +935,28 @@ export type PointageLigne = {
   controle: PointageControle;
   heures_prevues: number;
   heures_comptees: number;
+  heures_supplementaires: number;
+};
+
+export type PointageSyntheseAgent = {
+  agent_id: string;
+  agent: string;
+  matricule: string | null;
+  presences: number;
+  absences: number;
+  non_controles: number;
+  jours_supplementaires: number;
+  heures_comptees: number;
+  heures_supplementaires: number;
+};
+
+export type AgentDescendant = {
+  agent_id: string;
+  agent: string | null;
+  matricule: string | null;
+  poste: string | null;
+  meme_poste: boolean;
+  heure_fin: string;
 };
 
 export type PointageTotaux = {
@@ -906,4 +964,6 @@ export type PointageTotaux = {
   absent: number;
   non_controle: number;
   heures_comptees: number;
+  jours_supplementaires: number;
+  heures_supplementaires: number;
 };

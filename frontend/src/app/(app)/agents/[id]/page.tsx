@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { type ColumnDef } from "@tanstack/react-table";
 import {
+  HandCoins,
   ArrowLeft,
   Briefcase,
   CalendarClock,
@@ -24,6 +25,7 @@ import {
   useAccorderConges,
   useAgent,
   useAgentBulletins,
+  useAvancesSalaire,
   useCongesMouvements,
   useControles,
   useContrats,
@@ -39,6 +41,7 @@ import {
   sourceAbsenceTone,
 } from "@/domain/schemas/absence";
 import type {
+  AvanceSalaire,
   Absence,
   BulletinPaie,
   Contrat,
@@ -209,6 +212,8 @@ export default function AgentDetailPage() {
   const [absencesPerPage, setAbsencesPerPage] = useState(15);
   const [bulletinsPage, setBulletinsPage] = useState(1);
   const [bulletinsPerPage, setBulletinsPerPage] = useState(15);
+  const [avancesPage, setAvancesPage] = useState(1);
+  const [avancesPerPage, setAvancesPerPage] = useState(15);
   const [mouvementsPage, setMouvementsPage] = useState(1);
   const [mouvementsPerPage, setMouvementsPerPage] = useState(15);
 
@@ -294,6 +299,10 @@ export default function AgentDetailPage() {
     id,
     { page: bulletinsPage, per_page: bulletinsPerPage },
     { enabled: tab === "paie" && !!id && canPaie },
+  );
+  const { data: avancesData, isLoading: avancesLoading } = useAvancesSalaire(
+    { agent_id: id, page: avancesPage, per_page: avancesPerPage },
+    { enabled: tab === "paie" && !!id && canPaie && showSalaire },
   );
   const { data: mouvementsData, isLoading: mouvementsLoading } =
     useCongesMouvements(
@@ -472,6 +481,53 @@ export default function AgentDetailPage() {
       },
     ],
     [],
+  );
+
+  const avanceColumns = useMemo<ColumnDef<AvanceSalaire>[]>(
+    () => [
+      {
+        accessorKey: "date_avance",
+        header: "Date",
+        cell: ({ getValue }) => formatDate(String(getValue())),
+      },
+      {
+        id: "retenue",
+        header: "Retenue sur",
+        cell: ({ row }) =>
+          `${MOIS_LABELS[row.original.mois - 1] ?? row.original.mois} ${row.original.annee}`,
+      },
+      {
+        accessorKey: "montant",
+        header: "Montant",
+        cell: ({ getValue }) =>
+          formatSalaire(getValue() as string | number, user),
+      },
+      {
+        id: "reste",
+        header: "Reste à payer sur le mois",
+        cell: ({ row }) =>
+          row.original.situation?.reste_a_payer != null
+            ? formatSalaire(row.original.situation.reste_a_payer, user)
+            : "—",
+      },
+      {
+        accessorKey: "statut",
+        header: "Statut",
+        cell: ({ getValue }) => {
+          const v = String(getValue());
+          return (
+            <Badge tone={statusTone(v)}>
+              {v === "en_cours"
+                ? "À retenir"
+                : v === "deduite"
+                  ? "Retenue"
+                  : "Annulée"}
+            </Badge>
+          );
+        },
+      },
+    ],
+    [user],
   );
 
   const bulletinColumns = useMemo<ColumnDef<BulletinPaie>[]>(
@@ -739,6 +795,10 @@ export default function AgentDetailPage() {
                         value={
                           agent.civilite ? labelize(agent.civilite) : "—"
                         }
+                      />
+                      <InfoRow
+                        label="Genre"
+                        value={agent.genre ? labelize(agent.genre) : "—"}
                       />
                       <InfoRow
                         label="Date de naissance"
@@ -1140,6 +1200,36 @@ export default function AgentDetailPage() {
                 )}
                 emptyTitle="Aucun bulletin pour cet agent"
               />
+              {showSalaire ? (
+                <div className="mt-6">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <p className="inline-flex items-center gap-1.5 text-sm text-ink-muted">
+                      <HandCoins className="size-4" />
+                      Avances sur salaire — total donné :{" "}
+                      {formatSalaire(avancesData?.total_donne ?? 0, user)}
+                    </p>
+                    <Link
+                      href={`/rh/paie/avances?agent_id=${id}`}
+                      className="text-xs font-medium text-teal hover:underline"
+                    >
+                      Gérer les avances
+                    </Link>
+                  </div>
+                  <DataTable
+                    data={avancesData?.data ?? []}
+                    columns={avanceColumns}
+                    isLoading={avancesLoading}
+                    pagination={tablePagination(
+                      avancesPage,
+                      avancesData?.meta.per_page ?? avancesPerPage,
+                      avancesData?.meta.total ?? 0,
+                      setAvancesPage,
+                      setAvancesPerPage,
+                    )}
+                    emptyTitle="Aucune avance pour cet agent"
+                  />
+                </div>
+              ) : null}
             </TabPanel>
 
             <TabPanel when="documents" active={tab}>

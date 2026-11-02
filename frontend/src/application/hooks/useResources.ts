@@ -7,6 +7,7 @@ import {
   agentsApi,
   anomaliesApi,
   auditApi,
+  avancesSalaireApi,
   bulletinsPaieApi,
   categoriesDepenseApi,
   checkpointsApi,
@@ -55,6 +56,15 @@ export function useAgents(
     queryFn: () => agentsApi.list(params),
     enabled: options?.enabled ?? true,
     refetchOnMount: options?.refetchOnMount,
+  });
+}
+
+export function useAgentEffectifsGenre(
+  params?: Parameters<typeof agentsApi.effectifsGenre>[0],
+) {
+  return useQuery({
+    queryKey: ["agents", "effectifs-genre", params],
+    queryFn: () => agentsApi.effectifsGenre(params),
   });
 }
 
@@ -252,11 +262,31 @@ export function useRecouvrirVacation() {
     mutationFn: ({
       id,
       agent_id,
+      heures_supplementaires,
     }: {
       id: string;
       agent_id: string;
-    }) => vacationsApi.recouvrir(id, { agent_id }),
+      heures_supplementaires?: boolean;
+    }) => vacationsApi.recouvrir(id, { agent_id, heures_supplementaires }),
     onSuccess: () => invalidateVacations(qc),
+  });
+}
+
+export function useAgentsDescendants(vacationId: string | undefined) {
+  return useQuery({
+    queryKey: ["vacations", "agents-descendants", vacationId],
+    queryFn: () => vacationsApi.agentsDescendants(vacationId as string),
+    enabled: !!vacationId,
+  });
+}
+
+export function usePointageSynthese(
+  params: Parameters<typeof vacationsApi.pointageSynthese>[0] | undefined,
+) {
+  return useQuery({
+    queryKey: ["vacations", "pointage-synthese", params],
+    queryFn: () => vacationsApi.pointageSynthese(params!),
+    enabled: !!params,
   });
 }
 
@@ -1065,6 +1095,24 @@ export function useUpdateContrat() {
   });
 }
 
+export function useRenouvelerContrat() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: Parameters<typeof contratsApi.renouveler>[1];
+    }) => contratsApi.renouveler(id, payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["contrats"] });
+      // Un agent archivé redevient disponible.
+      void qc.invalidateQueries({ queryKey: ["agents"] });
+    },
+  });
+}
+
 export function useDeleteContrat() {
   const qc = useQueryClient();
   return useMutation({
@@ -1227,6 +1275,52 @@ export function useRenseignerSalairePercuBulk() {
       void qc.invalidateQueries({ queryKey: ["bulletins-paie"] });
       void qc.invalidateQueries({ queryKey: ["periodes-paie"] });
     },
+  });
+}
+
+export function useAvancesSalaire(
+  params?: Parameters<typeof avancesSalaireApi.list>[0],
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: ["avances-salaire", params],
+    queryFn: () => avancesSalaireApi.list(params),
+    enabled: options?.enabled ?? true,
+  });
+}
+
+export function useSituationSalaireMois(
+  params: Parameters<typeof avancesSalaireApi.situation>[0],
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: ["avances-salaire", "situation", params],
+    queryFn: () => avancesSalaireApi.situation(params),
+    enabled: options?.enabled ?? true,
+  });
+}
+
+function invalidateAvancesSalaire(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ queryKey: ["avances-salaire"] });
+  void qc.invalidateQueries({ queryKey: ["bulletins-paie"] });
+  void qc.invalidateQueries({ queryKey: ["agents"] });
+  void qc.invalidateQueries({ queryKey: ["tresorerie"] });
+}
+
+export function useCreateAvanceSalaire() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: avancesSalaireApi.create,
+    onSuccess: () => invalidateAvancesSalaire(qc),
+  });
+}
+
+export function useAnnulerAvanceSalaire() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, motif }: { id: string; motif?: string | null }) =>
+      avancesSalaireApi.annuler(id, { motif }),
+    onSuccess: () => invalidateAvancesSalaire(qc),
   });
 }
 

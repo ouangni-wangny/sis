@@ -65,6 +65,45 @@ function addMonthsToIso(dateIso: string, months: number): string {
   return toIsoDate(addMonths(parseIsoDate(dateIso), months));
 }
 
+/**
+ * Dates proposées pour reconduire un contrat : le lendemain de sa fin (ou aujourd’hui
+ * s’il est déjà expiré ou sans fin), pour la même durée.
+ */
+export function suggestRenouvellementDates(
+  contrat: { date_debut: string; date_fin?: string | null },
+  today: Date = new Date(),
+): { date_debut: string; date_fin: string } {
+  const todayIso = toIsoDate(today);
+  if (!contrat.date_fin) {
+    return { date_debut: todayIso, date_fin: "" };
+  }
+
+  const fin = parseIsoDate(contrat.date_fin);
+  const lendemain = new Date(fin);
+  lendemain.setDate(lendemain.getDate() + 1);
+  const debutIso =
+    toIsoDate(lendemain) < todayIso ? todayIso : toIsoDate(lendemain);
+
+  const debutSource = parseIsoDate(contrat.date_debut);
+  const nouvelleFin = parseIsoDate(debutIso);
+  if (lendemain.getDate() === debutSource.getDate()) {
+    // Durée en mois entiers : 1 an reste 1 an, même sur une année bissextile.
+    const mois =
+      (lendemain.getFullYear() - debutSource.getFullYear()) * 12 +
+      lendemain.getMonth() -
+      debutSource.getMonth();
+    nouvelleFin.setMonth(nouvelleFin.getMonth() + mois);
+    nouvelleFin.setDate(nouvelleFin.getDate() - 1);
+  } else {
+    const jours = Math.round(
+      (fin.getTime() - debutSource.getTime()) / (1000 * 60 * 60 * 24),
+    );
+    nouvelleFin.setDate(nouvelleFin.getDate() + jours);
+  }
+
+  return { date_debut: debutIso, date_fin: toIsoDate(nouvelleFin) };
+}
+
 export function validateContratDateFin(
   type: TypeContrat,
   dateDebut: string,

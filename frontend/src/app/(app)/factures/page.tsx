@@ -18,6 +18,7 @@ import {
   STATUT_PAIEMENT_FACTURE_FILTER_OPTIONS,
 } from "@/domain/schemas/facture";
 import {
+  useSites,
   useFactures,
   useGenererFacturePdf,
   useUpdateFactureStatut,
@@ -48,6 +49,13 @@ const TAB_STATUT: Record<FactureTab, StatutFacture> = {
   rejetees: "rejetee",
   annulees: "annulee",
 };
+
+function moisFacture(facture: Facture): string {
+  const date = new Date(
+    `${String(facture.periode_debut ?? facture.date_emission).slice(0, 10)}T12:00:00`,
+  );
+  return `${MOIS_LABELS[date.getMonth()]} ${date.getFullYear()}`;
+}
 
 function isFactureTab(value: string | null): value is FactureTab {
   return (
@@ -118,6 +126,7 @@ function FacturesPageContent() {
   const [perPage, setPerPage] = useState(15);
   const [q, setQ] = useState("");
   const [clientFilter, setClientFilter] = useState("");
+  const [siteFilter, setSiteFilter] = useState("");
   const [periodiciteFilter, setPeriodiciteFilter] = useState("");
   const [statutPaiementFilter, setStatutPaiementFilter] = useState("");
   const [filterMois, setFilterMois] = useState("");
@@ -160,6 +169,19 @@ function FacturesPageContent() {
     [clientsData],
   );
 
+  const { data: sitesData } = useSites({
+    client_id: clientFilter || undefined,
+    all: true,
+  });
+  const siteFilterOptions = useMemo(
+    () => [
+      { value: "", label: "Tous les sites" },
+      ...(sitesData?.data ?? []).map((s) => ({ value: s.id, label: s.nom })),
+      { value: "sans_site", label: "Sans site" },
+    ],
+    [sitesData],
+  );
+
   const moisFilterOptions = useMemo(
     () => [
       { value: "", label: "Tous les mois" },
@@ -188,6 +210,7 @@ function FacturesPageContent() {
     q: search || undefined,
     statut,
     client_id: clientFilter || undefined,
+    site_id: siteFilter || undefined,
     periodicite: periodiciteFilter || undefined,
     statut_paiement:
       tab === "factures" && statutPaiementFilter
@@ -379,6 +402,16 @@ function FacturesPageContent() {
           row.original.client?.raison_sociale
           ?? row.original.client_nom
           ?? "—",
+      },
+      {
+        id: "site",
+        header: "Site",
+        cell: ({ row }) => row.original.site?.nom ?? "—",
+      },
+      {
+        id: "mois",
+        header: "Mois",
+        cell: ({ row }) => moisFacture(row.original),
       },
       {
         accessorKey: "date_emission",
@@ -619,9 +652,22 @@ function FacturesPageContent() {
                     options={clientFilterOptions}
                     onChange={(event) => {
                       setClientFilter(event.target.value);
+                      setSiteFilter("");
                       resetPage();
                     }}
                   />
+                  {clientFilter ? (
+                    <Select
+                      className="min-w-[12rem]"
+                      aria-label="Filtrer par site"
+                      value={siteFilter}
+                      options={siteFilterOptions}
+                      onChange={(event) => {
+                        setSiteFilter(event.target.value);
+                        resetPage();
+                      }}
+                    />
+                  ) : null}
                   <Select
                     className="min-w-[11rem]"
                     value={periodiciteFilter}

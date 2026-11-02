@@ -8,6 +8,10 @@ import type {
   Absence,
   Abonnement,
   Agent,
+  AgentDescendant,
+  AvanceSalaire,
+  PointageSyntheseAgent,
+  SituationSalaireMois,
   Anomalie,
   BulletinPaie,
   CategorieDepense,
@@ -140,18 +144,32 @@ export const agentsApi = {
       statut?: string;
       grade_id?: string;
       ville_id?: string;
+      genre?: string;
       pool_siege?: boolean;
       contrat_valide?: boolean;
       all?: boolean;
     },
   ) =>
     api.get<PaginatedResponse<Agent>>("/agents", { params: toQuery(params) }),
+  effectifsGenre: (
+    params?: ListParams & {
+      type?: string;
+      statut?: string;
+      grade_id?: string;
+      ville_id?: string;
+      contrat_valide?: boolean;
+    },
+  ) =>
+    api.get<{
+      data: { hommes: number; femmes: number; non_renseigne: number };
+    }>("/agents/effectifs-genre", { params: toQuery(params) }),
   exportPdf: (
     params?: ListParams & {
       type?: string;
       statut?: string;
       grade_id?: string;
       ville_id?: string;
+      genre?: string;
       pool_siege?: boolean;
       contrat_valide?: boolean;
     },
@@ -286,8 +304,25 @@ export const vacationsApi = {
   update: (id: string, payload: Partial<Vacation>) =>
     api.put<DataResponse<Vacation>>(`/vacations/${id}`, payload),
   destroy: (id: string) => api.delete<void>(`/vacations/${id}`),
-  recouvrir: (id: string, payload: { agent_id: string }) =>
-    api.post<DataResponse<Vacation>>(`/vacations/${id}/recouvrir`, payload),
+  recouvrir: (
+    id: string,
+    payload: { agent_id: string; heures_supplementaires?: boolean },
+  ) => api.post<DataResponse<Vacation>>(`/vacations/${id}/recouvrir`, payload),
+  /** Agents qui finissent sur le site quand le créneau à recouvrir commence. */
+  agentsDescendants: (id: string) =>
+    api.get<{ data: AgentDescendant[] }>(
+      `/vacations/${id}/agents-descendants`,
+    ),
+  pointageSynthese: (params: {
+    date_debut: string;
+    date_fin: string;
+    agent_id?: string;
+    site_id?: string;
+  }) =>
+    api.get<{ data: PointageSyntheseAgent[]; meta: PointageTotaux }>(
+      "/vacations/pointage/synthese",
+      { params: toQuery(params) },
+    ),
   /** Pointage par créneau : présent / absent / non contrôlé (heures comptées si présent). */
   pointage: (params: {
     date_debut: string;
@@ -373,6 +408,7 @@ export const controlesApi = {
 export const facturesApi = {
   list: (params?: ListParams & {
     client_id?: string;
+    site_id?: string;
     statut?: string;
     periodicite?: string;
     statut_paiement?: string;
@@ -467,6 +503,7 @@ export const postesApi = {
       nom: string;
       agents_requis?: number | string | null;
       mode_effectif?: "ensemble" | "alternance" | null;
+      planning_continu?: boolean;
       heure_debut?: string | null;
       heure_fin?: string | null;
       heure_debut_nuit?: string | null;
@@ -480,6 +517,7 @@ export const postesApi = {
       nom?: string;
       agents_requis?: number | string | null;
       mode_effectif?: "ensemble" | "alternance" | null;
+      planning_continu?: boolean;
       heure_debut?: string | null;
       heure_fin?: string | null;
       heure_debut_nuit?: string | null;
@@ -810,6 +848,22 @@ export const contratsApi = {
       statut: string;
     }>,
   ) => api.put<DataResponse<Contrat>>(`/contrats/${id}`, payload),
+  renouveler: (
+    id: string,
+    payload: {
+      type: string;
+      date_debut: string;
+      date_fin?: string | null;
+      periode_essai_mois?: number | null;
+      salaire_base?: number | string | null;
+      indemnite_fonction?: number | string | null;
+      prime_responsabilite?: number | string | null;
+      prime_transport?: number | string | null;
+      prime_entretien_tenue?: number | string | null;
+      sursalaire?: number | string | null;
+      parts_igr?: number | string | null;
+    },
+  ) => api.post<DataResponse<Contrat>>(`/contrats/${id}/renouveler`, payload),
   destroy: (id: string) => api.delete<void>(`/contrats/${id}`),
   alerts: () => api.get<{ data: ContratAlerte[] }>("/contrats/alerts"),
 };
@@ -871,6 +925,41 @@ export const periodesPaieApi = {
   cloturer: (id: string) =>
     api.post<DataResponse<PeriodePaie>>(`/periodes-paie/${id}/cloturer`),
   destroy: (id: string) => api.delete<void>(`/periodes-paie/${id}`),
+};
+
+export const avancesSalaireApi = {
+  list: (
+    params?: ListParams & {
+      agent_id?: string;
+      mois?: number;
+      annee?: number;
+      statut?: string;
+    },
+  ) =>
+    api.get<PaginatedResponse<AvanceSalaire> & { total_donne: number }>(
+      "/avances-salaire",
+      { params: toQuery(params) },
+    ),
+  situation: (params: { agent_id: string; mois: number; annee: number }) =>
+    api.get<DataResponse<SituationSalaireMois>>("/avances-salaire/situation", {
+      params: toQuery(params),
+    }),
+  create: (payload: {
+    agent_id: string;
+    montant: number;
+    date_avance: string;
+    mois: number;
+    annee: number;
+    mode: string;
+    compte_tresorerie_id: string;
+    reference?: string | null;
+    notes?: string | null;
+  }) => api.post<DataResponse<AvanceSalaire>>("/avances-salaire", payload),
+  annuler: (id: string, payload: { motif?: string | null }) =>
+    api.post<DataResponse<AvanceSalaire>>(
+      `/avances-salaire/${id}/annuler`,
+      payload,
+    ),
 };
 
 export const bulletinsPaieApi = {

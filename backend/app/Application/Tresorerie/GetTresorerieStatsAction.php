@@ -6,6 +6,7 @@ use App\Models\CompteTresorerie;
 use App\Domain\Shared\Enums\DirectionMouvementTresorerie;
 use App\Domain\Shared\Enums\StatutDepense;
 use App\Domain\Shared\Enums\StatutFacture;
+use App\Models\AvanceSalaire;
 use App\Models\Depense;
 use App\Models\Facture;
 use App\Models\MouvementTresorerie;
@@ -54,7 +55,14 @@ final class GetTresorerieStatsAction
             ->values();
 
         $paieMouvements = MouvementTresorerie::query()
-            ->where('source_type', SourceMouvementTresorerie::BulletinPaie->value)
+            ->where(function ($q) {
+                $q->where('source_type', SourceMouvementTresorerie::BulletinPaie->value)
+                    ->orWhere(function ($avance) {
+                        // Une avance annulée a rendu l’argent : elle ne compte pas comme salaire versé.
+                        $avance->where('source_type', SourceMouvementTresorerie::AvanceSalaire->value)
+                            ->whereIn('source_id', AvanceSalaire::query()->nonAnnulees()->select('id'));
+                    });
+            })
             ->where('direction', 'sortie')
             ->whereDate('date_mouvement', '>=', $debut->toDateString())
             ->whereDate('date_mouvement', '<=', $fin->toDateString())

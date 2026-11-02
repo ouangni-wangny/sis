@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\AgentResource;
 use App\Models\Agent;
 use App\Domain\Shared\Enums\TypeAgent;
+use App\Support\RechercheNom;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
@@ -33,6 +34,7 @@ class PerimetreController extends Controller
                 $q->where(function ($inner) use ($term) {
                     $inner->where('nom', 'like', $term)
                         ->orWhere('prenom', 'like', $term)
+                        ->tap(fn ($n) => RechercheNom::ouNomComplet($n, $term))
                         ->orWhere('matricule', 'like', $term)
                         ->orWhereHas('grade', fn ($g) => $g->where('libelle', 'like', $term))
                         ->orWhereHas('perimetres.zone', fn ($z) => $z->where('nom', 'like', $term));

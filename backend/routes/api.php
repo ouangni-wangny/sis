@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\AgentController;
 use App\Http\Controllers\Api\V1\AnomalieController;
 use App\Http\Controllers\Api\V1\AuditController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\AvanceSalaireController;
 use App\Http\Controllers\Api\V1\BulletinPaieController;
 use App\Http\Controllers\Api\V1\CategorieDepenseController;
 use App\Http\Controllers\Api\V1\CheckpointController;
@@ -117,6 +118,7 @@ Route::prefix('v1')->group(function () {
 
         Route::middleware('feature:module.agents')->group(function () {
             Route::get('agents/export-pdf', [AgentController::class, 'exportPdf']);
+            Route::get('agents/effectifs-genre', [AgentController::class, 'effectifsGenre']);
             Route::apiResource('agents', AgentController::class);
             Route::post('agents/{agent}/photo', [AgentController::class, 'storePhoto']);
             Route::put('agents/{agent}/perimetre', [AgentController::class, 'syncPerimetre']);
@@ -133,8 +135,10 @@ Route::prefix('v1')->group(function () {
         Route::middleware('feature:module.vacations')->group(function () {
             Route::get('vacations/conflits', [VacationController::class, 'conflits']);
             Route::get('vacations/pointage', [VacationController::class, 'pointage']);
+            Route::get('vacations/pointage/synthese', [VacationController::class, 'pointageSynthese']);
             Route::post('vacations/bulk', [VacationController::class, 'storeBulk']);
             Route::post('vacations/{vacation}/recouvrir', [VacationController::class, 'recouvrir']);
+            Route::get('vacations/{vacation}/agents-descendants', [VacationController::class, 'agentsDescendants']);
             Route::apiResource('vacations', VacationController::class);
             Route::apiResource('rondes', RondeController::class)->except(['update', 'destroy']);
             Route::post('rondes/{ronde}/demarrer', [RondeController::class, 'demarrer']);
@@ -158,12 +162,17 @@ Route::prefix('v1')->group(function () {
             Route::get('contrats/export-pdf', [ContratController::class, 'exportPdf']);
             Route::get('contrats/{contrat}/document', [ContratController::class, 'downloadDocument']);
             Route::post('contrats/{contrat}/avenant', [ContratController::class, 'storeAvenant']);
+            Route::post('contrats/{contrat}/renouveler', [ContratController::class, 'renouveler']);
             Route::apiResource('contrats', ContratController::class);
             Route::apiResource('absences', AbsenceController::class)->except(['show']);
         });
 
         Route::middleware('feature:module.paie')->group(function () {
             Route::get('agents/{agent}/bulletins', [AgentController::class, 'bulletins']);
+            Route::get('avances-salaire/situation', [AvanceSalaireController::class, 'situation']);
+            Route::get('avances-salaire', [AvanceSalaireController::class, 'index']);
+            Route::post('avances-salaire', [AvanceSalaireController::class, 'store']);
+            Route::post('avances-salaire/{avanceSalaire}/annuler', [AvanceSalaireController::class, 'annuler']);
             Route::get('periodes-paie', [PeriodePaieController::class, 'index']);
             Route::post('periodes-paie', [PeriodePaieController::class, 'store']);
             Route::get('periodes-paie/{periodePaie}', [PeriodePaieController::class, 'show']);

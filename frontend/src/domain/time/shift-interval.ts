@@ -25,7 +25,8 @@ export type DayNightHalves = {
 };
 
 export function minutesOf(time: string): number | null {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(time.trim());
+  // L’API renvoie les heures en HH:MM:SS.
+  const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(time.trim());
   if (!m) return null;
   return Number(m[1]) * 60 + Number(m[2]);
 }

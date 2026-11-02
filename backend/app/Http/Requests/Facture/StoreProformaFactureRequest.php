@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Facture;
 
 use App\Domain\Shared\Enums\PeriodiciteFacturation;
+use App\Models\Site;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -64,6 +65,20 @@ class StoreProformaFactureRequest extends FormRequest
                     'client_nom',
                     'Saisissez le nom du destinataire si ce n’est pas un client du système.',
                 );
+            }
+
+            if (filled($clientId)) {
+                $siteId = $this->input('site_id');
+                $sites = Site::query()->where('client_id', $clientId)->pluck('id');
+
+                if (filled($siteId) && ! $sites->contains($siteId)) {
+                    $validator->errors()->add('site_id', 'Ce site n’appartient pas à ce client.');
+                } elseif (! filled($siteId) && $sites->isNotEmpty()) {
+                    $validator->errors()->add(
+                        'site_id',
+                        'Choisissez le site : les factures de ce client se font site par site.',
+                    );
+                }
             }
 
             if (! filled($clientId) && filled($this->input('abonnement_id'))) {

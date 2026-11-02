@@ -11,6 +11,7 @@ use App\Http\Requests\Ronde\ScannerCheckpointRequest;
 use App\Http\Requests\Ronde\StoreRondeRequest;
 use App\Http\Resources\RondeResource;
 use App\Models\Ronde;
+use App\Support\RechercheNom;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
@@ -39,6 +40,7 @@ class RondeController extends Controller
                         ->orWhereHas('agent', function ($a) use ($term) {
                             $a->where('nom', 'like', $term)
                                 ->orWhere('prenom', 'like', $term)
+                                ->tap(fn ($n) => RechercheNom::ouNomComplet($n, $term))
                                 ->orWhere('matricule', 'like', $term);
                         })
                         ->orWhereHas('site', fn ($s) => $s->where('nom', 'like', $term));

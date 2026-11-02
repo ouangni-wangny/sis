@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Controle\StoreControleRequest;
 use App\Http\Resources\ControleResource;
 use App\Models\Controle;
+use App\Support\RechercheNom;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
@@ -55,16 +56,19 @@ class ControleController extends Controller
                         ->orWhereHas('controleAgent', function ($agent) use ($term) {
                             $agent->where('nom', 'like', $term)
                                 ->orWhere('prenom', 'like', $term)
+                                ->tap(fn ($n) => RechercheNom::ouNomComplet($n, $term))
                                 ->orWhere('matricule', 'like', $term);
                         })
                         ->orWhereHas('agent', function ($rondier) use ($term) {
                             $rondier->where('nom', 'like', $term)
                                 ->orWhere('prenom', 'like', $term)
+                                ->tap(fn ($n) => RechercheNom::ouNomComplet($n, $term))
                                 ->orWhere('matricule', 'like', $term);
                         })
                         ->orWhereHas('enregistrePar', function ($user) use ($term) {
                             $user->where('nom', 'like', $term)
                                 ->orWhere('prenom', 'like', $term)
+                                ->tap(fn ($n) => RechercheNom::ouNomComplet($n, $term))
                                 ->orWhere('email', 'like', $term);
                         })
                         ->orWhereHas('site', function ($site) use ($term) {

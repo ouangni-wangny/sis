@@ -6,6 +6,7 @@ use App\Domain\Shared\Enums\TypeAgent;
 use App\Models\Agent;
 use App\Support\PdfBrand;
 use App\Support\PdfListExport;
+use App\Support\RechercheNom;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -52,11 +53,13 @@ final class GenererListeAgentsPdfAction
             ->when($request->statut, fn ($q, $v) => $q->where('statut', $v))
             ->when($request->grade_id, fn ($q, $v) => $q->where('grade_id', $v))
             ->when($request->ville_id, fn ($q, $v) => $q->where('ville_id', $v))
+            ->when($request->genre, fn ($q, $v) => $q->genre((string) $v))
             ->when($request->has('pool_siege'), fn ($q) => $q->where('pool_siege', $request->boolean('pool_siege')))
             ->when($request->boolean('contrat_valide'), fn ($q) => $q->avecContratValide())
             ->when($request->q, fn ($q, $v) => $q->where(fn ($qq) => $qq
                 ->where('nom', 'like', "%{$v}%")
                 ->orWhere('prenom', 'like', "%{$v}%")
+                ->tap(fn ($n) => RechercheNom::ouNomComplet($n, $v))
                 ->orWhere('matricule', 'like', "%{$v}%")));
     }
 }

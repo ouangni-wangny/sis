@@ -326,6 +326,8 @@
         ? (float) $details['salaire_percu']
         : (float) $bulletin->salaire_net;
     $totalRetenues = round($cnps + $igr, 2);
+    $avances = (float) ($details['avances_deduites'] ?? $bulletin->totalAvances());
+    $resteAVerser = (float) ($details['reste_verse'] ?? max(0, round($netPercu - $avances, 2)));
     $partsIgr = $details['parts_igr'] ?? $bulletin->contrat?->parts_igr;
     $cnpsTaux = (float) ($details['cnps_taux'] ?? \App\Domain\Paie\CalculRemunerationCi::CNPS_SALARIE_TAUX);
 
@@ -538,6 +540,20 @@
             <td></td>
             <td class="right" colspan="2">{{ $fmt($netPercu) }}</td>
         </tr>
+        @if($avances > 0)
+            <tr>
+                <td><span class="code">910</span></td>
+                <td>Avances sur salaire déjà versées</td>
+                <td></td>
+                <td class="right" colspan="2">- {{ $fmt($avances) }}</td>
+            </tr>
+            <tr class="net">
+                <td><span class="code">990</span></td>
+                <td>Reste à payer</td>
+                <td></td>
+                <td class="right" colspan="2">{{ $fmt($resteAVerser) }}</td>
+            </tr>
+        @endif
     </tbody>
 </table>
 
@@ -558,7 +574,7 @@
         </td>
         <td style="width:20%;">
             <span class="k">Montant versé</span>
-            <span class="v">{{ $fmt($netPercu) }}</span>
+            <span class="v">{{ $fmt($avances > 0 ? $resteAVerser : $netPercu) }}</span>
         </td>
     </tr>
 </table>

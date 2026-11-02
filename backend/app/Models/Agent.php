@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Domain\Contrat\ContratValideQuery;
 use App\Domain\Shared\Enums\Civilite;
+use App\Domain\Shared\Enums\Genre;
 use App\Domain\Shared\Enums\JourSemaine;
 use App\Domain\Shared\Enums\SituationMatrimoniale;
 use App\Domain\Shared\Enums\StatutAgent;
@@ -32,6 +33,7 @@ class Agent extends Model implements HasMedia
         'nom',
         'prenom',
         'civilite',
+        'genre',
         'date_naissance',
         'lieu_naissance',
         'situation_matrimoniale',
@@ -60,6 +62,7 @@ class Agent extends Model implements HasMedia
             'type' => TypeAgent::class,
             'statut' => StatutAgent::class,
             'civilite' => Civilite::class,
+            'genre' => Genre::class,
             'situation_matrimoniale' => SituationMatrimoniale::class,
             'jour_repos' => JourSemaine::class,
             'nombre_enfants' => 'integer',
@@ -94,6 +97,12 @@ class Agent extends Model implements HasMedia
 
     protected static function booted(): void
     {
+        static::saving(function (Agent $agent) {
+            if ($agent->genre === null && $agent->civilite !== null) {
+                $agent->genre = Genre::depuisCivilite($agent->civilite);
+            }
+        });
+
         static::saving(function (Agent $agent) {
             if (! $agent->isDirty('ville_id')) {
                 return;
@@ -163,6 +172,16 @@ class Agent extends Model implements HasMedia
     public function scopeAvecContratValide(Builder $query, ?string $date = null): void
     {
         $query->whereHas('contrats', fn ($q) => ContratValideQuery::apply($q, $date));
+    }
+
+    /** @param  Builder<Agent>  $query */
+    public function scopeGenre(Builder $query, string $genre): void
+    {
+        match ($genre) {
+            Genre::Homme->value, Genre::Femme->value => $query->where('genre', $genre),
+            'non_renseigne' => $query->whereNull('genre'),
+            default => null,
+        };
     }
 
     public function absences(): HasMany

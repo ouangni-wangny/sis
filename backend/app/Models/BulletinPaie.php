@@ -17,6 +17,9 @@ class BulletinPaie extends Model implements HasMedia
 
     protected $table = 'bulletins_paie';
 
+    /** Total des avances du mois, renseigné par AvanceSalaire::prechargerPour(). */
+    public ?float $avancesPrechargees = null;
+
     protected $fillable = [
         'periode_paie_id',
         'agent_id',
@@ -69,6 +72,26 @@ class BulletinPaie extends Model implements HasMedia
     public function compteTresorerie(): BelongsTo
     {
         return $this->belongsTo(CompteTresorerie::class, 'compte_tresorerie_id');
+    }
+
+    public function totalAvances(): float
+    {
+        if ($this->avancesPrechargees !== null) {
+            return $this->avancesPrechargees;
+        }
+
+        $periode = $this->periodePaie;
+
+        return $periode ? AvanceSalaire::totalPour($this->agent_id, $periode->mois, $periode->annee) : 0.0;
+    }
+
+    public function resteAPayer(): float
+    {
+        if ($this->statut === StatutBulletinPaie::Paye) {
+            return 0.0;
+        }
+
+        return max(0.0, round((float) $this->salaire_net - $this->totalAvances(), 2));
     }
 
     /** Libellé du journal : « Bulletin 09/2026 — Prénom Nom (matricule) ». */

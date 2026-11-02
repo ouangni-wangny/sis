@@ -59,6 +59,7 @@ final class FeatureFlagCatalog
             'ops.anomalies' => 'module.anomalies',
             'rh.contrats' => 'module.rh',
             'rh.paie' => 'module.paie',
+            'rh.avances' => 'module.paie',
             'com.clients' => 'module.clients',
             'com.offres' => 'module.offres',
             'com.abonnements' => 'module.abonnements',

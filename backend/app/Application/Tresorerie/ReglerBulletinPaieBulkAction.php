@@ -2,6 +2,7 @@
 
 namespace App\Application\Tresorerie;
 
+use App\Application\Paie\DeduireAvancesSalaireAction;
 use App\Domain\Shared\Enums\DirectionMouvementTresorerie;
 use App\Domain\Shared\Enums\SourceMouvementTresorerie;
 use App\Domain\Shared\Enums\StatutBulletinPaie;
@@ -15,6 +16,7 @@ final class ReglerBulletinPaieBulkAction
 {
     public function __construct(
         private readonly PosterMouvementTresorerieAction $poster,
+        private readonly DeduireAvancesSalaireAction $deduireAvances,
     ) {}
 
     /**
@@ -89,6 +91,10 @@ final class ReglerBulletinPaieBulkAction
                 $details['salaire_calcule_net'] = $details['salaire_calcule_net'] ?? $bulletin->salaire_net;
                 $details['salaire_percu'] = $net;
 
+                $retenue = $this->deduireAvances->execute($bulletin, $net);
+                $details['avances_deduites'] = $retenue['avances'];
+                $details['reste_verse'] = $retenue['reste'];
+
                 $bulletin->update([
                     'salaire_net' => $net,
                     'statut' => StatutBulletinPaie::Paye,
@@ -99,11 +105,11 @@ final class ReglerBulletinPaieBulkAction
                     'details' => $details,
                 ]);
 
-                if ($moduleEnabled) {
+                if ($retenue['reste'] > 0 && $moduleEnabled) {
                     $this->poster->execute([
                         'compte_tresorerie_id' => $data['compte_tresorerie_id'],
                         'direction' => DirectionMouvementTresorerie::Sortie,
-                        'montant' => $net,
+                        'montant' => $retenue['reste'],
                         'date_mouvement' => $date,
                         'mode' => $data['mode'],
                         'source_type' => SourceMouvementTresorerie::BulletinPaie,

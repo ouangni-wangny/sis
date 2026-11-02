@@ -48,7 +48,11 @@ final class CreateVacationAction
             Poste::query()->whereKey($data['poste_id'])->lockForUpdate()->first();
         }
 
-        AssertAgentAssignable::execute($data['agent_id'], referenceDate: $data['date_debut']);
+        AssertAgentAssignable::execute(
+            $data['agent_id'],
+            allowedStatuts: $data['statuts_autorises'] ?? null,
+            referenceDate: $data['date_debut'],
+        );
         AssertAgentAssignable::posteBelongsToSite(
             $data['poste_id'] ?? null,
             $data['site_id'],
@@ -148,12 +152,14 @@ final class CreateVacationAction
             $data['date_fin'],
         );
 
-        unset($data['annuler_conflits'], $data['remplacement']);
+        unset($data['annuler_conflits'], $data['remplacement'], $data['statuts_autorises']);
 
         $vacation = Vacation::query()->create($data);
 
+        // Un agent en congé planifié pour plus tard reste en congé.
         Agent::query()
             ->whereKey($data['agent_id'])
+            ->whereIn('statut', [StatutAgent::Disponible->value, StatutAgent::EnActivite->value])
             ->update(['statut' => StatutAgent::EnActivite]);
 
         return $vacation->load(['agent', 'site', 'poste']);

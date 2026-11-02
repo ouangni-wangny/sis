@@ -402,10 +402,11 @@ export default function NouvelleFactureProformaPage() {
       ? sites.filter((s) => s.client_id === clientId)
       : sites;
     return [
-      { value: "", label: "— Aucun site —" },
+      { value: "", label: clientId && filtered.length > 0 ? "Choisir le site" : "— Aucun site —" },
       ...filtered.map((s) => ({ value: s.id, label: s.nom })),
     ];
   }, [sitesData, clientId]);
+  const clientASites = !!clientId && siteOptions.length > 1;
 
   const offreSelectOptions = useMemo(
     () => [
@@ -509,6 +510,7 @@ export default function NouvelleFactureProformaPage() {
                   hint="Laissez vide pour un destinataire hors fichier clients."
                   {...register("client_id", {
                     onChange: (e) => {
+                      setValue("site_id", "");
                       if (e.target.value) {
                         setValue("client_nom", "");
                         setValue("client_adresse", "");
@@ -516,7 +518,6 @@ export default function NouvelleFactureProformaPage() {
                         setValue("client_email", "");
                       } else {
                         setValue("abonnement_id", "");
-                        setValue("site_id", "");
                       }
                     },
                   })}
@@ -604,8 +605,14 @@ export default function NouvelleFactureProformaPage() {
                   {...register("periodicite")}
                 />
                 <Select
-                  label="Site (optionnel)"
-                  optionalMark
+                  label="Site"
+                  requiredMark={clientASites}
+                  optionalMark={!clientASites}
+                  hint={
+                    clientASites
+                      ? "Une proforma par site : une facture distincte pour chacun."
+                      : undefined
+                  }
                   options={siteOptions}
                   error={errors.site_id?.message}
                   {...register("site_id")}

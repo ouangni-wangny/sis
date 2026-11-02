@@ -2,11 +2,13 @@
 
 namespace App\Application\Paie;
 
+use App\Models\AvanceSalaire;
 use App\Models\BulletinPaie;
 use App\Models\PeriodePaie;
 use App\Support\ModePaiementRules;
 use App\Support\PdfBrand;
 use App\Support\PdfListExport;
+use App\Support\RechercheNom;
 use App\Support\RhAuthorization;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -72,6 +74,8 @@ final class GenererListeBulletinsPdfAction
             $filtreParts[] = 'Mode : '.ModePaiementRules::label((string) $request->string('mode'));
         }
 
+        AvanceSalaire::prechargerPour($bulletins);
+
         $html = view('pdf.bulletins-liste', [
             'brand' => PdfBrand::data(),
             'bulletins' => $bulletins,
@@ -113,6 +117,7 @@ final class GenererListeBulletinsPdfAction
                         ->orWhereHas('agent', function ($agent) use ($term) {
                             $agent->where('nom', 'like', $term)
                                 ->orWhere('prenom', 'like', $term)
+                                ->tap(fn ($n) => RechercheNom::ouNomComplet($n, $term))
                                 ->orWhere('matricule', 'like', $term)
                                 ->orWhere('telephone', 'like', $term)
                                 ->orWhereHas('grade', fn ($g) => $g->where('libelle', 'like', $term))

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,6 +14,7 @@ import {
   Download,
   FileDown,
   FileText,
+  HandCoins,
   Lock,
   Plus,
   Wallet,
@@ -132,6 +134,7 @@ function motifBulletin(details: Record<string, unknown> | null): string | null {
 export default function PaiePage() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const router = useRouter();
   const canManage = canManagePaie(user);
   const canPayer = canPayerPaie(user);
   const showSalaire = canSeeSalaire(user);
@@ -773,6 +776,25 @@ export default function PaiePage() {
                 </span>
               ),
             },
+            {
+              accessorKey: "avances_total",
+              header: "Avances",
+              cell: ({ getValue }) =>
+                Number(getValue() ?? 0) > 0
+                  ? formatSalaire(getValue() as number, user)
+                  : "—",
+            },
+            {
+              accessorKey: "reste_a_payer",
+              header: "Reste à payer",
+              cell: ({ getValue, row }) => (
+                <span className="font-medium">
+                  {row.original.statut === "paye"
+                    ? "Soldé"
+                    : formatSalaire(getValue() as number | null, user)}
+                </span>
+              ),
+            },
           ] as ColumnDef<BulletinPaie>[])
         : ([
             {
@@ -868,6 +890,20 @@ export default function PaiePage() {
                 },
               },
               {
+                key: "avance",
+                label: "Avances sur salaire",
+                icon: HandCoins,
+                hidden: !showSalaire,
+                onClick: () => {
+                  const params = new URLSearchParams({
+                    agent_id: row.original.agent_id,
+                    mois: String(selectedPeriode?.mois ?? ""),
+                    annee: String(selectedPeriode?.annee ?? ""),
+                  });
+                  router.push(`/rh/paie/avances?${params.toString()}`);
+                },
+              },
+              {
                 key: "paye",
                 label: "Marquer payé",
                 tone: "success",
@@ -896,7 +932,10 @@ export default function PaiePage() {
       comptes,
       genererPdf,
       modeOptions,
+      router,
       runPeriodeAction,
+      selectedPeriode?.annee,
+      selectedPeriode?.mois,
       showSalaire,
       toast,
       user,
@@ -933,6 +972,14 @@ export default function PaiePage() {
                   Contrats &amp; Absences
                 </Button>
               </Link>
+              {showSalaire ? (
+                <Link href="/rh/paie/avances">
+                  <Button variant="secondary" size="sm">
+                    <HandCoins className="size-4" />
+                    Avances sur salaire
+                  </Button>
+                </Link>
+              ) : null}
               {canManage ? (
                 <Button size="sm" onClick={() => setPeriodeOpen(true)}>
                   <Plus className="size-4" />
@@ -1605,9 +1652,22 @@ export default function PaiePage() {
         >
           <div className="space-y-3">
             {payeError ? <Alert tone="danger">{payeError}</Alert> : null}
-            <Alert tone="info">
-              Le montant débité est celui saisi par la RH (non affiché ici).
-            </Alert>
+            {Number(payeBulletin?.avances_total ?? 0) > 0 ? (
+              <Alert tone="info">
+                Salaire net {formatSalaire(payeBulletin?.salaire_net ?? 0, user)}
+                {" − "}avances déjà données{" "}
+                {formatSalaire(payeBulletin?.avances_total ?? 0, user)}.{" "}
+                <strong>
+                  Montant débité :{" "}
+                  {formatSalaire(payeBulletin?.reste_a_payer ?? 0, user)}
+                </strong>
+                .
+              </Alert>
+            ) : (
+              <Alert tone="info">
+                Le montant débité est celui saisi par la RH (non affiché ici).
+              </Alert>
+            )}
             <Select
               label="Mode de paiement"
               requiredMark
@@ -1851,6 +1911,13 @@ export default function PaiePage() {
                     : b.id.slice(0, 8)}
                   {b.agent?.matricule ? (
                     <span className="text-ink-faint"> · {b.agent.matricule}</span>
+                  ) : null}
+                  {Number(b.avances_total ?? 0) > 0 ? (
+                    <span className="text-warning">
+                      {" "}
+                      · avances déduites, reste{" "}
+                      {formatSalaire(b.reste_a_payer ?? 0, user)}
+                    </span>
                   ) : null}
                 </li>
               ))}

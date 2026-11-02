@@ -8,6 +8,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeft, FileText, Plus, Trash2 } from "lucide-react";
 import { useClients } from "@/application/hooks/useClients";
 import {
+  useSites,
   useAbonnements,
   useFacture,
   useUpdateProformaFacture,
@@ -144,6 +145,17 @@ export default function ModifierFactureProformaPage() {
   });
 
   const clientId = useWatch({ control, name: "client_id" });
+  const { data: sitesData } = useSites({
+    client_id: clientId || undefined,
+    all: true,
+  });
+  const siteOptions = useMemo(() => {
+    const sites = sitesData?.data ?? [];
+    return [
+      { value: "", label: sites.length > 0 ? "Choisir le site" : "— Aucun site —" },
+      ...sites.map((s) => ({ value: s.id, label: s.nom })),
+    ];
+  }, [sitesData]);
   const lignes = useWatch({ control, name: "lignes" });
   const delaiPaiement = useWatch({ control, name: "delai_paiement_jours" });
   const periodicite = useWatch({ control, name: "periodicite" });
@@ -408,6 +420,7 @@ export default function ModifierFactureProformaPage() {
                         hint="Laissez vide pour un destinataire hors fichier clients."
                         {...register("client_id", {
                           onChange: (e) => {
+                            setValue("site_id", "");
                             if (e.target.value) {
                               setValue("client_nom", "");
                               setValue("client_adresse", "");
@@ -415,11 +428,21 @@ export default function ModifierFactureProformaPage() {
                               setValue("client_email", "");
                             } else {
                               setValue("abonnement_id", "");
-                              setValue("site_id", "");
                             }
                           },
                         })}
                       />
+                      {clientId ? (
+                        <Select
+                          label="Site"
+                          requiredMark={siteOptions.length > 1}
+                          optionalMark={siteOptions.length <= 1}
+                          hint="Une proforma par site : une facture distincte pour chacun."
+                          options={siteOptions}
+                          error={errors.site_id?.message}
+                          {...register("site_id")}
+                        />
+                      ) : null}
                       {selectedClient ? (
                         <div className="rounded-lg border border-border bg-white px-4 py-3">
                           <div className="space-y-1 text-sm">

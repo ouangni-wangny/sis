@@ -17,6 +17,7 @@ import {
   MapPin,
   MoreHorizontal,
   Pencil,
+  RefreshCw,
   Trash2,
   UserCog,
   type LucideProps,
@@ -70,6 +71,7 @@ export const tableActionIcons = {
   assign: UserCog,
   advance: ArrowRightCircle,
   resolve: CheckCircle2,
+  renew: RefreshCw,
 } as const;
 
 export function TableActions({
