@@ -277,6 +277,28 @@ it('ne reprend pas un planning arrêté depuis plus d’un mois', function () {
     expect(($this->prolonger)(reprendre: true)['created'])->toBe(0);
 });
 
+it('s’arrête au plafond de temps et termine au passage suivant', function () {
+    ($this->planifier)($this->jour, '2026-10-26', '2026-11-08');
+
+    $resultat = app(ProlongerPlanningPostesAction::class)->execute(dureeMaxSecondes: 0);
+
+    expect($resultat['postes_restants'])->toBe(1)
+        ->and($resultat['created'])->toBe(0)
+        ->and(($this->prolonger)()['postes_restants'])->toBe(0)
+        ->and(($this->dates)($this->jour)->last())->toBe('2026-12-14');
+});
+
+it('relance les plannings arrêtés une seule fois, via la migration de reprise', function () {
+    ($this->planifier)($this->jour, '2026-10-12', '2026-10-25');
+
+    ob_start();
+    (require database_path('migrations/2026_11_02_130000_relancer_plannings_arretes.php'))->up();
+    $sortie = ob_get_clean();
+
+    expect($sortie)->toContain('Reprise des plannings : 1 poste(s)')
+        ->and(($this->dates)($this->jour)->last())->toBe('2026-12-14');
+});
+
 it('efface les semaines reconduites quand on replanifie le poste', function () {
     ($this->planifier)($this->jour, '2026-10-26', '2026-11-08');
     ($this->prolonger)();

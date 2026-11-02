@@ -42,13 +42,15 @@ final class ProlongerPlanningPostesAction
 
     /**
      * @param  bool  $reprendre  Relance aussi les postes dont le planning s’est arrêté il y a moins d’un mois.
-     * @return array{postes: int, created: int, skipped: int, errors: list<string>}
+     * @param  int|null  $dureeMaxSecondes  S’arrête entre deux postes passé ce délai (postes_restants > 0).
+     * @return array{postes: int, created: int, skipped: int, postes_restants: int, errors: list<string>}
      */
-    public function execute(?string $aujourdhui = null, bool $reprendre = false): array
+    public function execute(?string $aujourdhui = null, bool $reprendre = false, ?int $dureeMaxSecondes = null): array
     {
+        $debut = microtime(true);
         $today = ShiftSchedule::dayNumber($aujourdhui ?? now()->toDateString());
         $horizon = $today + (int) config('sis.vacation.horizon_planning_jours', 42);
-        $stats = ['postes' => 0, 'created' => 0, 'skipped' => 0, 'errors' => []];
+        $stats = ['postes' => 0, 'created' => 0, 'skipped' => 0, 'postes_restants' => 0, 'errors' => []];
 
         $postes = Poste::query()
             ->where('planning_continu', true)
@@ -56,7 +58,12 @@ final class ProlongerPlanningPostesAction
                 ->whereHas('client', fn ($c) => $c->where('statut', 'actif')))
             ->get();
 
-        foreach ($postes as $poste) {
+        foreach ($postes->values() as $i => $poste) {
+            if ($dureeMaxSecondes !== null && microtime(true) - $debut >= $dureeMaxSecondes) {
+                $stats['postes_restants'] = $postes->count() - $i;
+                break;
+            }
+
             try {
                 $resultat = $this->prolonger($poste, $today, $horizon, $reprendre);
             } catch (\Throwable $e) {
