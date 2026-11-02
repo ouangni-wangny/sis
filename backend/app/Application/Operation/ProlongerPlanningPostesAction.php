@@ -6,6 +6,7 @@ use App\Domain\Shared\Enums\StatutAbsence;
 use App\Domain\Shared\Enums\StatutAgent;
 use App\Domain\Shared\Enums\StatutVacation;
 use App\Domain\Shared\Exceptions\DomainException;
+use App\Domain\Shared\Support\ShiftInterval;
 use App\Domain\Shared\Support\ShiftSchedule;
 use App\Models\Absence;
 use App\Models\Poste;
@@ -126,58 +127,78 @@ final class ProlongerPlanningPostesAction
 
     /**
      * Créneaux des titulaires par jour : un remplacement ponctuel ou des heures
-     * supplémentaires ne deviennent pas le nouveau planning du poste.
+     * supplémentaires ne deviennent pas le nouveau planning du poste. Une vacation
+     * sur période compte pour chacun de ses jours ; une affectation sans fin couvre
+     * déjà l’avenir et n’a rien à reconduire.
      *
      * @return Collection<int, Collection<int, Vacation>>
      */
     private function rythme(Poste $poste): Collection
     {
-        $depuis = ShiftSchedule::isoFromDayNumber(
-            ShiftSchedule::dayNumber((string) (Vacation::query()
-                ->where('poste_id', $poste->id)
-                ->where('est_remplacement', false)
-                ->max('date_debut') ?? now()->toDateString())) - self::HISTORIQUE_JOURS,
-        );
-
-        return Vacation::query()
+        $vacations = Vacation::query()
             ->where('poste_id', $poste->id)
             ->where('est_remplacement', false)
             ->where('heures_supplementaires', false)
+            ->whereNotNull('date_fin')
             ->where(fn ($q) => $q->where('statut', '!=', StatutVacation::Annulee->value)->orWhereNotNull('absence_id'))
-            ->whereDate('date_debut', '>=', $depuis)
-            ->get()
-            ->groupBy(fn (Vacation $v) => ShiftSchedule::dayNumber($v->date_debut->toDateString()));
+            ->get();
+
+        $parJour = [];
+        foreach ($vacations as $vacation) {
+            $schedule = ShiftSchedule::fromVacation($vacation);
+            for ($jour = $schedule->firstDay; $jour <= $schedule->lastDay; $jour++) {
+                $parJour[$jour][] = $vacation;
+            }
+        }
+        if ($parJour === []) {
+            return collect();
+        }
+
+        $limite = max(array_keys($parJour)) - self::HISTORIQUE_JOURS + 1;
+
+        return collect($parJour)
+            ->filter(fn ($liste, $jour) => $jour >= $limite)
+            ->map(fn (array $liste) => collect($liste));
     }
 
     /**
-     * Plus petit cycle qui se répète dans l’historique (alternance sur 2 semaines…),
-     * sinon le plus long disponible, jusqu’à 4 semaines.
+     * Plus petit cycle confirmé par la semaine ou le cycle qui précède (3 semaines
+     * A, B, A donnent un cycle de 2 semaines). Sinon tout l’historique disponible,
+     * jusqu’à 4 semaines.
      *
      * @param  Collection<int, Collection<int, Vacation>>  $parJour
      */
     private function cycle(Collection $parJour, int $dernier): ?int
     {
-        $etendue = $dernier - (int) $parJour->keys()->min() + 1;
+        $premier = (int) $parJour->keys()->min();
+        $etendue = $dernier - $premier + 1;
         if ($etendue < self::MIN_JOURS_PLANIFIES) {
             return null;
         }
 
-        $signature = function (int $debut, int $longueur) use ($parJour): array {
-            $jours = [];
-            for ($i = 0; $i < $longueur; $i++) {
-                $jours[] = $parJour->get($debut + $i, collect())
-                    ->map(fn (Vacation $v) => $v->agent_id.'|'.$v->heure_debut.'|'.$v->heure_fin)
-                    ->sort()
-                    ->values()
-                    ->all();
-            }
-
-            return $jours;
-        };
+        $signature = fn (int $jour): array => $parJour->get($jour, collect())
+            ->map(fn (Vacation $v) => $v->agent_id.'|'.$v->heure_debut.'|'.$v->heure_fin)
+            ->sort()
+            ->values()
+            ->all();
 
         foreach ([7, 14, 21, 28] as $longueur) {
-            if ($etendue >= 2 * $longueur
-                && $signature($dernier - $longueur + 1, $longueur) === $signature($dernier - 2 * $longueur + 1, $longueur)) {
+            if ($etendue < $longueur + 7) {
+                continue;
+            }
+
+            // Seul le cycle le plus récent compte : après une replanification, l’ancien
+            // rythme encore dans l’historique ne doit pas revenir.
+            $identique = true;
+            $limite = max($premier + $longueur, $dernier - $longueur + 1);
+            for ($jour = $dernier; $jour >= $limite; $jour--) {
+                if ($signature($jour) !== $signature($jour - $longueur)) {
+                    $identique = false;
+                    break;
+                }
+            }
+
+            if ($identique) {
                 return $longueur;
             }
         }
@@ -221,9 +242,9 @@ final class ProlongerPlanningPostesAction
             Vacation::query()->create([
                 ...$base,
                 'date_debut' => $date,
-                'date_fin' => $modele->date_debut->equalTo($modele->date_fin)
-                    ? $date
-                    : ShiftSchedule::isoFromDayNumber(ShiftSchedule::dayNumber($date) + 1),
+                'date_fin' => ShiftInterval::needsNextCalendarDay((string) $modele->heure_debut, (string) $modele->heure_fin)
+                    ? ShiftSchedule::isoFromDayNumber(ShiftSchedule::dayNumber($date) + 1)
+                    : $date,
                 'statut' => StatutVacation::ARecouvrir->value,
                 'absence_id' => $absence->id,
             ]);

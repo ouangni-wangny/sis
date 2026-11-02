@@ -124,7 +124,8 @@ final class UpdateVacationAction
                     $heureFin,
                     $dateFin,
                     $vacation->id,
-                    ['poste_id' => $posteId],
+                    // Un remplacement enchaîne volontairement sans repos légal.
+                    ['poste_id' => $posteId, 'ignore_repos' => $vacation->est_remplacement],
                 );
 
                 AssertPosteEffectifDisponible::execute(

@@ -173,6 +173,15 @@ final class PosteEffectifRules
             $day = Carbon::parse($dayIso)->startOfDay();
             $quarts = self::quartsTouched($poste, $day, $heureDebut, $heureFin);
 
+            // Effectif impair : 2 + 2 tiendrait par quart mais dépasserait 3 sur la journée.
+            if (self::quartWindows($poste) !== null) {
+                $surLaJournee = $posteVacations->filter(
+                    fn (Vacation $v) => (string) $v->id !== (string) $excludeId
+                        && self::vacationCoversPlanningDay($v, $day)
+                )->count();
+                $reste = min($reste, max(1, (int) $poste->agents_requis) - $surLaJournee);
+            }
+
             foreach ($quarts as $quart) {
                 $cap = $quart === '_simple' ? $capSimple : $capQuart;
                 $deja = self::countOnQuart($posteVacations, $poste, $day, $quart, $excludeId);
