@@ -10,6 +10,7 @@ use App\Application\Operation\DetecterConflitsVacationAction;
 use App\Application\Operation\NormalizeVacationSchedule;
 use App\Application\Operation\RattacherRondesApresDecoupage;
 use App\Application\Operation\RecouvrirVacationAction;
+use App\Application\Operation\RemplacantsDisponiblesQuery;
 use App\Application\Operation\UpdateVacationAction;
 use App\Application\Reporting\PointageVacationsAction;
 use App\Application\Shared\RondierPerimetreGuard;
@@ -355,6 +356,13 @@ class VacationController extends Controller
         ]);
     }
 
+    public function remplacants(Vacation $vacation): JsonResponse
+    {
+        $this->authorize('recouvrir', $vacation);
+
+        return response()->json(['data' => RemplacantsDisponiblesQuery::pour($vacation)]);
+    }
+
     /**
      * @return array{0: array<string, mixed>, 1: \Illuminate\Database\Eloquent\Collection<int, Vacation>}
      */
@@ -393,13 +401,24 @@ class VacationController extends Controller
         Vacation $vacation,
         RecouvrirVacationAction $action,
     ): VacationResource {
-        $this->authorize('update', $vacation);
+        $this->authorize('recouvrir', $vacation);
+
+        $agentId = $request->string('agent_id')->toString();
+        $planification = $request->user()->can('update', $vacation);
+
+        // Sur le terrain : un agent libre uniquement, et les heures supplémentaires
+        // restent au planning (celles de l’agent qui descend sont automatiques).
+        if (! $planification && ! RemplacantsDisponiblesQuery::pour($vacation)->contains('agent_id', $agentId)) {
+            throw ValidationException::withMessages([
+                'agent_id' => 'Cet agent n’est pas disponible sur ce créneau.',
+            ]);
+        }
 
         return new VacationResource(
             $action->execute(
                 $vacation,
-                $request->string('agent_id')->toString(),
-                $request->boolean('heures_supplementaires'),
+                $agentId,
+                $planification && $request->boolean('heures_supplementaires'),
             )
         );
     }

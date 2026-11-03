@@ -60,6 +60,16 @@ export type Vacation = {
   } | null;
 };
 
+export type Remplacant = {
+  agent_id: string;
+  agent: string;
+  matricule?: string | null;
+  /** Finit sa vacation sur le site quand le créneau commence. */
+  descend: boolean;
+  meme_poste: boolean;
+  pool_siege: boolean;
+};
+
 export type ControleResultat = "present" | "absent" | "enregistre";
 
 export type Controle = {

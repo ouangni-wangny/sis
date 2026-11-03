@@ -138,6 +138,7 @@ Route::prefix('v1')->group(function () {
             Route::get('vacations/pointage/synthese', [VacationController::class, 'pointageSynthese']);
             Route::post('vacations/bulk', [VacationController::class, 'storeBulk']);
             Route::post('vacations/{vacation}/recouvrir', [VacationController::class, 'recouvrir']);
+            Route::get('vacations/{vacation}/remplacants', [VacationController::class, 'remplacants']);
             Route::get('vacations/{vacation}/agents-descendants', [VacationController::class, 'agentsDescendants']);
             Route::apiResource('vacations', VacationController::class);
             Route::apiResource('rondes', RondeController::class)->except(['update', 'destroy']);
