@@ -137,6 +137,9 @@ export type Poste = {
   mode_effectif?: "ensemble" | "alternance" | null;
   /** Le planning de ce poste se reconduit automatiquement. */
   planning_continu?: boolean;
+  /** Dernière période enregistrée par « Planifier le poste ». */
+  planning_date_debut?: string | null;
+  planning_date_fin?: string | null;
   heure_debut: string | null;
   heure_fin: string | null;
   /** Quart nuit — un poste est "24h" (jour + nuit) dès que ces deux champs sont renseignés. */
@@ -526,6 +529,11 @@ export type Vacation = {
   heure_fin: string;
   statut: StatutVacation;
   heures_supplementaires?: boolean;
+  /** Mis à la place du titulaire, ponctuellement. */
+  est_remplacement?: boolean;
+  reconduite?: boolean;
+  /** Créneau du titulaire cédé à un remplaçant. */
+  remplacee?: boolean;
   agent?: Pick<Agent, "id" | "nom" | "prenom" | "matricule">;
   site?: Pick<Site, "id" | "nom">;
   poste?: Pick<

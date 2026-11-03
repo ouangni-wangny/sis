@@ -163,6 +163,7 @@ final class PosteEffectifRules
         string $heureFin,
         ?string $dateFin = null,
         ?string $excludeId = null,
+        ?string $agentId = null,
     ): int {
         $days = self::planningDaysForShift($dateDebut, $heureDebut, $heureFin, $dateFin);
         $capQuart = self::capaciteParQuart($poste);
@@ -174,11 +175,13 @@ final class PosteEffectifRules
             $quarts = self::quartsTouched($poste, $day, $heureDebut, $heureFin);
 
             // Effectif impair : 2 + 2 tiendrait par quart mais dépasserait 3 sur la journée.
+            // L’effectif compte des personnes : qui enchaîne jour et nuit ne compte qu’une fois.
             if (self::quartWindows($poste) !== null) {
                 $surLaJournee = $posteVacations->filter(
                     fn (Vacation $v) => (string) $v->id !== (string) $excludeId
+                        && (string) $v->agent_id !== (string) $agentId
                         && self::vacationCoversPlanningDay($v, $day)
-                )->count();
+                )->pluck('agent_id')->unique()->count();
                 $reste = min($reste, max(1, (int) $poste->agents_requis) - $surLaJournee);
             }
 

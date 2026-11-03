@@ -4,6 +4,8 @@ namespace App\Application\Operation;
 
 use App\Domain\Shared\Enums\StatutRonde;
 use App\Domain\Shared\Enums\StatutVacation;
+use App\Domain\Shared\Support\ShiftInterval;
+use App\Models\Poste;
 use App\Models\Ronde;
 use App\Models\Vacation;
 use Illuminate\Support\Facades\DB;
@@ -37,10 +39,33 @@ final class CreateBulkVacationsAction
 
             if (! empty($data['replace'])) {
                 $removed = $this->replaceExisting($data['replace']);
+
+                if (($data['replace']['scope'] ?? 'agents') === 'poste') {
+                    Poste::query()->whereKey($data['replace']['poste_id'])->update([
+                        'planning_date_debut' => $data['replace']['date_debut'],
+                        'planning_date_fin' => $data['replace']['date_fin'],
+                    ]);
+                }
             }
 
             $created = [];
             foreach ($data['vacations'] as $row) {
+                if (! empty($data['replace'])) {
+                    // Replanifier : ce qui a eu lieu ou a été remplacé garde sa place.
+                    if ($this->creneauDejaTraite($row)) {
+                        continue;
+                    }
+                    // Agent absent ce jour-là : le planning passe, la case est à recouvrir.
+                    $absence = TrouAbsence::absenceDuJour($row['agent_id'], $row['date_debut']);
+                    if ($absence) {
+                        $created[] = TrouAbsence::creer(array_diff_key($row, ['date_debut' => 1, 'date_fin' => 1]), $row['date_debut'], $absence);
+
+                        continue;
+                    }
+                    // Un titulaire en congé aujourd’hui peut reprendre à une date planifiée.
+                    $row['statuts_autorises'] = ProlongerPlanningPostesAction::STATUTS_RECONDUCTIBLES;
+                }
+
                 $created[] = $this->create->execute(
                     [
                         ...$row,
@@ -59,6 +84,23 @@ final class CreateBulkVacationsAction
     }
 
     /**
+     * Le créneau de cet agent existe encore après le remplacement du prévu, ou il
+     * l’a cédé à un remplaçant toujours en place.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    private function creneauDejaTraite(array $row): bool
+    {
+        return Vacation::query()
+            ->where('agent_id', $row['agent_id'])
+            ->where('poste_id', $row['poste_id'] ?? null)
+            ->whereDate('date_debut', $row['date_debut'])
+            ->where(fn ($q) => $q->where('statut', '!=', StatutVacation::Annulee->value)->orWhere('remplacee', true))
+            ->get()
+            ->contains(fn (Vacation $v) => ShiftInterval::hm((string) $v->heure_debut) === ShiftInterval::hm((string) $row['heure_debut']));
+    }
+
+    /**
      * @param  array{
      *   poste_id: string,
      *   date_debut: string,
@@ -73,8 +115,12 @@ final class CreateBulkVacationsAction
 
         $query = Vacation::query()
             ->where('poste_id', $replace['poste_id'])
-            ->where('statut', '!=', StatutVacation::Annulee->value)
-            ->whereDate('date_debut', '>=', $replace['date_debut'])
+            // Seul le prévu est remplacé : ni le passé (pointage, paie), ni ce qui a démarré,
+            // ni les remplacements saisis, ni une case marquée à la main.
+            ->where('est_remplacement', false)
+            ->where(fn ($q) => $q->where('statut', StatutVacation::Planifiee->value)
+                ->orWhere(fn ($t) => $t->where('statut', StatutVacation::ARecouvrir->value)->whereNotNull('absence_id')))
+            ->whereDate('date_debut', '>=', max($replace['date_debut'], now()->toDateString()))
             // Au-delà de la période, seules les semaines reconduites suivaient l’ancien planning.
             ->where(fn ($q) => $q->whereDate('date_debut', '<=', $replace['date_fin'])->orWhere('reconduite', true));
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -17,16 +17,25 @@ import {
 import {
   agentPlanningSchema,
   buildAlternanceMotifs,
+  cellulesDepuisCycle,
+  cellulesDepuisSemaine,
+  cellulesEnregistrees,
+  celluleSuivante,
+  completerCellules,
+  creneauxDepuisCellules,
+  datesDePeriode,
   emptyPlanningSlot,
-  expandPlanningShifts,
   hoursForAgentSlot,
-  inferJoursTravaillesFromDates,
+  joursVerrouilles,
   needsAlternanceMotifPrefill,
+  periodeEnregistree,
+  titulairesDuPoste,
   pickAlternanceReferenceWeekStart,
   JOURS_SEMAINE,
   slotFromAgentRepos,
   type AgentPlanningFormValues,
   type AgentPlanningSlot,
+  type CellulesPlanning,
   type PlannedShift,
 } from "@/domain/schemas/agent-planning";
 import type { JourSemaine } from "@/domain/types/entities";
@@ -46,6 +55,7 @@ import { getApiErrorMessage, getBlockingVacationIds } from "@/shared/lib/api-err
 import { can } from "@/shared/lib/can";
 import { cn } from "@/shared/lib/cn";
 import { BlockingVacationAlert } from "../BlockingVacationAlert";
+import { PlanningPeriodeGrille } from "./PlanningPeriodeGrille";
 import {
   AgentMonthCalendar,
   PlanningCalendarLegend,
@@ -95,23 +105,8 @@ function ensureDistinctQuarts(
   }));
 }
 
-const JOUR_TO_INDEX: Record<JourSemaine, number> = {
-  dimanche: 0,
-  lundi: 1,
-  mardi: 2,
-  mercredi: 3,
-  jeudi: 4,
-  vendredi: 5,
-  samedi: 6,
-};
-
-function reposIndexesFromJours(jours: JourSemaine[]): number[] {
-  const worked = new Set(jours);
-  if (worked.size === 0) return [];
-  return JOURS_SEMAINE.filter((j) => !worked.has(j.value)).map(
-    (j) => JOUR_TO_INDEX[j.value],
-  );
-}
+/** Un titulaire en congé aujourd’hui reste sur le planning des jours où il revient. */
+const STATUTS_PLANIFIABLES = ["disponible", "en_activite", "conge", "malade"];
 
 /** Motifs semaine 0 = jours saisis de chaque slot (alternance N agents). */
 function alternanceMotifsFromSlots(
@@ -213,7 +208,6 @@ export function PlanifierAgentForm() {
   const dateFin = useWatch({ control, name: "date_fin" });
   const repartition =
     useWatch({ control, name: "repartition" }) ?? "jour_entier";
-  const quart = useWatch({ control, name: "quart" });
   const heureDebut = useWatch({ control, name: "heure_debut" });
   const heureFin = useWatch({ control, name: "heure_fin" });
   const heureDebutNuit = useWatch({ control, name: "heure_debut_nuit" });
@@ -224,15 +218,28 @@ export function PlanifierAgentForm() {
     { refetchOnMount: "always" },
   );
   const { data: sitesData } = useSites({ all: true });
-  const { data: postesData } = usePostes(
+  const { data: postesData, isFetching: postesFetching } = usePostes(
     siteId ? { site_id: siteId, all: true } : undefined,
     { enabled: !!siteId, refetchOnMount: "always" },
   );
   const { data: posteVacations, isFetching: posteVacationsLoading } =
     useVacations(
-      { poste_id: posteId, all: true },
+      // Le passé lointain n’est plus modifiable : inutile de tout recharger.
+      {
+        poste_id: posteId,
+        all: true,
+        date_from:
+          dateDebut && dateDebut < addDaysIso(todayIso(), -7)
+            ? dateDebut
+            : addDaysIso(todayIso(), -7),
+      },
       { enabled: !!posteId },
     );
+
+  const vacationsDuPoste = useMemo(
+    () => posteVacations?.data ?? [],
+    [posteVacations],
+  );
 
   const pendingPosteRef = useRef(urlPosteId);
   const prefilledPosteRef = useRef("");
@@ -298,6 +305,12 @@ export function PlanifierAgentForm() {
     posteHoursNormalized,
   ]);
 
+  const quartDeVacation = useCallback(
+    (v: { heure_debut: string; heure_fin: string }) =>
+      inferQuartFromHours(v.heure_debut, v.heure_fin, posteHalves),
+    [posteHalves],
+  );
+
   const posteHorairesLabel = useMemo(() => {
     if (!heureDebut || !heureFin) return "—";
     return planningCouvertureResume(posteHoursNormalized, agentsRequis);
@@ -354,189 +367,79 @@ export function PlanifierAgentForm() {
     setValue("slots", next, { shouldValidate: true });
   }, [selectedPoste?.id, selectedPoste?.agents_requis, getValues, setValue]);
 
-  // Préremplir les agents depuis les vacations existantes du poste.
-  // Attend que les horaires poste soient écrits (évite quarts figés trop tôt).
+  // Retour sur un poste planifié : on recharge ce qui est enregistré, sans rien deviner.
   useEffect(() => {
-    if (!posteId || !selectedPoste || posteVacationsLoading) return;
-    if (!heureDebut || !heureFin) return;
+    if (!posteId || !selectedPoste || !posteVacations) return;
+    if (posteVacationsLoading || postesFetching || agentsLoading) return;
+    if (hoursAppliedPosteRef.current !== posteId) return;
     if (prefilledPosteRef.current === posteId) return;
 
     const n = Math.max(1, selectedPoste.agents_requis ?? 1);
-    const isAlternance =
-      n >= 2 &&
-      !posteHasDecoupage &&
-      selectedPoste.mode_effectif === "alternance";
-    const current = getValues("slots") ?? [];
-    const alreadyFilled = current.filter((s) => s.agent_id).length;
-
-    const ranked = [...(posteVacations?.data ?? [])]
-      .filter(
-        (v) =>
-          v.poste_id === posteId &&
-          v.statut !== "annulee" &&
-          v.statut !== "a_recouvrir" &&
-          v.agent_id,
-      )
-      .sort((a, b) => b.date_debut.localeCompare(a.date_debut));
-
-    const allDates = ranked.map((v) => v.date_debut.slice(0, 10));
-    // Alternance + rotation hebdo : déduire le motif sur UNE semaine, sinon
-    // chaque agent apparaît sur tous les jours de la période → faux « 7/7 ».
-    const referenceWeek = isAlternance
-      ? pickAlternanceReferenceWeekStart(allDates)
-      : null;
-
-    const datesForAgent = (agentId: string) =>
-      ranked
-        .filter((x) => x.agent_id === agentId)
-        .map((x) => x.date_debut.slice(0, 10));
-
-    if (alreadyFilled >= n) {
-      // Même si les agents sont déjà là, aligner quarts + jours sur le planning.
-      const quartByAgent = new Map<string, "jour" | "nuit">();
-      for (const v of ranked) {
-        if (!v.agent_id || quartByAgent.has(v.agent_id)) continue;
-        quartByAgent.set(
-          v.agent_id,
-          inferQuartFromHours(v.heure_debut, v.heure_fin, posteHalves),
-        );
-      }
-      if (quartByAgent.size > 0 || referenceWeek) {
-        let next = current.map((s, i) => {
-          if (!s.agent_id) return s;
-          const q =
-            quartByAgent.get(s.agent_id) ??
-            (s.quart ?? (i === 0 ? "jour" : "nuit"));
-          let jours = s.jours_travailles;
-          if (referenceWeek) {
-            const inferred = inferJoursTravaillesFromDates(
-              datesForAgent(s.agent_id),
-              referenceWeek,
-            );
-            if (inferred && inferred.length > 0) {
-              jours = inferred;
-            }
-          }
-          return {
-            ...s,
-            quart: q,
-            jours_travailles: jours,
-            jour_repos: referenceWeek ? ("" as const) : s.jour_repos,
-          };
-        });
-        if (n === 2 && getValues("repartition") === "moities") {
-          next = ensureDistinctQuarts(next);
-        }
-        const changed = next.some(
-          (s, i) =>
-            s.quart !== current[i]?.quart ||
-            s.agent_id !== current[i]?.agent_id ||
-            (s.jours_travailles?.length ?? 0) !==
-              (current[i]?.jours_travailles?.length ?? 0) ||
-            (s.jours_travailles ?? []).some(
-              (j, ji) => j !== current[i]?.jours_travailles?.[ji],
-            ),
-        );
-        if (changed) {
-          setValue("slots", next, { shouldDirty: true, shouldValidate: true });
-        }
-      }
-      prefilledPosteRef.current = posteId;
-      return;
+    const periode = urlDate
+      ? null
+      : periodeEnregistree(selectedPoste, todayIso());
+    if (periode) {
+      setValue("date_debut", periode.debut);
+      setValue("date_fin", periode.fin);
     }
 
-    const assignableIds = new Set(assignableAgents.map((a) => a.id));
-    const seen = new Set(current.map((s) => s.agent_id).filter(Boolean));
-
-    const rankedAssignable = ranked.filter(
-      (v) => v.agent_id && assignableIds.has(v.agent_id),
+    const titulaires = titulairesDuPoste(
+      posteVacations.data,
+      periode?.debut ?? getValues("date_debut"),
+      periode?.fin ?? getValues("date_fin"),
+      quartDeVacation,
+    ).filter((t) =>
+      (agentsData?.data ?? []).some(
+        (a) => a.id === t.id && STATUTS_PLANIFIABLES.includes(a.statut),
+      ),
     );
+    const referenceWeek =
+      n >= 2 && !posteHasDecoupage && selectedPoste.mode_effectif === "alternance"
+        ? pickAlternanceReferenceWeekStart(titulaires.flatMap((t) => t.dates))
+        : null;
 
-    type PrefillAgent = {
-      id: string;
-      quart: "jour" | "nuit";
-      dates: string[];
-    };
-    const fromVacations: PrefillAgent[] = [];
-    const seenPrefill = new Set(seen);
-    for (const v of rankedAssignable) {
-      if (!v.agent_id || seenPrefill.has(v.agent_id)) continue;
-      seenPrefill.add(v.agent_id);
-      fromVacations.push({
-        id: v.agent_id,
-        quart: inferQuartFromHours(v.heure_debut, v.heure_fin, posteHalves),
-        dates: datesForAgent(v.agent_id),
-      });
-      if (fromVacations.length >= n) break;
-    }
-
-    if (fromVacations.length === 0 && alreadyFilled > 0) {
-      prefilledPosteRef.current = posteId;
-      return;
-    }
-
-    // Préférer agent jour en slot A, agent nuit en slot B.
-    const pool = [...fromVacations];
-    const pickFor = (want: "jour" | "nuit") => {
-      const idx = pool.findIndex((p) => p.quart === want);
-      if (idx < 0) return pool.shift() ?? null;
-      return pool.splice(idx, 1)[0] ?? null;
+    const current = getValues("slots") ?? [];
+    const pris = new Set(current.map((s) => s.agent_id).filter(Boolean));
+    const pool = titulaires.filter((t) => !pris.has(t.id));
+    const prendre = (quart: "jour" | "nuit") => {
+      const i = pool.findIndex((t) => t.quart === quart);
+      return pool.splice(Math.max(i, 0), 1)[0] ?? null;
     };
 
     let next = Array.from({ length: n }, (_, i) => {
-      if (current[i]?.agent_id) {
-        const existing = current[i];
-        const fromPool = fromVacations.find((p) => p.id === existing.agent_id);
-        const inferred =
-          referenceWeek && fromPool
-            ? inferJoursTravaillesFromDates(fromPool.dates, referenceWeek)
-            : null;
-        return {
-          ...existing,
-          quart:
-            fromPool?.quart ??
-            existing.quart ??
-            (i === 0 ? "jour" : "nuit"),
-          ...(inferred && inferred.length > 0
-            ? { jours_travailles: inferred, jour_repos: "" as const }
-            : {}),
-        };
+      const defaut = i === 0 ? "jour" : "nuit";
+      const existant = current[i];
+      const titulaire = existant?.agent_id
+        ? (titulaires.find((t) => t.id === existant.agent_id) ?? null)
+        : prendre(defaut);
+      if (!titulaire) {
+        return existant ?? emptyPlanningSlot("", defaut);
       }
-      const preferred = i === 0 ? "jour" : "nuit";
-      const candidate = pickFor(preferred as "jour" | "nuit");
-      if (candidate) {
-        const agent = assignableAgents.find((a) => a.id === candidate.id);
-        return slotFromAgentRepos(
-          candidate.id,
-          // En alternance, le rythme vient des vacations (semaine de réf.),
-          // pas du jour_repos fiche agent.
-          isAlternance
-            ? null
-            : (agent?.jour_repos as JourSemaine | null | undefined),
-          candidate.dates,
-          candidate.quart,
-          referenceWeek,
-        );
-      }
-      return current[i] ?? emptyPlanningSlot("", i === 0 ? "jour" : "nuit");
+      return slotFromAgentRepos(
+        titulaire.id,
+        null,
+        titulaire.dates,
+        titulaire.quart,
+        referenceWeek,
+      );
     });
-
     if (n === 2 && getValues("repartition") === "moities") {
       next = ensureDistinctQuarts(next);
     }
 
-    setValue("slots", next, { shouldDirty: true, shouldValidate: true });
+    setValue("slots", next, { shouldValidate: true });
     prefilledPosteRef.current = posteId;
   }, [
     posteId,
     selectedPoste,
     posteVacations,
     posteVacationsLoading,
-    assignableAgents,
-    posteHalves,
-    heureDebut,
-    heureFin,
+    postesFetching,
+    agentsLoading,
+    agentsData,
+    quartDeVacation,
     posteHasDecoupage,
+    urlDate,
     getValues,
     setValue,
   ]);
@@ -638,6 +541,74 @@ export function PlanifierAgentForm() {
     setValue,
   ]);
 
+  const datesPeriode = useMemo(
+    () =>
+      dateDebut && dateFin && dateFin >= dateDebut
+        ? datesDePeriode(dateDebut, dateFin)
+        : [],
+    [dateDebut, dateFin],
+  );
+
+  /** Case de travail par défaut d’un agent (quart choisi, ou jour + nuit s’il est seul). */
+  const celluleDeTravail = (slot: AgentPlanningSlot, index: number) =>
+    hoursForAgentSlot(index, agentsRequis, {
+      ...posteHours,
+      quart: slot.quart ?? (index === 0 ? "jour" : "nuit"),
+    }).quart;
+
+  const rythmeDeSemaine = (
+    slot: AgentPlanningSlot,
+    index: number,
+    tous: AgentPlanningSlot[],
+  ): CellulesPlanning =>
+    cellulesDepuisSemaine({
+      date_debut: datesPeriode[0],
+      date_fin: datesPeriode[datesPeriode.length - 1],
+      jours_travailles: slot.jours_travailles as JourSemaine[],
+      travail: celluleDeTravail(slot, index),
+      mode_effectif: posteModeEffectif,
+      alternanceMotifs: alternanceMotifsFromSlots(tous, posteModeEffectif),
+      slotIndex: index,
+    });
+
+  // Chaque jour de la période a sa case : l’enregistré, sinon le rythme de l’agent.
+  const agentsKey = slots.map((s) => s.agent_id).join("|");
+  useEffect(() => {
+    if (datesPeriode.length === 0 || !heureDebut || !heureFin) return;
+    if (posteVacationsLoading || prefilledPosteRef.current !== posteId) return;
+    const current = getValues("slots") ?? [];
+    let changed = false;
+    const next = current.map((slot, index) => {
+      if (!slot.agent_id) return slot;
+      const manquante = datesPeriode.some((d) => !slot.cellules?.[d]);
+      if (!manquante) return slot;
+      changed = true;
+      return {
+        ...slot,
+        cellules: completerCellules(
+          slot.cellules,
+          datesPeriode,
+          cellulesEnregistrees(
+            slot.agent_id,
+            vacationsDuPoste,
+            quartDeVacation,
+          ),
+          rythmeDeSemaine(slot, index, current),
+        ),
+      };
+    });
+    if (changed) setValue("slots", next, { shouldValidate: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recalcul à l’arrivée de nouvelles cases, pas à chaque clic
+  }, [
+    agentsKey,
+    datesPeriode,
+    posteId,
+    heureDebut,
+    heureFin,
+    vacationsDuPoste,
+    posteVacationsLoading,
+  ]);
+
   // Préremplir le rythme URL agent une fois la fiche / vacations chargées.
   useEffect(() => {
     if (!urlAgentId || assignableAgents.length === 0) return;
@@ -712,21 +683,14 @@ export function PlanifierAgentForm() {
     }
 
     const filled = slots.filter((s) => s.agent_id);
-    const motifs = alternanceMotifsFromSlots(filled, posteModeEffectif);
     return filled.flatMap((slot, index) => {
-      if (!(slot.jours_travailles?.length > 0)) return [];
+      if (!slot.cellules) return [];
       const hours = hoursForAgentSlot(index, filled.length, {
         ...posteHours,
         quart: slot.quart ?? (index === 0 ? "jour" : "nuit"),
       });
       if (!hours.heure_debut || !hours.heure_fin) return [];
-      if (
-        hours.quart === "les_deux" &&
-        (!heureDebutNuit || !heureFinNuit)
-      ) {
-        return [];
-      }
-      const agent = assignableAgents.find((a) => a.id === slot.agent_id);
+      const agent = agentsData?.data?.find((a) => a.id === slot.agent_id);
       const quartLabel =
         posteHours.repartition === "moities"
           ? hours.quart === "nuit"
@@ -740,28 +704,22 @@ export function PlanifierAgentForm() {
         {
           agentId: slot.agent_id,
           title,
-          planned: expandPlanningShifts({
+          planned: creneauxDepuisCellules({
+            ...posteHours,
+            cellules: slot.cellules,
             date_debut: dateDebut,
             date_fin: dateFin,
-            jours_travailles: slot.jours_travailles as JourSemaine[],
-            jour_repos: "",
-            quart: hours.quart,
-            heure_debut: hours.heure_debut,
-            heure_fin: hours.heure_fin,
-            heure_debut_nuit:
-              hours.quart === "les_deux" ? heureDebutNuit || undefined : undefined,
-            heure_fin_nuit:
-              hours.quart === "les_deux" ? heureFinNuit || undefined : undefined,
-            mode_effectif: posteModeEffectif,
-            alternanceMotifs: motifs,
-            slotIndex: index,
+            index,
+            total: filled.length,
+            verrous: joursVerrouilles(
+              slot.agent_id,
+              vacationsDuPoste,
+              datesPeriode,
+              todayIso(),
+            ),
           }),
-          reposIndexes:
-            posteModeEffectif === "alternance"
-              ? []
-              : reposIndexesFromJours(
-                  slot.jours_travailles as JourSemaine[],
-                ),
+          // La grille décide jour par jour : plus de repos fixe par jour de semaine.
+          reposIndexes: [] as number[],
         },
       ];
     });
@@ -770,13 +728,13 @@ export function PlanifierAgentForm() {
     dateFin,
     heureDebut,
     heureFin,
-    heureDebutNuit,
-    heureFinNuit,
     selectedAgentIds,
     slots,
-    assignableAgents,
-    posteHours,
-    posteModeEffectif,
+    agentsData,
+    vacationsDuPoste,
+    datesPeriode,
+    posteHoursNormalized,
+    derivedRepartition,
   ]);
 
   const totalPlannedShifts = useMemo(
@@ -803,7 +761,9 @@ export function PlanifierAgentForm() {
         !!dateFin &&
         date >= dateDebut &&
         date <= dateFin &&
-        v.statut !== "annulee";
+        date >= todayIso() &&
+        !v.est_remplacement &&
+        (v.statut === "planifiee" || v.statut === "a_recouvrir");
       if (willReplace) continue;
 
       const cur = byAgent.get(v.agent_id) ?? [];
@@ -840,12 +800,20 @@ export function PlanifierAgentForm() {
         .map((s, i) => (i === slotIndex ? "" : s.agent_id))
         .filter(Boolean),
     );
-    return assignableAgents
-      .filter((a) => !taken.has(a.id) || a.id === slots[slotIndex]?.agent_id)
+    return (agentsData?.data ?? [])
+      .filter(
+        (a) =>
+          a.id === slots[slotIndex]?.agent_id ||
+          (!taken.has(a.id) && assignableAgents.includes(a)),
+      )
       .map((a) => ({
         value: a.id,
         label: `${a.prenom} ${a.nom} (${a.matricule})${
-          a.statut === "disponible" ? "" : " · en activité"
+          a.statut === "disponible"
+            ? ""
+            : a.statut === "en_activite"
+              ? " · en activité"
+              : ` · ${a.statut}`
         }${a.jour_repos ? ` — repos ${a.jour_repos}` : ""}`,
       }));
   };
@@ -911,7 +879,14 @@ export function PlanifierAgentForm() {
       updateSlot(index, emptyPlanningSlot("", currentQuart));
       return;
     }
-    updateSlot(index, buildSlotForAgent(agentId, currentQuart));
+    const existant = getValues("slots")?.[index];
+    // Le programme appartient à la ligne : changer le nom ne le modifie pas.
+    updateSlot(
+      index,
+      existant?.agent_id
+        ? { agent_id: agentId }
+        : buildSlotForAgent(agentId, currentQuart),
+    );
   };
 
   const setJoursAt = (index: number, jours: string[]) => {
@@ -921,25 +896,118 @@ export function PlanifierAgentForm() {
     for (let i = 0; i < Math.max(current.length, agentsRequis); i++) {
       clearErrors(`slots.${i}.jours_travailles`);
     }
+    const tous = current.map((s, i) =>
+      i === index
+        ? { ...s, jours_travailles: jours as JourSemaine[], jour_repos: "" as const }
+        : s,
+    );
+    remplirSelonSemaine(
+      tous,
+      posteModeEffectif === "alternance" ? undefined : index,
+    );
+  };
+
+  /** Réécrit le programme depuis le rythme de semaine, sans toucher aux cases verrouillées. */
+  const remplirSelonSemaine = (
+    tous: AgentPlanningSlot[],
+    seulement?: number,
+  ) => {
+    if (datesPeriode.length === 0) {
+      setValue("slots", tous, { shouldDirty: true, shouldValidate: true });
+      return;
+    }
+    const next = tous.map((slot, i) =>
+      seulement !== undefined && i !== seulement
+        ? slot
+        : {
+            ...slot,
+            cellules: appliquerHorsVerrous(
+              slot,
+              (slot.jours_travailles?.length ?? 0) > 0
+                ? rythmeDeSemaine(slot, i, tous)
+                : {},
+            ),
+          },
+    );
+    setValue("slots", next, { shouldDirty: true, shouldValidate: true });
+  };
+
+  const verrousDe = (agentId: string) =>
+    agentId
+      ? joursVerrouilles(agentId, vacationsDuPoste, datesPeriode, todayIso())
+      : {};
+
+  const appliquerHorsVerrous = (
+    slot: AgentPlanningSlot,
+    nouvelles: CellulesPlanning,
+  ): CellulesPlanning => {
+    const verrous = verrousDe(slot.agent_id);
+    const cellules: CellulesPlanning = { ...slot.cellules };
+    for (const date of datesPeriode) {
+      if (!verrous[date]) cellules[date] = nouvelles[date] ?? "repos";
+    }
+    return cellules;
+  };
+
+  const setCellule = (index: number, date: string) => {
+    const slot = getValues("slots")?.[index];
+    if (!slot) return;
+    const actuelle = slot.cellules?.[date] ?? "repos";
+    clearErrors(`slots.${index}.jours_travailles`);
     updateSlot(index, {
-      jours_travailles: jours as JourSemaine[],
-      jour_repos: "",
+      cellules: {
+        ...slot.cellules,
+        [date]: celluleSuivante(actuelle, {
+          decoupage: posteHasDecoupage,
+          agentSeul: agentsRequis <= 1,
+        }),
+      },
+    });
+  };
+
+  const appliquerCycle = (
+    index: number,
+    cycle: { travail: number; repos: number; decalage: number },
+  ) => {
+    const slot = getValues("slots")?.[index];
+    if (!slot || datesPeriode.length === 0) return;
+    updateSlot(index, {
+      cellules: appliquerHorsVerrous(
+        slot,
+        cellulesDepuisCycle({
+          ...cycle,
+          date_debut: datesPeriode[0],
+          date_fin: datesPeriode[datesPeriode.length - 1],
+          cellule: celluleDeTravail(slot, index),
+        }),
+      ),
     });
   };
 
   const setQuartAt = (index: number, quart: "jour" | "nuit") => {
     const current = [...(getValues("slots") ?? [])];
     while (current.length < agentsRequis) current.push(emptyPlanningSlot());
-    current[index] = { ...current[index], quart };
+    // Le quart s’applique aux jours travaillés de la période.
+    const changerQuart = (slot: AgentPlanningSlot, q: "jour" | "nuit") => {
+      const verrous = verrousDe(slot.agent_id);
+      const cellules: CellulesPlanning = { ...slot.cellules };
+      for (const date of datesPeriode) {
+        if (!verrous[date] && cellules[date] && cellules[date] !== "repos") {
+          cellules[date] = q;
+        }
+      }
+      return { ...slot, quart: q, cellules };
+    };
+    current[index] = changerQuart(current[index], quart);
     // Évite deux agents sur le même quart en mode moitiés.
     if (repartition === "moities" && agentsRequis >= 2) {
       for (let i = 0; i < current.length; i++) {
         if (i === index) continue;
         if (current[i].quart === quart) {
-          current[i] = {
-            ...current[i],
-            quart: quart === "jour" ? "nuit" : "jour",
-          };
+          current[i] = changerQuart(
+            current[i],
+            quart === "jour" ? "nuit" : "jour",
+          );
         }
       }
     }
@@ -978,43 +1046,22 @@ export function PlanifierAgentForm() {
       return;
     }
 
-    const motifs = alternanceMotifsFromSlots(
-      filledSlots,
-      values.mode_effectif === "alternance" ? "alternance" : "ensemble",
-    );
-
-    const agentPlans = filledSlots.map((slot, index) => {
-      const hours = hoursForAgentSlot(index, filledSlots.length, {
+    const agentPlans = filledSlots.map((slot, index) => ({
+      agentId: slot.agent_id,
+      shifts: creneauxDepuisCellules({
+        cellules: slot.cellules ?? {},
+        date_debut: values.date_debut,
+        date_fin: values.date_fin,
+        index,
+        total: filledSlots.length,
+        verrous: verrousDe(slot.agent_id),
         heure_debut: values.heure_debut || "",
         heure_fin: values.heure_fin || "",
         heure_debut_nuit: values.heure_debut_nuit || undefined,
         heure_fin_nuit: values.heure_fin_nuit || undefined,
         repartition: values.repartition ?? "jour_entier",
-        quart: slot.quart ?? (index === 0 ? "jour" : "nuit"),
-      });
-      const shifts = expandPlanningShifts({
-        date_debut: values.date_debut,
-        date_fin: values.date_fin,
-        jours_travailles: slot.jours_travailles as JourSemaine[],
-        jour_repos: "",
-        quart: hours.quart,
-        heure_debut: hours.heure_debut,
-        heure_fin: hours.heure_fin,
-        heure_debut_nuit:
-          hours.quart === "les_deux"
-            ? values.heure_debut_nuit || undefined
-            : undefined,
-        heure_fin_nuit:
-          hours.quart === "les_deux"
-            ? values.heure_fin_nuit || undefined
-            : undefined,
-        mode_effectif:
-          values.mode_effectif === "alternance" ? "alternance" : "ensemble",
-        alternanceMotifs: motifs,
-        slotIndex: index,
-      });
-      return { agentId: slot.agent_id, shifts };
-    });
+      }),
+    }));
 
     const vacations = agentPlans.flatMap((plan) =>
       plan.shifts.map((shift) => ({
@@ -1153,6 +1200,7 @@ export function PlanifierAgentForm() {
                     value={posteId ?? ""}
                     onChange={(e) => {
                       prefilledPosteRef.current = "";
+                      setValue("slots", [], { shouldDirty: true });
                       setValue("poste_id", e.target.value, {
                         shouldDirty: true,
                         shouldValidate: true,
@@ -1303,7 +1351,7 @@ export function PlanifierAgentForm() {
                                 <div className="min-w-0 flex-1 basis-[16rem]">
                                   <div className="mb-1 flex flex-col gap-1 text-sm">
                                     <FieldLabel required>
-                                      Jours
+                                      Chaque semaine
                                       {joursCount > 0 ? (
                                         <span className="ml-1.5 font-normal text-ink-faint">
                                           ({joursCount})
@@ -1360,16 +1408,10 @@ export function PlanifierAgentForm() {
                         );
                       })}
                     </div>
-                    {posteModeEffectif === "alternance" ? (
-                      <p className="mt-2.5 text-xs text-ink-muted">
-                        Jours non choisis = repos. Chaque semaine, les motifs
-                        tournent entre les agents pour équilibrer la charge.
-                      </p>
-                    ) : derivedRepartition !== "moities" ? (
-                      <p className="mt-2.5 text-xs text-ink-muted">
-                        Les jours non choisis = repos.
-                      </p>
-                    ) : null}
+                    <p className="mt-2.5 text-xs text-ink-muted">
+                      Ces jours remplissent la période ; ajustez ensuite chaque
+                      date dans le planning ci-dessous.
+                    </p>
                     {slotsError ? (
                       <p className="mt-2 text-xs text-danger">{slotsError}</p>
                     ) : null}
@@ -1394,13 +1436,46 @@ export function PlanifierAgentForm() {
                       <DatePicker
                         label="Fin"
                         requiredMark
-                        hint="Ensuite, ce rythme se reconduit automatiquement."
+                        hint="Après cette date, le planning se poursuit automatiquement."
                         error={errors.date_fin?.message}
                         {...register("date_fin")}
                       />
                     </div>
                   </CardBody>
                 </Card>
+
+                {datesPeriode.length > 0 && slots.some((s) => s.agent_id) ? (
+                  <Card>
+                    <CardBody className="p-4">
+                      <SectionTitle
+                        step="4"
+                        title="Planning de la période"
+                        hint="Le programme exact de chaque agent, date par date. Cliquez sur une case pour la changer."
+                      />
+                      <PlanningPeriodeGrille
+                        dates={datesPeriode}
+                        lignes={slots.flatMap((slot, index) => {
+                          if (!slot.agent_id) return [];
+                          const agent = agentsData?.data?.find(
+                            (a) => a.id === slot.agent_id,
+                          );
+                          return [
+                            {
+                              index,
+                              label: agent
+                                ? `${agent.prenom} ${agent.nom}`
+                                : "Agent",
+                              cellules: slot.cellules ?? {},
+                              verrous: verrousDe(slot.agent_id),
+                            },
+                          ];
+                        })}
+                        onCellule={setCellule}
+                        onCycle={appliquerCycle}
+                      />
+                    </CardBody>
+                  </Card>
+                ) : null}
 
                 {formError ? (
                   <BlockingVacationAlert
@@ -1484,10 +1559,9 @@ export function PlanifierAgentForm() {
             </Card>
 
             <p className="hidden text-xs leading-relaxed text-ink-faint lg:block">
-              À l’enregistrement, toutes les vacations de ce poste sur la
-              période choisie sont remplacées (pas seulement les agents
-              sélectionnés). L’aperçu n’affiche que
-              les créneaux qui resteront après enregistrement.
+              À l’enregistrement, le planning à venir de ce poste sur la période
+              est remplacé par cette grille. Le passé, les vacations démarrées
+              et les remplacements déjà saisis sont conservés.
             </p>
           </aside>
 

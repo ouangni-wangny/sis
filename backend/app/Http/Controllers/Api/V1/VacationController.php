@@ -26,6 +26,7 @@ use App\Http\Resources\VacationResource;
 use App\Models\Agent;
 use App\Models\Ronde;
 use App\Models\Vacation;
+use App\Support\ListQuery;
 use App\Support\RechercheNom;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -87,16 +88,16 @@ class VacationController extends Controller
                         ->orWhereHas('poste', fn ($p) => $p->where('nom', 'like', $term));
                 });
             })
-            ->latest()
-            ->paginate($request->integer('per_page', 15));
+            ->latest();
 
-        return VacationResource::collection($items);
+        return VacationResource::collection(ListQuery::paginateOrAll($items, $request));
     }
 
     public function store(
         StoreVacationRequest $request,
         CreateVacationAction $action,
         CreateBulkVacationsAction $bulk,
+        RecouvrirVacationAction $recouvrir,
     ): VacationResource {
         $this->authorize('create', Vacation::class);
 
@@ -108,6 +109,11 @@ class VacationController extends Controller
         unset($data['exclure_jour_repos']);
         $rows = DecouperPeriodeVacation::rows($data, $jourRepos);
         if (count($rows) === 1) {
+            $trou = RecouvrirVacationAction::trouDuCreneau($rows[0]);
+            if ($trou) {
+                return new VacationResource($recouvrir->execute($trou, $rows[0]['agent_id']));
+            }
+
             return new VacationResource($action->execute($rows[0]));
         }
 
@@ -178,6 +184,9 @@ class VacationController extends Controller
                     'heure_fin' => substr((string) $updated->heure_fin, 0, 5),
                     'date_debut' => $jour,
                     'date_fin' => $jour,
+                    'remplacement' => $updated->est_remplacement,
+                    'est_remplacement' => $updated->est_remplacement,
+                    'heures_supplementaires' => $updated->heures_supplementaires,
                 ], wrapInTransaction: false);
             }
             RattacherRondesApresDecoupage::execute($updated, $morceaux, $updated);

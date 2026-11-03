@@ -150,6 +150,8 @@ final class CreateVacationAction
             $data['heure_debut'],
             $data['heure_fin'],
             $data['date_fin'],
+            null,
+            $data['agent_id'],
         );
 
         unset($data['annuler_conflits'], $data['remplacement'], $data['statuts_autorises']);

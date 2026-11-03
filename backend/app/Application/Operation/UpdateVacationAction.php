@@ -88,6 +88,13 @@ final class UpdateVacationAction
                 StatutVacation::ARecouvrir->value,
             ], true);
 
+            // Mettre un autre agent sur le créneau, c’est le remplacer ce jour-là :
+            // il peut enchaîner, et le titulaire reste celui du rythme du poste.
+            $remplacement = ! $skipPlanningGuards
+                && $posteId
+                && $dateFin !== null
+                && (string) $agentId !== (string) $vacation->agent_id;
+
             if (! $skipPlanningGuards) {
                 AssertAgentAssignable::execute($agentId, referenceDate: $dateDebut);
                 AssertAgentAssignable::posteBelongsToSite($posteId, $siteId);
@@ -125,7 +132,7 @@ final class UpdateVacationAction
                     $dateFin,
                     $vacation->id,
                     // Un remplacement enchaîne volontairement sans repos légal.
-                    ['poste_id' => $posteId, 'ignore_repos' => $vacation->est_remplacement],
+                    ['poste_id' => $posteId, 'ignore_repos' => $vacation->est_remplacement || $remplacement],
                 );
 
                 AssertPosteEffectifDisponible::execute(
@@ -135,10 +142,19 @@ final class UpdateVacationAction
                     $heureFin,
                     $dateFin,
                     $vacation->id,
+                    $agentId,
                 );
             } elseif (array_key_exists('poste_id', $data) || array_key_exists('site_id', $data)) {
                 // Même en trou/annulation, le couple poste/site doit rester cohérent.
                 AssertAgentAssignable::posteBelongsToSite($posteId, $siteId);
+            }
+
+            if ($remplacement) {
+                $data['est_remplacement'] = true;
+                $data['heures_supplementaires'] = AgentsDescendantsQuery::pour($vacation)->contains('agent_id', $agentId);
+                if (! $vacation->est_remplacement) {
+                    $vacation->replicate()->fill(['statut' => StatutVacation::Annulee->value, 'remplacee' => true])->save();
+                }
             }
 
             $vacation->update($data);

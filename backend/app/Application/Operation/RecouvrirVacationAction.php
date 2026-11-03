@@ -3,6 +3,7 @@
 namespace App\Application\Operation;
 
 use App\Domain\Shared\Enums\StatutVacation;
+use App\Domain\Shared\Support\ShiftInterval;
 use App\Domain\Shared\Support\ShiftSchedule;
 use App\Models\Agent;
 use App\Models\Vacation;
@@ -68,10 +69,32 @@ final class RecouvrirVacationAction
                 $remplacement ??= $created;
             }
 
-            $trou->update(['statut' => StatutVacation::Annulee->value]);
+            $trou->update(['statut' => StatutVacation::Annulee->value, 'remplacee' => true]);
 
             return $remplacement->load(['agent', 'site', 'poste']);
         });
+    }
+
+    /**
+     * Case à recouvrir du même poste et du même créneau : y ajouter un agent,
+     * c’est la recouvrir, quel que soit l’écran utilisé.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public static function trouDuCreneau(array $data): ?Vacation
+    {
+        if (empty($data['poste_id'])) {
+            return null;
+        }
+
+        return Vacation::query()
+            ->where('poste_id', $data['poste_id'])
+            ->where('agent_id', '!=', $data['agent_id'])
+            ->where('statut', StatutVacation::ARecouvrir->value)
+            ->whereDate('date_debut', $data['date_debut'])
+            ->get()
+            ->first(fn (Vacation $v) => ShiftInterval::hm((string) $v->heure_debut) === ShiftInterval::hm((string) $data['heure_debut'])
+                && ShiftInterval::hm((string) $v->heure_fin) === ShiftInterval::hm((string) $data['heure_fin']));
     }
 
     /**

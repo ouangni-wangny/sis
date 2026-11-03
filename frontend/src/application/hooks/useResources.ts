@@ -243,7 +243,10 @@ export function useCreateVacationsBulk() {
   return useMutation({
     mutationFn: (payload: Parameters<typeof vacationsApi.createBulk>[0]) =>
       vacationsApi.createBulk(payload),
-    onSuccess: () => invalidateVacations(qc),
+    onSuccess: () => {
+      invalidateVacations(qc);
+      void qc.invalidateQueries({ queryKey: ["postes"] });
+    },
   });
 }
 

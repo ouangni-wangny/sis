@@ -22,6 +22,7 @@ final class AssertPosteEffectifDisponible
         string $heureFin,
         ?string $dateFin = null,
         ?string $excludeId = null,
+        ?string $agentId = null,
     ): void {
         if (! $posteId) {
             return;
@@ -46,6 +47,7 @@ final class AssertPosteEffectifDisponible
             $heureFin,
             $dateFin,
             $excludeId,
+            $agentId,
         );
 
         if ($reste >= 1) {

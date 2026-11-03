@@ -14,7 +14,7 @@ class StoreBulkVacationsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'vacations' => ['required', 'array', 'min:1', 'max:500'],
+            'vacations' => ['required', 'array', 'min:1', 'max:3000'],
             'vacations.*.agent_id' => ['required', 'uuid', 'exists:agents,id'],
             'vacations.*.site_id' => ['required', 'uuid', 'exists:sites,id'],
             'vacations.*.poste_id' => ['nullable', 'uuid', 'exists:postes,id'],

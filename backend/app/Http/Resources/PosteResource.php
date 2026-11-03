@@ -15,6 +15,8 @@ class PosteResource extends JsonResource
             'nom' => $this->nom,
             'agents_requis' => $this->agents_requis,
             'planning_continu' => (bool) ($this->planning_continu ?? true),
+            'planning_date_debut' => $this->planning_date_debut?->toDateString(),
+            'planning_date_fin' => $this->planning_date_fin?->toDateString(),
             'mode_effectif' => $this->mode_effectif instanceof \BackedEnum
                 ? $this->mode_effectif->value
                 : ($this->mode_effectif ?? 'ensemble'),
