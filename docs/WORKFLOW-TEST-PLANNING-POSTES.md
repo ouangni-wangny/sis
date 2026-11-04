@@ -57,6 +57,7 @@
 | # | Action | Résultat attendu |
 |---|--------|------------------|
 | 1 | Replanifier le **même poste** + **mêmes agents** sur une période qui chevauche | Anciennes vacations de ces agents sur ce poste (période) remplacées |
+| 1b | Ouvrir un poste qui a plus d’agents que l’effectif requis (ex. relève du jour de repos), enregistrer | L’écran signale l’agent hors de la grille ; il garde ses créneaux, sauf si on clique sur **Retirer** avant d’enregistrer |
 | 2 | Vérifier | Pas de doublons jour/agent/poste |
 | 3 | Quitter puis rouvrir le poste | Mêmes agents, même période, même grille, même compteur |
 | 4 | Réenregistrer avec un remplacement saisi ou une date passée | Remplacement, passé et vacations démarrées conservés (cases estompées) |

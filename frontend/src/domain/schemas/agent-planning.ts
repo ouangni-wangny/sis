@@ -734,6 +734,33 @@ export function titulairesDuPoste(
     );
 }
 
+/**
+ * Agents du poste hors de la grille (ex. relève du jour de repos) : leurs créneaux
+ * à venir, ceux qu’un enregistrement du poste effacerait s’ils n’étaient pas gardés.
+ */
+export function agentsEnPlus(
+  vacations: Vacation[],
+  agentsDeLaGrille: Set<string>,
+  aujourdhui: string,
+): { id: string; nom: string; creneaux: number }[] {
+  const parAgent = new Map<string, { id: string; nom: string; creneaux: number }>();
+  for (const v of vacations) {
+    if (agentsDeLaGrille.has(v.agent_id) || v.est_remplacement) continue;
+    if (v.date_debut.slice(0, 10) < aujourdhui) continue;
+    if (v.statut !== "planifiee" && !(v.statut === "a_recouvrir" && v.absence_id)) continue;
+    const ligne = parAgent.get(v.agent_id) ?? {
+      id: v.agent_id,
+      nom: v.agent ? `${v.agent.prenom} ${v.agent.nom}` : "Agent",
+      creneaux: 0,
+    };
+    ligne.creneaux += 1;
+    parAgent.set(v.agent_id, ligne);
+  }
+  return [...parAgent.values()].sort(
+    (a, b) => b.creneaux - a.creneaux || a.id.localeCompare(b.id),
+  );
+}
+
 /** Période à réafficher : la dernière enregistrée, tant qu’elle n’est pas terminée. */
 export function periodeEnregistree(
   poste: Pick<Poste, "planning_date_debut" | "planning_date_fin">,

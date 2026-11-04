@@ -9,6 +9,7 @@ import {
   expandPlanningShifts,
   frenchWeekdayFromIso,
   joursForAlternanceWeek,
+  agentsEnPlus,
   joursVerrouilles,
   mondayOfIso,
   periodeEnregistree,
@@ -341,6 +342,21 @@ describe("planning de période", () => {
   });
 
   it("verrouille le passé et ce qui est cédé à un remplaçant", () => {
+    const enPlus = agentsEnPlus(
+      [
+        vacation("grille", "2026-11-12"),
+        vacation("releve", "2026-11-01"),
+        vacation("releve", "2026-11-12", {
+          agent: { id: "releve", prenom: "Awa", nom: "Koné", matricule: "M" },
+        }),
+        vacation("releve", "2026-11-13", { statut: "annulee" }),
+        vacation("remplacant", "2026-11-12", { est_remplacement: true }),
+      ],
+      new Set(["grille"]),
+      "2026-11-04",
+    );
+    expect(enPlus).toEqual([{ id: "releve", nom: "Awa Koné", creneaux: 1 }]);
+
     const verrous = joursVerrouilles(
       "a",
       [

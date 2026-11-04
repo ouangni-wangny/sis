@@ -19,6 +19,7 @@ import {
   buildAlternanceMotifs,
   cellulesDepuisCycle,
   cellulesDepuisSemaine,
+  agentsEnPlus,
   cellulesEnregistrees,
   celluleSuivante,
   completerCellules,
@@ -173,6 +174,8 @@ export function PlanifierAgentForm() {
   } | null>(null);
   const [progress, setProgress] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(monthOf(todayIso()));
+  const [agentsVusParPoste, setAgentsVusParPoste] = useState<Record<string, string[]>>({});
+  const [aRetirerParPoste, setARetirerParPoste] = useState<Record<string, string[]>>({});
 
   const urlAgentId = searchParams.get("agent_id") ?? "";
   const urlSiteId = searchParams.get("site_id") ?? "";
@@ -794,6 +797,31 @@ export function PlanifierAgentForm() {
     });
   }, [postesData]);
 
+  // Un agent sorti de la grille à la main est remplacé : seuls ceux qu’elle n’a
+  // jamais montrés gardent leurs créneaux.
+  useEffect(() => {
+    if (prefilledPosteRef.current !== posteId) return;
+    setAgentsVusParPoste((parPoste) => {
+      const vus = parPoste[posteId] ?? [];
+      const nouveaux = selectedAgentIds.filter((id) => !vus.includes(id));
+      return nouveaux.length > 0
+        ? { ...parPoste, [posteId]: [...vus, ...nouveaux] }
+        : parPoste;
+    });
+  }, [selectedAgentIds, posteId]);
+
+  const agentsARetirer = aRetirerParPoste[posteId] ?? [];
+
+  const autresAgentsDuPoste = useMemo(
+    () =>
+      agentsEnPlus(
+        vacationsDuPoste,
+        new Set([...(agentsVusParPoste[posteId] ?? []), ...selectedAgentIds]),
+        todayIso(),
+      ),
+    [vacationsDuPoste, agentsVusParPoste, posteId, selectedAgentIds],
+  );
+
   const agentOptionsForSlot = (slotIndex: number) => {
     const taken = new Set(
       slots
@@ -1095,6 +1123,9 @@ export function PlanifierAgentForm() {
           date_fin: values.date_fin,
           scope: "poste",
           agent_ids: filledSlots.map((s) => s.agent_id),
+          conserver_agent_ids: autresAgentsDuPoste
+            .map((a) => a.id)
+            .filter((id) => !agentsARetirer.includes(id)),
         },
       });
 
@@ -1475,6 +1506,44 @@ export function PlanifierAgentForm() {
                       />
                     </CardBody>
                   </Card>
+                ) : null}
+
+                {autresAgentsDuPoste.length > 0 ? (
+                  <Alert tone="warning">
+                    <div className="space-y-2">
+                      <p>Ce poste a aussi d’autres agents, absents de la grille :</p>
+                      {autresAgentsDuPoste.map((a) => {
+                        const retire = agentsARetirer.includes(a.id);
+                        const creneaux = `${a.creneaux} créneau${a.creneaux > 1 ? "x" : ""}`;
+                        return (
+                          <div
+                            key={a.id}
+                            className="flex flex-wrap items-center justify-between gap-2"
+                          >
+                            <span>
+                              {retire
+                                ? `${a.nom} perdra ses ${creneaux} à l’enregistrement.`
+                                : `${a.nom} garde ses ${creneaux}.`}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              onClick={() =>
+                                setARetirerParPoste((parPoste) => ({
+                                  ...parPoste,
+                                  [posteId]: retire
+                                    ? agentsARetirer.filter((id) => id !== a.id)
+                                    : [...agentsARetirer, a.id],
+                                }))
+                              }
+                            >
+                              {retire ? "Garder" : "Retirer"}
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </Alert>
                 ) : null}
 
                 {formError ? (

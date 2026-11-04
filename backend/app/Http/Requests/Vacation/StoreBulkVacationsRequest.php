@@ -33,6 +33,8 @@ class StoreBulkVacationsRequest extends FormRequest
             'replace.scope' => ['sometimes', 'in:agents,poste'],
             'replace.agent_ids' => ['sometimes', 'array'],
             'replace.agent_ids.*' => ['uuid', 'exists:agents,id'],
+            'replace.conserver_agent_ids' => ['sometimes', 'array'],
+            'replace.conserver_agent_ids.*' => ['uuid', 'exists:agents,id'],
         ];
     }
 

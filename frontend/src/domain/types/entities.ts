@@ -534,6 +534,7 @@ export type Vacation = {
   reconduite?: boolean;
   /** Créneau du titulaire cédé à un remplaçant. */
   remplacee?: boolean;
+  absence_id?: string | null;
   agent?: Pick<Agent, "id" | "nom" | "prenom" | "matricule">;
   site?: Pick<Site, "id" | "nom">;
   poste?: Pick<

@@ -355,3 +355,29 @@ it('ne prend pas deux semaines d’alternance pour un rythme quotidien', functio
     expect(Vacation::query()->whereDate('date_debut', '2026-11-09')->sole()->agent_id)->toBe($this->jour->id)
         ->and(Vacation::query()->whereDate('date_debut', '2026-11-16')->sole()->agent_id)->toBe($this->nuit->id);
 });
+
+it('garde les créneaux de l’agent hors de la grille tant qu’on ne les retire pas', function () {
+    $releve = ($this->agent)('Releve');
+    ($this->planifier)([
+        ($this->ligne)($this->jour, '2026-11-03'),
+        ($this->ligne)($releve, '2026-11-04'),
+    ], '2026-11-02', '2026-11-29')->assertCreated();
+
+    $enregistrer = fn (array $conserver) => $this->actingAs($this->admin)->postJson('/api/v1/vacations/bulk', [
+        'vacations' => [($this->ligne)($this->jour, '2026-11-03')],
+        'replace' => [
+            'poste_id' => $this->poste->id,
+            'date_debut' => '2026-11-02',
+            'date_fin' => '2026-11-29',
+            'scope' => 'poste',
+            'conserver_agent_ids' => $conserver,
+        ],
+    ])->assertCreated();
+
+    $enregistrer([$releve->id]);
+    expect(Vacation::query()->where('agent_id', $releve->id)->count())->toBe(1)
+        ->and(Vacation::query()->where('agent_id', $this->jour->id)->count())->toBe(1);
+
+    $enregistrer([]);
+    expect(Vacation::query()->where('agent_id', $releve->id)->count())->toBe(0);
+});

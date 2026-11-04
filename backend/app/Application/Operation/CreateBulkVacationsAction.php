@@ -26,6 +26,7 @@ final class CreateBulkVacationsAction
      *     date_debut: string,
      *     date_fin: string,
      *     agent_ids?: list<string>,
+     *     conserver_agent_ids?: list<string>,
      *     scope?: 'agents'|'poste'
      *   }
      * }  $data
@@ -106,6 +107,7 @@ final class CreateBulkVacationsAction
      *   date_debut: string,
      *   date_fin: string,
      *   agent_ids?: list<string>,
+     *   conserver_agent_ids?: list<string>,
      *   scope?: 'agents'|'poste'
      * }  $replace
      */
@@ -132,6 +134,11 @@ final class CreateBulkVacationsAction
                 return 0;
             }
             $query->whereIn('agent_id', $agentIds);
+        }
+
+        // Agent du poste hors de la grille (ex. relève du jour de repos) : ses créneaux restent.
+        if (! empty($replace['conserver_agent_ids'])) {
+            $query->whereNotIn('agent_id', $replace['conserver_agent_ids']);
         }
 
         $toRemove = $query->lockForUpdate()->get();
