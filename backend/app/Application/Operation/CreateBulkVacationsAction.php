@@ -117,7 +117,7 @@ final class CreateBulkVacationsAction
 
         $query = Vacation::query()
             ->where('poste_id', $replace['poste_id'])
-            // Seul le prévu est remplacé : ni le passé (pointage, paie), ni ce qui a démarré,
+            // Seul le prévu est remplacé : ni le passé (pointage, paie), ni ce qui a démarré ou été pointé,
             // ni les remplacements saisis, ni une case marquée à la main.
             ->where('est_remplacement', false)
             ->where(fn ($q) => $q->where('statut', StatutVacation::Planifiee->value)
@@ -141,7 +141,8 @@ final class CreateBulkVacationsAction
             $query->whereNotIn('agent_id', $replace['conserver_agent_ids']);
         }
 
-        $toRemove = $query->lockForUpdate()->get();
+        $toRemove = $query->lockForUpdate()->get()
+            ->reject(fn (Vacation $v) => VacationDejaEffectuee::aUnePresence($v));
 
         if ($toRemove->isEmpty()) {
             return 0;

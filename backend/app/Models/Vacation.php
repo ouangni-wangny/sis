@@ -2,8 +2,11 @@
 
 namespace App\Models;
 
+use App\Application\Shared\RondierPerimetreGuard;
 use App\Domain\Shared\Enums\StatutVacation;
+use App\Domain\Shared\Enums\TypeAgent;
 use App\Domain\Shared\Traits\Auditable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -55,5 +58,38 @@ class Vacation extends Model
     public function rondes(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(Ronde::class);
+    }
+
+    /**
+     * Ce que ce compte peut lire. Le planning voit tout ; le contrôleur son périmètre ;
+     * l’agent ses vacations ; un compte terrain sans fiche agent, rien.
+     *
+     * @param  Builder<Vacation>  $query
+     */
+    public function scopeVisiblesPar(Builder $query, User $user): void
+    {
+        if (self::voitToutLePlanning($user)) {
+            return;
+        }
+
+        $fiche = $user->agent;
+
+        if ($fiche?->type === TypeAgent::Controleur) {
+            $query->whereIn('site_id', RondierPerimetreGuard::authorizedSiteIds($fiche));
+
+            return;
+        }
+
+        $query->where('agent_id', $fiche?->id ?? '');
+    }
+
+    public static function voitToutLePlanning(User $user): bool
+    {
+        if ($user->agent?->type === TypeAgent::Controleur) {
+            return false;
+        }
+
+        return $user->hasRole('super-admin') || $user->can('vacations.create') || $user->can('vacations.update')
+            || (! $user->hasRole('agent') && ! $user->hasRole('controleur'));
     }
 }
