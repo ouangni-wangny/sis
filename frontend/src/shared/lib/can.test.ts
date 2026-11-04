@@ -5,6 +5,8 @@ import {
   canPayerPaie,
   canSeeSalaire,
   canViewPaie,
+  isControleurUser,
+  isTerrainUser,
 } from "@/shared/lib/can";
 import type { User } from "@/domain/types/entities";
 import { navigation, flatNavigationItems } from "@/shared/config/navigation";
@@ -95,5 +97,17 @@ describe("navigation trésorerie / paie", () => {
 
     expect(paie?.permissions).toContain("paie.view");
     expect(paie?.permissions).toContain("paie.payer");
+  });
+});
+
+describe("espace terrain", () => {
+  it("le réserve aux contrôleurs, même si l’agent y arrive", () => {
+    const compte = (roles: string[]) => ({ roles }) as User;
+
+    expect(isControleurUser(compte(["controleur"]))).toBe(true);
+    expect(isControleurUser(compte(["rondier"]))).toBe(true);
+    expect(isTerrainUser(compte(["agent"]))).toBe(true);
+    expect(isControleurUser(compte(["agent"]))).toBe(false);
+    expect(isControleurUser(null)).toBe(false);
   });
 });

@@ -21,6 +21,7 @@ class AnomalieController extends Controller
 
         $items = Anomalie::query()
             ->with(['media', 'site', 'signalePar'])
+            ->visiblesPar($request->user())
             ->when($request->site_id, fn ($q, $v) => $q->where('site_id', $v))
             ->when($request->boolean('a_traiter'), fn ($q) => $q->whereIn('statut', ['ouverte', 'en_cours']))
             ->when(

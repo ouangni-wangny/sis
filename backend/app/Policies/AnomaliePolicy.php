@@ -14,7 +14,8 @@ class AnomaliePolicy
 
     public function view(User $user, Anomalie $model): bool
     {
-        return $user->can('anomalies.view') || $user->hasRole('super-admin');
+        return ($user->can('anomalies.view') || $user->hasRole('super-admin'))
+            && Anomalie::query()->visiblesPar($user)->whereKey($model->id)->exists();
     }
 
     public function create(User $user): bool

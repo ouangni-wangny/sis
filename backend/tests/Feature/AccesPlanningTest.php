@@ -2,6 +2,7 @@
 
 use App\Domain\Shared\Enums\TypeAgent;
 use App\Models\Agent;
+use App\Models\Anomalie;
 use App\Models\Client;
 use App\Models\Contrat;
 use App\Models\Controle;
@@ -190,4 +191,39 @@ it('garde en replanifiant le créneau du jour déjà pointé présent', function
     ])->assertCreated();
 
     expect(Vacation::query()->whereKey($pointee->id)->exists())->toBeTrue();
+});
+
+it('limite les anomalies : l’agent aux siennes, le contrôleur à son périmètre et aux siennes', function () {
+    $signaler = fn (Agent $par, Poste $poste) => Anomalie::query()->create([
+        'signale_par_id' => $par->id,
+        'site_id' => $poste->site_id,
+        'type' => 'intrusion',
+        'gravite' => 'moyenne',
+        'statut' => 'ouverte',
+        'signale_at' => now(),
+    ]);
+    $idsVus = fn ($reponse) => collect($reponse->assertOk()->json('data'))->pluck('id')->sort()->values()->all();
+    $trier = fn (array $ids) => collect($ids)->sort()->values()->all();
+
+    $agentUser = ($this->compte)('agent');
+    $this->moi->update(['user_id' => $agentUser->id]);
+    $mienne = $signaler($this->moi, $this->poste);
+    $ailleurs = $signaler($this->collegue, $this->autrePoste);
+    $surMonSite = $signaler($this->collegue, $this->poste);
+
+    expect($idsVus($this->actingAs($agentUser)->getJson('/api/v1/anomalies')))->toBe([$mienne->id]);
+    $this->getJson("/api/v1/anomalies/{$ailleurs->id}")->assertForbidden();
+
+    expect($idsVus($this->actingAs(($this->compte)('agent'))->getJson('/api/v1/anomalies')))->toBe([]);
+
+    $controleurUser = ($this->compte)('controleur');
+    $fiche = ($this->agent)('Controleur', ['type' => TypeAgent::Controleur, 'user_id' => $controleurUser->id]);
+    RondierPerimetre::query()->create(['agent_id' => $fiche->id, 'site_id' => $this->poste->site_id]);
+    $saPropre = $signaler($fiche, $this->autrePoste);
+
+    expect($idsVus($this->actingAs($controleurUser)->getJson('/api/v1/anomalies')))
+        ->toBe($trier([$mienne->id, $surMonSite->id, $saPropre->id]));
+    $this->getJson("/api/v1/anomalies/{$ailleurs->id}")->assertForbidden();
+
+    expect($this->actingAs(($this->compte)('operation'))->getJson('/api/v1/anomalies')->assertOk()->json('data'))->toHaveCount(4);
 });

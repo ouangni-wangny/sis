@@ -70,6 +70,12 @@ export function isTerrainUser(user: User | null | undefined): boolean {
   );
 }
 
+/** L’espace terrain sert aux contrôleurs, pas aux agents postés. */
+export function isControleurUser(user: User | null | undefined): boolean {
+  const roles = user?.roles ?? [];
+  return roles.includes("controleur") || roles.includes("rondier");
+}
+
 export function homePathForUser(user: User | null | undefined): string {
   return isTerrainUser(user) ? "/terrain" : "/";
 }
