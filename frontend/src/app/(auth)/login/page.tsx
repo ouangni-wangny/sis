@@ -52,7 +52,7 @@ export default function LoginPage() {
   function parseLoginError(err: unknown): string {
     if (axios.isAxiosError(err)) {
       if (!err.response) {
-        return "API injoignable. Vérifiez que le backend tourne (php artisan serve).";
+        return "Serveur injoignable. Vérifiez votre connexion internet et réessayez.";
       }
       const data = err.response.data as
         | {

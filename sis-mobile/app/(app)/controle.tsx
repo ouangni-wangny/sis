@@ -23,7 +23,7 @@ import {
   PresenceToggle,
   type PresenceValue,
 } from "@/components/PresenceToggle";
-import { ControlesPassagePill } from "@/components/StatusPill";
+import { ControlesPassagePill, StatusPill } from "@/components/StatusPill";
 import { StepFooter } from "@/components/StepFooter";
 import {
   hintPassagesRequis,
@@ -520,10 +520,23 @@ export default function ControlesScreen() {
           <Text style={styles.doneHint}>
             Le statut apparaît maintenant sur la liste des agents.
           </Text>
+          {doneResultat === "absent" &&
+          user?.permissions?.includes("vacations.recouvrir") ? (
+            <Button
+              label="Désigner un remplaçant"
+              variant="danger"
+              onPress={() => {
+                backToList();
+                router.push("/(app)/recouvrir");
+              }}
+              style={{ marginTop: spacing.xl, alignSelf: "stretch" }}
+            />
+          ) : null}
           <Button
             label="Retour à la liste"
+            variant={doneResultat === "absent" ? "secondary" : "primary"}
             onPress={backToList}
-            style={{ marginTop: spacing.xl, alignSelf: "stretch" }}
+            style={{ marginTop: spacing.md, alignSelf: "stretch" }}
           />
         </View>
       ) : null}

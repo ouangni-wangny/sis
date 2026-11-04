@@ -193,4 +193,10 @@ class Agent extends Model implements HasMedia
     {
         return $this->hasMany(SoldeCongesMouvement::class);
     }
+
+    /** Nom affiché dans les messages, pour savoir de quel agent on parle. */
+    public function libelle(): string
+    {
+        return trim($this->prenom.' '.$this->nom).' ('.$this->matricule.')';
+    }
 }

@@ -291,6 +291,7 @@ export const vacationsApi = {
       date_debut: string;
       date_fin: string;
       agent_ids?: string[];
+      conserver_agent_ids?: string[];
       /** poste = vide tout le poste sur la période (Planifier). */
       scope?: "agents" | "poste";
     };

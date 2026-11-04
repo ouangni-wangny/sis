@@ -4,6 +4,7 @@ import type {
   DataResponse,
   MobileUser,
   Paginated,
+  Remplacant,
   Vacation,
 } from "@/types/api";
 
@@ -38,6 +39,30 @@ export const vacationsApi = {
     });
     return apiRequest<Paginated<Vacation>>(`/vacations?${q}`, { token });
   },
+
+  /** Cases à recouvrir d’aujourd’hui sur le périmètre du contrôleur. */
+  aRecouvrir: (token: string, aujourdhui: string) => {
+    const q = new URLSearchParams({
+      statut: "a_recouvrir",
+      date_from: aujourdhui,
+      date_to: aujourdhui,
+      per_page: "50",
+    });
+    return apiRequest<Paginated<Vacation>>(`/vacations?${q}`, { token });
+  },
+
+  remplacants: (token: string, vacationId: string) =>
+    apiRequest<DataResponse<Remplacant[]>>(
+      `/vacations/${vacationId}/remplacants`,
+      { token },
+    ),
+
+  recouvrir: (token: string, vacationId: string, agentId: string) =>
+    apiRequest<DataResponse<Vacation>>(`/vacations/${vacationId}/recouvrir`, {
+      method: "POST",
+      token,
+      body: { agent_id: agentId },
+    }),
 };
 
 export const controlesApi = {

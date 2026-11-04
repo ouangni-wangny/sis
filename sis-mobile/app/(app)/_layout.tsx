@@ -72,6 +72,10 @@ export default function AppLayout() {
         }}
       />
       <Tabs.Screen
+        name="recouvrir"
+        options={{ title: "À recouvrir", href: null }}
+      />
+      <Tabs.Screen
         name="anomalie"
         options={{
           title: "Signalisation",

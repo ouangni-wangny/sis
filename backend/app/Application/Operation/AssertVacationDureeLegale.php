@@ -126,6 +126,8 @@ final class AssertVacationDureeLegale
             ->where('agent_id', $agentId)
             ->whereNotNull('date_fin')
             ->whereNotIn('statut', ['annulee', 'a_recouvrir'])
+            // L’enchaînement d’un remplacement est voulu : il ne bloque pas le planning normal.
+            ->where('est_remplacement', false)
             ->when($excludeIds !== [], fn ($q) => $q->whereNotIn('id', $excludeIds))
             ->get();
 

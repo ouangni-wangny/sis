@@ -5,6 +5,7 @@ namespace App\Application\Operation;
 use App\Domain\Shared\Support\PosteEffectifRules;
 use App\Models\Poste;
 use App\Models\Vacation;
+use Carbon\Carbon;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -22,6 +23,7 @@ final class AssertPosteEffectifDisponible
         string $heureFin,
         ?string $dateFin = null,
         ?string $excludeId = null,
+        ?string $agentId = null,
     ): void {
         if (! $posteId) {
             return;
@@ -46,6 +48,7 @@ final class AssertPosteEffectifDisponible
             $heureFin,
             $dateFin,
             $excludeId,
+            $agentId,
         );
 
         if ($reste >= 1) {
@@ -57,12 +60,17 @@ final class AssertPosteEffectifDisponible
             ? PosteEffectifRules::capaciteParQuart($poste)
             : PosteEffectifRules::capaciteSimple($poste);
 
+        $enPlace = $posteVacations->first(fn (Vacation $v) => substr((string) $v->date_debut, 0, 10) === substr($dateDebut, 0, 10)
+            && substr((string) $v->heure_debut, 0, 5) === substr($heureDebut, 0, 5));
+
         throw ValidationException::withMessages([
             'poste_id' => sprintf(
-                'Créneau déjà couvert sur le poste « %s » (%s–%s) : capacité %d atteinte pour ce jour/quart. Choisissez l’autre quart, un autre jour, ou remplacez l’agent déjà planifié.',
+                'Créneau du %s déjà couvert sur le poste « %s » (%s–%s)%s : capacité %d atteinte. Choisissez l’autre quart, un autre jour, ou remplacez l’agent déjà planifié.',
+                Carbon::parse($dateDebut)->format('d/m/Y'),
                 $poste->nom,
                 substr($heureDebut, 0, 5),
                 substr($heureFin, 0, 5),
+                $enPlace?->agent ? ' par '.$enPlace->agent->libelle() : '',
                 $cap,
             ),
         ]);

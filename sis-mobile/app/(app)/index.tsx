@@ -16,6 +16,7 @@ import {
   statusControleVacation,
   type PassageStatus,
 } from "@/lib/controlePassages";
+import { dateDuJour } from "@/lib/dateDuJour";
 import { colors, radii, shadows, spacing, typography } from "@/theme/tokens";
 import type { Vacation } from "@/types/api";
 
@@ -25,6 +26,7 @@ export default function HomeScreen() {
   const [statusByVacation, setStatusByVacation] = useState(
     () => new Map<string, PassageStatus>(),
   );
+  const [aRecouvrir, setARecouvrir] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -38,6 +40,10 @@ export default function HomeScreen() {
         controlesApi.todayMine(token),
       ]);
       setVacations(vacRes.data);
+      if (user?.permissions?.includes("vacations.recouvrir")) {
+        const trous = await vacationsApi.aRecouvrir(token, dateDuJour());
+        setARecouvrir(trous.meta?.total ?? trous.data.length);
+      }
       const byAgent = indexControlesParPassage(
         ctrlRes.data.map((c) => ({
           controle_agent_id: c.controle_agent_id,
@@ -55,7 +61,7 @@ export default function HomeScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, [token]);
+  }, [token, user]);
 
   useFocusEffect(
     useCallback(() => {
@@ -147,6 +153,23 @@ export default function HomeScreen() {
           style={styles.missionCta}
         />
       </LinearGradient>
+
+      {aRecouvrir > 0 ? (
+        <Pressable
+          onPress={() => router.push("/(app)/recouvrir")}
+          style={({ pressed }) => [
+            styles.errorBox,
+            pressed && { opacity: 0.85 },
+          ]}
+          accessibilityRole="button"
+        >
+          <Ionicons name="alert-circle" size={16} color={colors.danger} />
+          <Text style={styles.errorText}>
+            {aRecouvrir} poste{aRecouvrir > 1 ? "s" : ""} à recouvrir aujourd’hui
+          </Text>
+          <Ionicons name="arrow-forward" size={16} color={colors.danger} />
+        </Pressable>
+      ) : null}
 
       <View style={styles.section}>
         <View style={styles.sectionHead}>
