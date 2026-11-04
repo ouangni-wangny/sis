@@ -16,7 +16,8 @@ class VacationPolicy
 
     public function view(User $user, Vacation $model): bool
     {
-        return $user->can('vacations.view') || $user->hasRole('super-admin');
+        return ($user->can('vacations.view') || $user->hasRole('super-admin'))
+            && Vacation::query()->visiblesPar($user)->whereKey($model->id)->exists();
     }
 
     public function create(User $user): bool

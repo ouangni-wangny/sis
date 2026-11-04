@@ -10,10 +10,10 @@ use App\Application\Operation\DetecterConflitsVacationAction;
 use App\Application\Operation\NormalizeVacationSchedule;
 use App\Application\Operation\RattacherRondesApresDecoupage;
 use App\Application\Operation\RecouvrirVacationAction;
+use App\Application\Operation\VacationDejaEffectuee;
 use App\Application\Operation\RemplacantsDisponiblesQuery;
 use App\Application\Operation\UpdateVacationAction;
 use App\Application\Reporting\PointageVacationsAction;
-use App\Application\Shared\RondierPerimetreGuard;
 use App\Domain\Shared\Enums\StatutRonde;
 use App\Domain\Shared\Enums\StatutVacation;
 use App\Domain\Shared\Enums\TypeAgent;
@@ -42,16 +42,9 @@ class VacationController extends Controller
     {
         $this->authorize('viewAny', Vacation::class);
 
-        // Un contrôleur ne voit que les agents en poste dans son périmètre assigné.
-        $controleurAgent = $request->user()?->agent?->type === TypeAgent::Controleur
-            ? $request->user()->agent
-            : null;
-
         $items = Vacation::query()
             ->with(['agent', 'site', 'poste'])
-            ->when($controleurAgent, function ($q) use ($controleurAgent) {
-                $q->whereIn('site_id', RondierPerimetreGuard::authorizedSiteIds($controleurAgent));
-            })
+            ->visiblesPar($request->user())
             ->when($request->agent_id, fn ($q, $v) => $q->where('agent_id', $v))
             ->when($request->site_id, fn ($q, $v) => $q->where('site_id', $v))
             ->when($request->poste_id, fn ($q, $v) => $q->where('poste_id', $v))
@@ -159,6 +152,7 @@ class VacationController extends Controller
     ): VacationResource {
         $this->authorize('update', $vacation);
         $data = $request->validated();
+        VacationDejaEffectuee::refuserModification($vacation, $data, $request->user());
 
         // Étendue à une période : comme à la création, une vacation par jour
         // de prise de poste (date_fin en sémantique stockée : nuit → lendemain).
@@ -245,6 +239,7 @@ class VacationController extends Controller
     public function destroy(Vacation $vacation): Response
     {
         $this->authorize('delete', $vacation);
+        VacationDejaEffectuee::refuserSuppression($vacation, request()->user());
 
         $hasOpenRonde = Ronde::query()
             ->where('vacation_id', $vacation->id)
@@ -264,6 +259,8 @@ class VacationController extends Controller
 
     public function conflits(Request $request, DetecterConflitsVacationAction $action): JsonResponse
     {
+        $this->authorize('create', Vacation::class);
+
         $request->validate([
             'agent_id' => ['required', 'uuid'],
             'date_debut' => ['required', 'date'],
@@ -329,7 +326,7 @@ class VacationController extends Controller
 
         // « Tous les agents » : même ceux sans créneau, sauf vue restreinte.
         $restreinte = ($data['agent_id'] ?? null) || ($data['site_id'] ?? null)
-            || $request->user()?->agent?->type === TypeAgent::Controleur;
+            || ! Vacation::voitToutLePlanning($request->user());
         $agents = $restreinte
             ? collect()
             : Agent::query()->avecContratValide($data['date_fin'])->get(['id', 'nom', 'prenom', 'matricule']);
@@ -375,16 +372,9 @@ class VacationController extends Controller
             'date_fin' => ['required', 'date_format:Y-m-d', 'after_or_equal:date_debut'],
         ]);
 
-        // Même périmètre que la liste : un contrôleur ne voit que ses sites.
-        $controleurAgent = $request->user()?->agent?->type === TypeAgent::Controleur
-            ? $request->user()->agent
-            : null;
-
         $vacations = Vacation::query()
             ->with(['agent:id,nom,prenom,matricule', 'site:id,nom', 'poste:id,nom'])
-            ->when($controleurAgent, function ($q) use ($controleurAgent) {
-                $q->whereIn('site_id', RondierPerimetreGuard::authorizedSiteIds($controleurAgent));
-            })
+            ->visiblesPar($request->user())
             ->when($data['agent_id'] ?? null, fn ($q, $v) => $q->where('agent_id', $v))
             ->when($data['site_id'] ?? null, fn ($q, $v) => $q->where('site_id', $v))
             ->whereDate('date_debut', '<=', $data['date_fin'])
