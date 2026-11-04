@@ -49,7 +49,7 @@ class StoreBulkVacationsRequest extends FormRequest
             if ($scope === 'agents' && empty($replace['agent_ids'])) {
                 $validator->errors()->add(
                     'replace.agent_ids',
-                    'Indiquez les agents à remplacer, ou utilisez scope=poste.',
+                    'Indiquez les agents à remplacer.',
                 );
             }
         });

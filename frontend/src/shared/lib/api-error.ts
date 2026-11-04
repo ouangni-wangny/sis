@@ -19,9 +19,9 @@ export function getApiErrorMessage(
       return "Délai dépassé. Affinez les filtres ou réessayez.";
     }
     if (code === "ERR_NETWORK" || code === "ECONNRESET") {
-      return "Export interrompu (volume trop important ou serveur saturé). Affinez les filtres et réessayez.";
+      return "Connexion au serveur interrompue. Vérifiez votre réseau et réessayez (pour un export, affinez les filtres).";
     }
-    return "API injoignable. Vérifiez que le serveur Laravel tourne.";
+    return "Serveur injoignable. Vérifiez votre connexion internet et réessayez.";
   }
 
   const status = err.response.status;
@@ -34,7 +34,7 @@ export function getApiErrorMessage(
     | undefined;
 
   if (status === 403) {
-    return "Action non autorisée pour votre rôle.";
+    return data?.message ?? "Action non autorisée pour votre rôle.";
   }
 
   if (status === 422 && data?.errors) {

@@ -8,6 +8,7 @@ use App\Domain\Shared\Enums\StatutRonde;
 use App\Domain\Shared\Enums\StatutVacation;
 use App\Domain\Shared\Exceptions\VacationConflitException;
 use App\Models\Agent;
+use Carbon\Carbon;
 use App\Models\Poste;
 use App\Models\Ronde;
 use App\Models\Vacation;
@@ -119,7 +120,14 @@ final class UpdateVacationAction
                 if ($conflits->isNotEmpty()) {
                     $blocker = $conflits->first();
                     throw new VacationConflitException(
-                        'Cet agent a déjà une vacation sur ce créneau (même site ou autre site).',
+                        sprintf(
+                            '%s a déjà une vacation sur ce créneau le %s (%s–%s, %s).',
+                            Agent::query()->find($agentId)?->libelle() ?? 'Cet agent',
+                            Carbon::parse($dateDebut)->format('d/m/Y'),
+                            substr((string) $blocker->heure_debut, 0, 5),
+                            substr((string) $blocker->heure_fin, 0, 5),
+                            $blocker->site?->nom ?? 'autre site',
+                        ),
                         $blocker ? (string) $blocker->id : null,
                     );
                 }

@@ -6,6 +6,7 @@ use App\Domain\Shared\Enums\StatutAbsence;
 use App\Domain\Shared\Exceptions\DomainException;
 use App\Domain\Shared\Support\ShiftSchedule;
 use App\Models\Absence;
+use App\Models\Agent;
 
 final class DetecterAbsenceAgentAction
 {
@@ -27,9 +28,14 @@ final class DetecterAbsenceAgentAction
                 && $schedule->lastDay >= ShiftSchedule::dayNumber($a->date_debut->toDateString()));
 
         if ($absences->isNotEmpty()) {
-            throw new DomainException(
-                'Agent indisponible : absence approuvée sur cette période.'
-            );
+            $absence = $absences->first();
+
+            throw new DomainException(sprintf(
+                '%s : absence approuvée du %s au %s.',
+                Agent::query()->find($agentId)?->libelle() ?? 'Cet agent',
+                $absence->date_debut->format('d/m/Y'),
+                ($absence->date_fin ?? $absence->date_debut)->format('d/m/Y'),
+            ));
         }
     }
 }

@@ -27,6 +27,15 @@ final class RecouvrirVacationAction
     public function execute(Vacation $trou, string $remplacantId, bool $heuresSupplementaires = false): Vacation
     {
         return DB::transaction(function () use ($trou, $remplacantId, $heuresSupplementaires) {
+            // Deux personnes peuvent traiter la même case : la seconde est prévenue.
+            $trou = Vacation::query()->lockForUpdate()->findOrFail($trou->id);
+
+            if ($trou->remplacee) {
+                throw ValidationException::withMessages([
+                    'vacation' => 'Cette case vient déjà d’être recouverte. Actualisez la liste.',
+                ]);
+            }
+
             if ($trou->statut !== StatutVacation::ARecouvrir) {
                 throw ValidationException::withMessages([
                     'vacation' => 'Seules les vacations « à recouvrir » peuvent être remplacées.',

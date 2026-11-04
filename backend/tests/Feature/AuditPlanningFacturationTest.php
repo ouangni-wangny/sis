@@ -216,7 +216,7 @@ it('indique le jour du conflit lors d’une saisie sur période', function () {
         'heure_debut' => '07:00',
         'heure_fin' => '19:00',
     ])->assertStatus(409)
-        ->assertJsonPath('message', 'Cet agent a déjà une vacation sur ce créneau le 04/11/2026 (10:00–14:00, Site audit).');
+        ->assertJsonPath('message', $this->titulaire->libelle().' a déjà une vacation sur ce créneau le 04/11/2026 (10:00–14:00, Site audit).');
 
     expect(Vacation::query()->count())->toBe(1);
 });

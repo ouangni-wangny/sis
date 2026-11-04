@@ -112,7 +112,8 @@ final class CreateVacationAction
                 $bloquante = $conflits->first();
                 throw new VacationConflitException(
                     sprintf(
-                        'Cet agent a déjà une vacation sur ce créneau le %s (%s–%s, %s).',
+                        '%s a déjà une vacation sur ce créneau le %s (%s–%s, %s).',
+                        Agent::query()->find($data['agent_id'])?->libelle() ?? 'Cet agent',
                         \Carbon\Carbon::parse($data['date_debut'])->format('d/m/Y'),
                         substr((string) $bloquante->heure_debut, 0, 5),
                         substr((string) $bloquante->heure_fin, 0, 5),
