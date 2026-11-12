@@ -867,7 +867,7 @@ export type PosteCoverage = {
   poste_id: string;
   nom: string;
   agents_requis: number;
-  /** Capacité journalière (1 en alternance, sinon agents_requis). */
+  /** Capacité du jour (template publié si présent, sinon agents_requis / alternance). */
   capacite_jour?: number;
   planifies: number;
   manquant: number;

@@ -33,19 +33,21 @@ final class PublierPlanningSemaineAction
             $siteId = $poste->site_id;
             $lundi = $planning->lundi()->toDateString();
             $dimanche = $planning->dimanche()->toDateString();
-            $aujourdHui = now('Africa/Abidjan')->toDateString();
 
-            // Remplacer le prévu sur la semaine (sauf passé / remplacements / HS / remplacée).
+            // Toute la semaine ISO (y compris jours déjà passés) : le template publié
+            // est la source de vérité. On préserve remplacements, HS, et vacations
+            // déjà liées à une ronde terminée (historique terrain).
             $toRemove = Vacation::query()
                 ->where('poste_id', $poste->id)
                 ->where('est_remplacement', false)
                 ->where('heures_supplementaires', false)
                 ->where(fn ($q) => $q
                     ->where('statut', StatutVacation::Planifiee->value)
+                    ->orWhere('statut', StatutVacation::Annulee->value)
                     ->orWhere(fn ($t) => $t
                         ->where('statut', StatutVacation::ARecouvrir->value)
                         ->whereNotNull('absence_id')))
-                ->whereDate('date_debut', '>=', max($lundi, $aujourdHui))
+                ->whereDate('date_debut', '>=', $lundi)
                 ->whereDate('date_debut', '<=', $dimanche)
                 ->lockForUpdate()
                 ->get();
@@ -63,15 +65,20 @@ final class PublierPlanningSemaineAction
                     ]);
                 }
 
-                Vacation::query()->whereIn('id', $ids)->delete();
+                $protegees = Ronde::query()
+                    ->whereIn('vacation_id', $ids)
+                    ->where('statut', StatutRonde::Terminee)
+                    ->pluck('vacation_id')
+                    ->all();
+
+                $aSupprimer = array_values(array_diff($ids, $protegees));
+                if ($aSupprimer !== []) {
+                    Vacation::query()->whereIn('id', $aSupprimer)->delete();
+                }
             }
 
             foreach ($planning->creneaux as $creneau) {
                 $dateDebut = $creneau->datePourSemaine($planning);
-                if ($dateDebut < $aujourdHui) {
-                    continue;
-                }
-
                 $dateFin = $creneau->dateFinPourSemaine($planning);
                 $row = [
                     'agent_id' => $creneau->agent_id,

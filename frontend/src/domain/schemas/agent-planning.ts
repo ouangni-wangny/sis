@@ -173,6 +173,19 @@ export type CellulePlanning = (typeof CELLULES)[number];
 /** Programme d’un agent, jour par jour (clé Y-m-d). */
 export type CellulesPlanning = Record<string, CellulePlanning>;
 
+/** Jours cochés déduits de la grille (cases ≠ repos). */
+export function joursTravaillesDepuisCellules(
+  cellules: CellulesPlanning,
+  dates: string[],
+): JourSemaine[] {
+  const present = new Set<JourSemaine>();
+  for (const date of dates) {
+    const c = cellules[date];
+    if (c && c !== "repos") present.add(frenchWeekdayFromIso(date));
+  }
+  return DEFAULT_JOURS_TRAVAILLES.filter((j) => present.has(j));
+}
+
 export const agentPlanningSlotSchema = z.object({
   agent_id: z.string(),
   /** Quart choisi par agent (mode Matin/Soir ou Jour/Nuit). */
@@ -181,7 +194,7 @@ export const agentPlanningSlotSchema = z.object({
     .array(z.enum(JOUR_VALUES))
     .min(1, "Sélectionnez au moins un jour travaillé"),
   jour_repos: z.enum([...JOUR_VALUES, ""]).optional(),
-  /** Le planning réel sur la période : les jours ci-dessus ne servent qu’à le remplir. */
+  /** Programme réel de la semaine (source de vérité à l’enregistrement). */
   cellules: z.record(z.string(), z.enum(CELLULES)).optional(),
 });
 

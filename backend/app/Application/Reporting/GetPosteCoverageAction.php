@@ -2,7 +2,9 @@
 
 namespace App\Application\Reporting;
 
+use App\Domain\Shared\Enums\StatutPlanningSemaine;
 use App\Domain\Shared\Support\PosteEffectifRules;
+use App\Models\PlanningSemaine;
 use App\Models\Poste;
 use App\Models\Vacation;
 use Carbon\Carbon;
@@ -29,20 +31,31 @@ final class GetPosteCoverageAction
             ->filter(fn (Vacation $v) => PosteEffectifRules::vacationCoversPlanningDay($v, $target))
             ->groupBy('poste_id');
 
-        return $postes->map(function (Poste $poste) use ($vacationsByPoste, $target) {
+        $iso = PlanningSemaine::isoFromDate($target);
+        $templatesByPoste = PlanningSemaine::query()
+            ->whereIn('poste_id', $posteIds)
+            ->where('annee_iso', $iso['annee_iso'])
+            ->where('semaine_iso', $iso['semaine_iso'])
+            ->where('statut', StatutPlanningSemaine::Publiee)
+            ->with('creneaux')
+            ->get()
+            ->keyBy('poste_id');
+
+        return $postes->map(function (Poste $poste) use ($vacationsByPoste, $target, $templatesByPoste) {
             $posteVacations = $vacationsByPoste->get($poste->id, collect());
             $windows = PosteEffectifRules::quartWindows($poste);
 
             if ($windows !== null) {
-                return $this->coverage24h($poste, $posteVacations, $target, $windows);
+                return $this->coverage24h($poste, $posteVacations, $target, $windows, $templatesByPoste);
             }
 
             $planifies = $posteVacations->count();
-            $capacite = PosteEffectifRules::capaciteSimple($poste);
+            $capacite = PosteEffectifRules::capaciteSimplePourJour($poste, $target, $templatesByPoste);
             $manquant = max(0, $capacite - $planifies);
 
-            // sur_effectif = anomalie héritée uniquement (ne doit plus être créable).
+            // sur_effectif = trop vs capacité du jour (template ou agents_requis).
             $statut = match (true) {
+                $capacite === 0 && $planifies === 0 => 'ok',
                 $planifies === 0 => 'non_couvert',
                 $planifies > $capacite => 'sur_effectif',
                 $manquant === 0 => 'ok',
@@ -65,14 +78,17 @@ final class GetPosteCoverageAction
 
     /**
      * @param  array{jour: array{heure_debut: string, heure_fin: string}, nuit: array{heure_debut: string, heure_fin: string}}  $windows
+     * @param  Collection<string, PlanningSemaine>  $templatesByPoste
      */
     private function coverage24h(
         Poste $poste,
         Collection $posteVacations,
         Carbon $target,
         array $windows,
+        Collection $templatesByPoste,
     ): array {
-        $capQuart = PosteEffectifRules::capaciteParQuart($poste);
+        $capJour = PosteEffectifRules::capaciteParQuartPourJour($poste, $target, 'jour', $templatesByPoste);
+        $capNuit = PosteEffectifRules::capaciteParQuartPourJour($poste, $target, 'nuit', $templatesByPoste);
         $planifiesJour = PosteEffectifRules::countOnQuart(
             $posteVacations,
             $poste,
@@ -86,6 +102,11 @@ final class GetPosteCoverageAction
             'nuit',
         );
 
+        $hasTemplate = PosteEffectifRules::templatePubliePourJour($poste, $target, $templatesByPoste) !== null;
+        $capaciteJournee = $hasTemplate
+            ? PosteEffectifRules::capaciteSimplePourJour($poste, $target, $templatesByPoste)
+            : max(1, (int) $poste->agents_requis);
+
         // Places tenues pour la couverture ; le sur-effectif se juge en personnes :
         // qui enchaîne jour et nuit couvre deux places sans compter deux fois.
         $personnes = $posteVacations
@@ -93,18 +114,24 @@ final class GetPosteCoverageAction
             ->pluck('agent_id')
             ->unique()
             ->count();
-        $surEffectif = $personnes > $poste->agents_requis;
+        $surQuart = $planifiesJour > $capJour || $planifiesNuit > $capNuit;
+        $surEffectif = $personnes > $capaciteJournee || $surQuart;
+        $plafondPlaces = $hasTemplate
+            ? max($capJour + $capNuit, 1)
+            : max(1, (int) $poste->agents_requis);
         $planifies = $surEffectif
             ? $personnes
-            : min($planifiesJour + $planifiesNuit, (int) $poste->agents_requis);
-        $manquant = max(0, $poste->agents_requis - $planifies);
-        $quartsComplets = $planifiesJour > 0 && $planifiesNuit > 0;
-        $surQuart = $planifiesJour > $capQuart || $planifiesNuit > $capQuart;
+            : min($planifiesJour + $planifiesNuit, $plafondPlaces);
+        $manquantPlaces = max(0, $capJour - $planifiesJour) + max(0, $capNuit - $planifiesNuit);
+        $quartsComplets = ($capJour === 0 || $planifiesJour >= $capJour)
+            && ($capNuit === 0 || $planifiesNuit >= $capNuit);
+        $aucuneAttente = $hasTemplate && $capJour === 0 && $capNuit === 0;
 
         $statut = match (true) {
-            $planifies === 0 => 'non_couvert',
-            $surEffectif || $surQuart => 'sur_effectif',
-            $manquant === 0 && $quartsComplets => 'ok',
+            $aucuneAttente && $personnes === 0 => 'ok',
+            $planifiesJour + $planifiesNuit === 0 => 'non_couvert',
+            $surEffectif => 'sur_effectif',
+            $manquantPlaces === 0 && $quartsComplets => 'ok',
             default => 'sous_effectif',
         };
 
@@ -112,20 +139,19 @@ final class GetPosteCoverageAction
             'poste_id' => $poste->id,
             'nom' => $poste->nom,
             'agents_requis' => $poste->agents_requis,
+            'capacite_jour' => $capaciteJournee,
             'site' => $this->siteData($poste),
             'planifies' => $planifies,
-            'manquant' => $manquant === 0 && ! $quartsComplets
-                ? ($planifiesJour === 0 ? 1 : 0) + ($planifiesNuit === 0 ? 1 : 0)
-                : $manquant,
+            'manquant' => $manquantPlaces,
             'statut' => $statut,
             'couverture_24h' => true,
             'jour' => [
                 'planifies' => $planifiesJour,
-                'manquant' => max(0, $capQuart - $planifiesJour),
+                'manquant' => max(0, $capJour - $planifiesJour),
             ],
             'nuit' => [
                 'planifies' => $planifiesNuit,
-                'manquant' => max(0, $capQuart - $planifiesNuit),
+                'manquant' => max(0, $capNuit - $planifiesNuit),
             ],
         ];
     }

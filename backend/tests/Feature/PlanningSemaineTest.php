@@ -240,10 +240,44 @@ it('remplace les vacations planifiee de la semaine à la republication', functio
     expect($dates)->toBe(['2026-11-10', '2026-11-12']);
 });
 
-it('conserve les créneaux des jours déjà passés à l’enregistrement mid-semaine', function () {
-    Carbon::setTestNow('2026-11-11 10:00:00'); // mercredi
+it('réaligne les vacations des jours déjà passés à la republication mid-semaine', function () {
+    Carbon::setTestNow('2026-11-09 10:00:00'); // lundi : première publication
+
+    $autre = ($this->creerAgent)('Autre');
 
     $planning = app(UpsertPlanningSemaineAction::class)->execute([
+        'poste_id' => $this->poste->id,
+        'annee_iso' => 2026,
+        'semaine_iso' => 46,
+        'creneaux' => [
+            [
+                'agent_id' => $autre->id,
+                'jour' => 1,
+                'heure_debut' => '06:30',
+                'heure_fin' => '18:30',
+            ],
+            [
+                'agent_id' => $this->jour->id,
+                'jour' => 4,
+                'heure_debut' => '06:30',
+                'heure_fin' => '18:30',
+            ],
+        ],
+    ]);
+    app(PublierPlanningSemaineAction::class)->execute($planning);
+
+    expect(
+        Vacation::query()
+            ->where('poste_id', $this->poste->id)
+            ->whereDate('date_debut', '2026-11-09')
+            ->where('statut', 'planifiee')
+            ->value('agent_id'),
+    )->toBe($autre->id);
+
+    Carbon::setTestNow('2026-11-12 10:00:00'); // jeudi : on corrige le lundi via le template
+
+    // Autre reste dans le payload (jour futur) pour ne pas réinjecter son lundi via aConserver.
+    $corrige = app(UpsertPlanningSemaineAction::class)->execute([
         'poste_id' => $this->poste->id,
         'annee_iso' => 2026,
         'semaine_iso' => 46,
@@ -256,7 +290,84 @@ it('conserve les créneaux des jours déjà passés à l’enregistrement mid-se
             ],
             [
                 'agent_id' => $this->jour->id,
+                'jour' => 4,
+                'heure_debut' => '06:30',
+                'heure_fin' => '18:30',
+            ],
+            [
+                'agent_id' => $autre->id,
+                'jour' => 5,
+                'heure_debut' => '06:30',
+                'heure_fin' => '18:30',
+            ],
+        ],
+    ]);
+    app(PublierPlanningSemaineAction::class)->execute($corrige->fresh());
+
+    $lundi = Vacation::query()
+        ->where('poste_id', $this->poste->id)
+        ->whereDate('date_debut', '2026-11-09')
+        ->where('statut', 'planifiee')
+        ->get();
+
+    expect($lundi)->toHaveCount(1)
+        ->and($lundi->first()->agent_id)->toBe($this->jour->id)
+        ->and(
+            Vacation::query()
+                ->where('poste_id', $this->poste->id)
+                ->where('agent_id', $autre->id)
+                ->whereDate('date_debut', '2026-11-09')
+                ->where('statut', 'planifiee')
+                ->exists(),
+        )->toBeFalse();
+});
+
+it('conserve les créneaux passés des agents absents du payload mid-semaine', function () {
+    Carbon::setTestNow('2026-11-11 10:00:00'); // mercredi
+    $autre = ($this->creerAgent)('HorsForm');
+
+    app(UpsertPlanningSemaineAction::class)->execute([
+        'poste_id' => $this->poste->id,
+        'annee_iso' => 2026,
+        'semaine_iso' => 46,
+        'creneaux' => [
+            [
+                'agent_id' => $this->jour->id,
+                'jour' => 1,
+                'heure_debut' => '06:30',
+                'heure_fin' => '18:30',
+            ],
+            [
+                'agent_id' => $this->jour->id,
+                'jour' => 3,
+                'heure_debut' => '06:30',
+                'heure_fin' => '18:30',
+            ],
+            [
+                'agent_id' => $autre->id,
+                'jour' => 1,
+                'heure_debut' => '06:30',
+                'heure_fin' => '18:30',
+            ],
+            [
+                'agent_id' => $autre->id,
                 'jour' => 2,
+                'heure_debut' => '06:30',
+                'heure_fin' => '18:30',
+            ],
+        ],
+    ]);
+
+    // Front envoie le rythme complet de l’agent édité (y compris le passé).
+    // Les agents hors payload gardent leurs créneaux déjà passés.
+    $maj = app(UpsertPlanningSemaineAction::class)->execute([
+        'poste_id' => $this->poste->id,
+        'annee_iso' => 2026,
+        'semaine_iso' => 46,
+        'creneaux' => [
+            [
+                'agent_id' => $this->jour->id,
+                'jour' => 1,
                 'heure_debut' => '06:30',
                 'heure_fin' => '18:30',
             ],
@@ -269,20 +380,10 @@ it('conserve les créneaux des jours déjà passés à l’enregistrement mid-se
         ],
     ]);
 
-    // Client n’envoie plus lun/mar (verrouillés côté UI) : ils doivent rester.
-    $maj = app(UpsertPlanningSemaineAction::class)->execute([
-        'poste_id' => $this->poste->id,
-        'annee_iso' => 2026,
-        'semaine_iso' => 46,
-        'creneaux' => [[
-            'agent_id' => $this->jour->id,
-            'jour' => 3,
-            'heure_debut' => '06:30',
-            'heure_fin' => '18:30',
-        ]],
-    ]);
+    $parAgent = $maj->creneaux->groupBy('agent_id');
 
-    expect($maj->creneaux->pluck('jour')->sort()->values()->all())->toBe([1, 2, 3]);
+    expect($parAgent[$this->jour->id]->pluck('jour')->sort()->values()->all())->toBe([1, 3])
+        ->and($parAgent[$autre->id]->pluck('jour')->sort()->values()->all())->toBe([1, 2]);
 
     $copie = app(DupliquerPlanningSemaineAction::class)->execute([
         'poste_id' => $this->poste->id,
@@ -290,7 +391,7 @@ it('conserve les créneaux des jours déjà passés à l’enregistrement mid-se
         'semaine_iso' => 47,
     ]);
 
-    expect($copie->creneaux->pluck('jour')->sort()->values()->all())->toBe([1, 2, 3]);
+    expect($copie->creneaux)->toHaveCount(4);
 });
 
 it('marque est_remplacement sur création avec remplacement et ne touche pas le template', function () {

@@ -45,18 +45,32 @@ final class UpsertPlanningSemaineAction
             $planning->save();
             $planning->load('creneaux');
 
-            // Jours déjà passés : les garder si le client ne les renvoie pas
-            // (évite d’effacer lun/mar en enregistrant en milieu de semaine).
+            // Jours déjà passés : ne les reconstituer que pour les agents
+            // absents du payload (évite d’effacer lun/mar par oubli UI).
+            // Si l’agent est présent dans le payload, son rythme (y compris repos
+            // sur un jour passé) est la source de vérité — ne pas réinjecter
+            // d’anciens créneaux.
             $aujourdHui = now('Africa/Abidjan')->toDateString();
             $payloadKeys = [];
+            $agentsPayload = [];
             foreach ($data['creneaux'] as $row) {
-                $payloadKeys[$this->creneauKey($row['agent_id'], (int) $row['jour'], (string) $row['heure_debut'], (string) ($row['quart'] ?? 'jour'))] = true;
+                $agentId = (string) $row['agent_id'];
+                $agentsPayload[$agentId] = true;
+                $payloadKeys[$this->creneauKey(
+                    $agentId,
+                    (int) $row['jour'],
+                    (string) $row['heure_debut'],
+                    (string) ($row['quart'] ?? 'jour'),
+                )] = true;
             }
 
             $aConserver = [];
             foreach ($planning->creneaux as $existant) {
                 $date = $existant->datePourSemaine($planning);
                 if ($date >= $aujourdHui) {
+                    continue;
+                }
+                if (isset($agentsPayload[$existant->agent_id])) {
                     continue;
                 }
                 $key = $this->creneauKey(

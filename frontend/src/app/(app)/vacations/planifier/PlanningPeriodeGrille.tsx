@@ -1,11 +1,9 @@
 "use client";
 
-import { useState } from "react";
 import type {
   CellulePlanning,
   CellulesPlanning,
 } from "@/domain/schemas/agent-planning";
-import { Button } from "@/presentation/components/ui/Button";
 import { cn } from "@/shared/lib/cn";
 
 const CASE: Record<CellulePlanning, { lettre: string; titre: string; classe: string }> = {
@@ -49,71 +47,15 @@ function formatDateCourte(date: string) {
   return `${date.slice(8, 10)}/${date.slice(5, 7)}`;
 }
 
-/** Applique à un agent un cycle indépendant de la semaine (ex. 2 travaillés, 1 repos). */
-function CycleAgent({
-  ligne,
-  onCycle,
-}: {
-  ligne: Ligne;
-  onCycle: (
-    index: number,
-    cycle: { travail: number; repos: number; decalage: number },
-  ) => void;
-}) {
-  const [travail, setTravail] = useState(6);
-  const [repos, setRepos] = useState(1);
-  const [decalage, setDecalage] = useState(0);
-  const champ = (
-    label: string,
-    value: number,
-    onChange: (n: number) => void,
-    min: number,
-  ) => (
-    <label className="flex items-center gap-1 text-xs text-ink-muted">
-      {label}
-      <input
-        type="number"
-        min={min}
-        max={60}
-        value={value}
-        onChange={(e) => onChange(Math.max(min, Number(e.target.value) || 0))}
-        className="h-8 w-12 rounded-md border border-border bg-white px-1 text-center text-xs text-ink"
-      />
-    </label>
-  );
-
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="min-w-28 text-xs font-medium text-ink">{ligne.label}</span>
-      {champ("Travail", travail, setTravail, 1)}
-      {champ("Repos", repos, setRepos, 0)}
-      {champ("Décalage", decalage, setDecalage, 0)}
-      <Button
-        type="button"
-        variant="secondary"
-        size="sm"
-        onClick={() => onCycle(ligne.index, { travail, repos, decalage })}
-      >
-        Appliquer ce cycle
-      </Button>
-    </div>
-  );
-}
-
-/** Grille agents × dates : le programme réel de la période, modifiable case par case. */
+/** Grille agents × dates : programme réel de la semaine, modifiable case par case. */
 export function PlanningPeriodeGrille({
   dates,
   lignes,
   onCellule,
-  onCycle,
 }: {
   dates: string[];
   lignes: Ligne[];
   onCellule: (index: number, date: string) => void;
-  onCycle: (
-    index: number,
-    cycle: { travail: number; repos: number; decalage: number },
-  ) => void;
 }) {
   return (
     <div className="space-y-3">
@@ -193,18 +135,11 @@ export function PlanningPeriodeGrille({
       </div>
 
       <p className="text-xs text-ink-muted">
-        J = jour · N = nuit · – = repos. Les cases estompées ne changent plus
-        (date passée, vacation démarrée, remplacement) : survolez-les pour la raison.
+        J = jour · N = nuit · – = repos. Cliquez une case pour basculer. Les
+        cases estompées ne changent plus (date passée, vacation démarrée,
+        remplacement) : survolez-les pour la raison. C’est cette grille qui est
+        enregistrée / publiée.
       </p>
-
-      <div className="space-y-2 border-t border-border/70 pt-3">
-        <p className="text-xs font-medium text-ink">
-          Rythme qui ne suit pas la semaine
-        </p>
-        {lignes.map((ligne) => (
-          <CycleAgent key={ligne.index} ligne={ligne} onCycle={onCycle} />
-        ))}
-      </div>
     </div>
   );
 }
