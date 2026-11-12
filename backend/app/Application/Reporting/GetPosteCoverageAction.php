@@ -86,14 +86,24 @@ final class GetPosteCoverageAction
             'nuit',
         );
 
-        $planifies = $planifiesJour + $planifiesNuit;
+        // Places tenues pour la couverture ; le sur-effectif se juge en personnes :
+        // qui enchaîne jour et nuit couvre deux places sans compter deux fois.
+        $personnes = $posteVacations
+            ->filter(fn ($v) => PosteEffectifRules::vacationCoversPlanningDay($v, $target))
+            ->pluck('agent_id')
+            ->unique()
+            ->count();
+        $surEffectif = $personnes > $poste->agents_requis;
+        $planifies = $surEffectif
+            ? $personnes
+            : min($planifiesJour + $planifiesNuit, (int) $poste->agents_requis);
         $manquant = max(0, $poste->agents_requis - $planifies);
         $quartsComplets = $planifiesJour > 0 && $planifiesNuit > 0;
         $surQuart = $planifiesJour > $capQuart || $planifiesNuit > $capQuart;
 
         $statut = match (true) {
             $planifies === 0 => 'non_couvert',
-            $planifies > $poste->agents_requis || $surQuart => 'sur_effectif',
+            $surEffectif || $surQuart => 'sur_effectif',
             $manquant === 0 && $quartsComplets => 'ok',
             default => 'sous_effectif',
         };

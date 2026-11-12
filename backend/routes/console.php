@@ -15,4 +15,5 @@ Schedule::job(new AlerteExpirationDocumentsJob)->dailyAt('06:00');
 Schedule::job(new CloturerContratsExpiresJob)->dailyAt('00:05');
 Schedule::job(new GenererFacturesRecurrentesJob)->dailyAt('01:00');
 Schedule::command('vacations:generer-pool-siege')->dailyAt('00:10');
-Schedule::command('vacations:prolonger-planning')->dailyAt('00:20');
+// Planning par semaine ISO : plus de reconduction automatique.
+// Utiliser « Préparer les N prochaines semaines » / publication manuelle.

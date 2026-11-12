@@ -2,13 +2,10 @@
 
 namespace App\Application\Operation;
 
-use App\Domain\Shared\Enums\StatutAbsence;
 use App\Domain\Shared\Enums\StatutAgent;
 use App\Domain\Shared\Enums\StatutVacation;
 use App\Domain\Shared\Exceptions\DomainException;
-use App\Domain\Shared\Support\ShiftInterval;
 use App\Domain\Shared\Support\ShiftSchedule;
-use App\Models\Absence;
 use App\Models\Poste;
 use App\Models\Vacation;
 use Illuminate\Support\Collection;
@@ -30,7 +27,7 @@ final class ProlongerPlanningPostesAction
     private const MIN_JOURS_PLANIFIES = 7;
 
     /** Un agent absent aujourd’hui peut reprendre à la date reconduite. */
-    private const STATUTS_RECONDUCTIBLES = [
+    public const STATUTS_RECONDUCTIBLES = [
         StatutAgent::Disponible,
         StatutAgent::EnActivite,
         StatutAgent::Conge,
@@ -114,7 +111,6 @@ final class ProlongerPlanningPostesAction
         $resultat = ['created' => 0, 'skipped' => 0, 'errors' => []];
 
         for ($jour = max($dernier + 1, $today); $jour <= $horizon; $jour++) {
-            // Les cycles font 7 × n jours : le jour de la semaine est conservé.
             $source = $dernier - $cycle + 1 + (($jour - $dernier - 1) % $cycle);
 
             foreach ($parJour->get($source, collect()) as $modele) {
@@ -140,7 +136,7 @@ final class ProlongerPlanningPostesAction
             ->where('est_remplacement', false)
             ->where('heures_supplementaires', false)
             ->whereNotNull('date_fin')
-            ->where(fn ($q) => $q->where('statut', '!=', StatutVacation::Annulee->value)->orWhereNotNull('absence_id'))
+            ->where(fn ($q) => $q->where('statut', '!=', StatutVacation::Annulee->value)->orWhereNotNull('absence_id')->orWhere('remplacee', true))
             ->get();
 
         $parJour = [];
@@ -162,9 +158,9 @@ final class ProlongerPlanningPostesAction
     }
 
     /**
-     * Plus petit cycle confirmé par la semaine ou le cycle qui précède (3 semaines
-     * A, B, A donnent un cycle de 2 semaines). Sinon tout l’historique disponible,
-     * jusqu’à 4 semaines.
+     * Plus petit cycle confirmé par le cycle qui précède (3 semaines A, B, A donnent
+     * un cycle de 2 semaines), en semaines ou non (2 jours travaillés, 1 de repos).
+     * Sinon tout l’historique disponible, jusqu’à 4 semaines.
      *
      * @param  Collection<int, Collection<int, Vacation>>  $parJour
      */
@@ -182,7 +178,7 @@ final class ProlongerPlanningPostesAction
             ->values()
             ->all();
 
-        foreach ([7, 14, 21, 28] as $longueur) {
+        foreach (range(2, 28) as $longueur) {
             if ($etendue < $longueur + 7) {
                 continue;
             }
@@ -190,7 +186,10 @@ final class ProlongerPlanningPostesAction
             // Seul le cycle le plus récent compte : après une replanification, l’ancien
             // rythme encore dans l’historique ne doit pas revenir.
             $identique = true;
-            $limite = max($premier + $longueur, $dernier - $longueur + 1);
+            // Hors semaines entières, 2 semaines de confirmation : sinon une semaine
+            // pleine d’une alternance hebdomadaire passerait pour un rythme court.
+            $fenetre = $longueur % 7 === 0 ? $longueur : max($longueur, 14);
+            $limite = max($premier + $longueur, $dernier - $fenetre + 1);
             for ($jour = $dernier; $jour >= $limite; $jour--) {
                 if ($signature($jour) !== $signature($jour - $longueur)) {
                     $identique = false;
@@ -231,23 +230,10 @@ final class ProlongerPlanningPostesAction
         ];
 
         // Absence déjà approuvée ce jour-là : la case est à recouvrir, pas à remplir.
-        $absence = Absence::query()
-            ->where('agent_id', $modele->agent_id)
-            ->where('statut', StatutAbsence::Approuvee->value)
-            ->whereDate('date_debut', '<=', $date)
-            ->where(fn ($q) => $q->whereNull('date_fin')->orWhereDate('date_fin', '>=', $date))
-            ->first();
+        $absence = TrouAbsence::absenceDuJour($modele->agent_id, $date);
 
         if ($absence) {
-            Vacation::query()->create([
-                ...$base,
-                'date_debut' => $date,
-                'date_fin' => ShiftInterval::needsNextCalendarDay((string) $modele->heure_debut, (string) $modele->heure_fin)
-                    ? ShiftSchedule::isoFromDayNumber(ShiftSchedule::dayNumber($date) + 1)
-                    : $date,
-                'statut' => StatutVacation::ARecouvrir->value,
-                'absence_id' => $absence->id,
-            ]);
+            TrouAbsence::creer($base, $date, $absence);
             $resultat['created']++;
 
             return;

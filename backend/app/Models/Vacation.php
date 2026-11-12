@@ -16,7 +16,7 @@ class Vacation extends Model
     protected $fillable = [
         'agent_id', 'absence_id', 'site_id', 'poste_id', 'date_debut', 'date_fin',
         'heure_debut', 'heure_fin', 'statut', 'heures_supplementaires',
-        'est_remplacement', 'reconduite',
+        'est_remplacement', 'reconduite', 'remplacee',
     ];
 
     protected function casts(): array
@@ -28,6 +28,7 @@ class Vacation extends Model
             'heures_supplementaires' => 'boolean',
             'est_remplacement' => 'boolean',
             'reconduite' => 'boolean',
+            'remplacee' => 'boolean',
         ];
     }
 

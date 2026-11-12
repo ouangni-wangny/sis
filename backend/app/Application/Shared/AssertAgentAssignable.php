@@ -7,6 +7,7 @@ use App\Domain\Shared\Enums\StatutAgent;
 use App\Domain\Shared\Enums\TypeAgent;
 use App\Models\Agent;
 use App\Models\Poste;
+use Carbon\Carbon;
 use Illuminate\Validation\ValidationException;
 
 final class AssertAgentAssignable
@@ -33,13 +34,20 @@ final class AssertAgentAssignable
 
         if (! in_array($agent->statut, $allowed, true)) {
             throw ValidationException::withMessages([
-                'agent_id' => 'Cet agent n’est pas assignable (statut : '.$agent->statut->value.').',
+                'agent_id' => 'Affectation impossible pour '.$agent->libelle().' : '.match ($agent->statut) {
+                    StatutAgent::Conge => 'agent en congé.',
+                    StatutAgent::Malade => 'agent en arrêt maladie.',
+                    StatutAgent::Suspendu => 'agent suspendu.',
+                    StatutAgent::Archive => 'agent archivé.',
+                    default => 'statut incompatible.',
+                },
             ]);
         }
 
         if (! ContratValideQuery::agentHasValidContract($agentId, $referenceDate)) {
             throw ValidationException::withMessages([
-                'agent_id' => 'Cet agent n’a pas de contrat valide à cette date.',
+                'agent_id' => 'Affectation impossible pour '.$agent->libelle().' : pas de contrat valide'
+                    .($referenceDate ? ' le '.Carbon::parse($referenceDate)->format('d/m/Y') : '').'.',
             ]);
         }
 

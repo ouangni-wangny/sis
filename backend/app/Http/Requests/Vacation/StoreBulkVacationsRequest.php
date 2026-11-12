@@ -14,7 +14,7 @@ class StoreBulkVacationsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'vacations' => ['required', 'array', 'min:1', 'max:500'],
+            'vacations' => ['required', 'array', 'min:1', 'max:3000'],
             'vacations.*.agent_id' => ['required', 'uuid', 'exists:agents,id'],
             'vacations.*.site_id' => ['required', 'uuid', 'exists:sites,id'],
             'vacations.*.poste_id' => ['nullable', 'uuid', 'exists:postes,id'],
@@ -33,6 +33,8 @@ class StoreBulkVacationsRequest extends FormRequest
             'replace.scope' => ['sometimes', 'in:agents,poste'],
             'replace.agent_ids' => ['sometimes', 'array'],
             'replace.agent_ids.*' => ['uuid', 'exists:agents,id'],
+            'replace.conserver_agent_ids' => ['sometimes', 'array'],
+            'replace.conserver_agent_ids.*' => ['uuid', 'exists:agents,id'],
         ];
     }
 
@@ -47,7 +49,7 @@ class StoreBulkVacationsRequest extends FormRequest
             if ($scope === 'agents' && empty($replace['agent_ids'])) {
                 $validator->errors()->add(
                     'replace.agent_ids',
-                    'Indiquez les agents à remplacer, ou utilisez scope=poste.',
+                    'Indiquez les agents à remplacer.',
                 );
             }
         });

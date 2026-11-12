@@ -10,6 +10,7 @@ use App\Application\Operation\DetecterConflitsVacationAction;
 use App\Application\Operation\NormalizeVacationSchedule;
 use App\Application\Operation\RattacherRondesApresDecoupage;
 use App\Application\Operation\RecouvrirVacationAction;
+use App\Application\Operation\RemplacantsDisponiblesQuery;
 use App\Application\Operation\UpdateVacationAction;
 use App\Application\Reporting\PointageVacationsAction;
 use App\Application\Shared\RondierPerimetreGuard;
@@ -26,6 +27,7 @@ use App\Http\Resources\VacationResource;
 use App\Models\Agent;
 use App\Models\Ronde;
 use App\Models\Vacation;
+use App\Support\ListQuery;
 use App\Support\RechercheNom;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -87,16 +89,16 @@ class VacationController extends Controller
                         ->orWhereHas('poste', fn ($p) => $p->where('nom', 'like', $term));
                 });
             })
-            ->latest()
-            ->paginate($request->integer('per_page', 15));
+            ->latest();
 
-        return VacationResource::collection($items);
+        return VacationResource::collection(ListQuery::paginateOrAll($items, $request));
     }
 
     public function store(
         StoreVacationRequest $request,
         CreateVacationAction $action,
         CreateBulkVacationsAction $bulk,
+        RecouvrirVacationAction $recouvrir,
     ): VacationResource {
         $this->authorize('create', Vacation::class);
 
@@ -108,6 +110,11 @@ class VacationController extends Controller
         unset($data['exclure_jour_repos']);
         $rows = DecouperPeriodeVacation::rows($data, $jourRepos);
         if (count($rows) === 1) {
+            $trou = RecouvrirVacationAction::trouDuCreneau($rows[0]);
+            if ($trou) {
+                return new VacationResource($recouvrir->execute($trou, $rows[0]['agent_id']));
+            }
+
             return new VacationResource($action->execute($rows[0]));
         }
 
@@ -178,6 +185,9 @@ class VacationController extends Controller
                     'heure_fin' => substr((string) $updated->heure_fin, 0, 5),
                     'date_debut' => $jour,
                     'date_fin' => $jour,
+                    'remplacement' => $updated->est_remplacement,
+                    'est_remplacement' => $updated->est_remplacement,
+                    'heures_supplementaires' => $updated->heures_supplementaires,
                 ], wrapInTransaction: false);
             }
             RattacherRondesApresDecoupage::execute($updated, $morceaux, $updated);
@@ -346,6 +356,13 @@ class VacationController extends Controller
         ]);
     }
 
+    public function remplacants(Vacation $vacation): JsonResponse
+    {
+        $this->authorize('recouvrir', $vacation);
+
+        return response()->json(['data' => RemplacantsDisponiblesQuery::pour($vacation)]);
+    }
+
     /**
      * @return array{0: array<string, mixed>, 1: \Illuminate\Database\Eloquent\Collection<int, Vacation>}
      */
@@ -384,13 +401,24 @@ class VacationController extends Controller
         Vacation $vacation,
         RecouvrirVacationAction $action,
     ): VacationResource {
-        $this->authorize('update', $vacation);
+        $this->authorize('recouvrir', $vacation);
+
+        $agentId = $request->string('agent_id')->toString();
+        $planification = $request->user()->can('update', $vacation);
+
+        // Sur le terrain : un agent libre uniquement, et les heures supplémentaires
+        // restent au planning (celles de l’agent qui descend sont automatiques).
+        if (! $planification && ! RemplacantsDisponiblesQuery::pour($vacation)->contains('agent_id', $agentId)) {
+            throw ValidationException::withMessages([
+                'agent_id' => 'Cet agent n’est pas disponible sur ce créneau.',
+            ]);
+        }
 
         return new VacationResource(
             $action->execute(
                 $vacation,
-                $request->string('agent_id')->toString(),
-                $request->boolean('heures_supplementaires'),
+                $agentId,
+                $planification && $request->boolean('heures_supplementaires'),
             )
         );
     }

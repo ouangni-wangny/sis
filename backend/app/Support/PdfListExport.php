@@ -29,7 +29,8 @@ final class PdfListExport
         if (function_exists('ini_set')) {
             @ini_set('memory_limit', $memory);
         }
-        if (function_exists('set_time_limit')) {
+        // Requête web seulement : en console il n’y a pas de limite, et celle-ci durerait jusqu’à la fin du processus.
+        if (! app()->runningInConsole() && function_exists('set_time_limit')) {
             @set_time_limit(300);
         }
     }

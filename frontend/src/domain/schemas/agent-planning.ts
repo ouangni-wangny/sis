@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { JourSemaine } from "@/domain/types/entities";
+import type { JourSemaine, Poste, Vacation } from "@/domain/types/entities";
 import {
   dateFinForShift,
   dayNightHalvesFromPoste,
@@ -9,13 +9,13 @@ import {
 const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export const JOURS_SEMAINE: { value: JourSemaine; label: string; short: string }[] = [
-  { value: "lundi", label: "Lundi", short: "lun" },
-  { value: "mardi", label: "Mardi", short: "mar" },
-  { value: "mercredi", label: "Mercredi", short: "mer" },
-  { value: "jeudi", label: "Jeudi", short: "jeu" },
-  { value: "vendredi", label: "Vendredi", short: "ven" },
-  { value: "samedi", label: "Samedi", short: "sam" },
-  { value: "dimanche", label: "Dimanche", short: "dim" },
+  { value: "lundi", label: "Lundi", short: "Lun" },
+  { value: "mardi", label: "Mardi", short: "Mar" },
+  { value: "mercredi", label: "Mercredi", short: "Mer" },
+  { value: "jeudi", label: "Jeudi", short: "Jeu" },
+  { value: "vendredi", label: "Vendredi", short: "Ven" },
+  { value: "samedi", label: "Samedi", short: "Sam" },
+  { value: "dimanche", label: "Dimanche", short: "Dim" },
 ];
 
 const JOUR_VALUES = [
@@ -97,6 +97,52 @@ function addDaysToIsoDate(iso: string, days: number): string {
   return `${y}-${m}-${day}`;
 }
 
+/** Jour ISO 1=lundi … 7=dimanche. */
+export function isoJourFromDate(dateIso: string): number {
+  const d = new Date(`${dateIso.slice(0, 10)}T12:00:00`).getDay();
+  return d === 0 ? 7 : d;
+}
+
+/** Année / numéro de semaine ISO + lundi de la semaine. */
+export function isoWeekFromDate(dateIso: string): {
+  annee_iso: number;
+  semaine_iso: number;
+  lundi: string;
+  dimanche: string;
+} {
+  const lundi = mondayOfIsoWeek(dateIso);
+  const thursday = addDaysToIsoDate(lundi, 3);
+  const annee_iso = Number(thursday.slice(0, 4));
+  const jan4 = `${annee_iso}-01-04`;
+  const week1Monday = mondayOfIsoWeek(jan4);
+  const lundiMs = new Date(`${lundi}T12:00:00`).getTime();
+  const week1Ms = new Date(`${week1Monday}T12:00:00`).getTime();
+  const semaine_iso = Math.floor((lundiMs - week1Ms) / 86_400_000 / 7) + 1;
+  return {
+    annee_iso,
+    semaine_iso,
+    lundi,
+    dimanche: addDaysToIsoDate(lundi, 6),
+  };
+}
+
+/** Lundi (Y-m-d) de la semaine ISO donnée. */
+export function lundiFromIsoWeek(annee_iso: number, semaine_iso: number): string {
+  const jan4 = `${annee_iso}-01-04`;
+  const week1Monday = mondayOfIsoWeek(jan4);
+  return addDaysToIsoDate(week1Monday, (semaine_iso - 1) * 7);
+}
+
+/** Décale une semaine ISO de `delta` semaines. */
+export function shiftIsoWeek(
+  annee_iso: number,
+  semaine_iso: number,
+  delta: number,
+): { annee_iso: number; semaine_iso: number; lundi: string; dimanche: string } {
+  const lundi = addDaysToIsoDate(lundiFromIsoWeek(annee_iso, semaine_iso), delta * 7);
+  return isoWeekFromDate(lundi);
+}
+
 /**
  * Semaine de référence pour déduire le motif d’alternance :
  * première semaine (lundi→dimanche) avec le plus de jours distincts couverts.
@@ -122,6 +168,11 @@ export function pickAlternanceReferenceWeekStart(
   return best?.monday ?? null;
 }
 
+const CELLULES = ["jour", "nuit", "les_deux", "repos"] as const;
+export type CellulePlanning = (typeof CELLULES)[number];
+/** Programme d’un agent, jour par jour (clé Y-m-d). */
+export type CellulesPlanning = Record<string, CellulePlanning>;
+
 export const agentPlanningSlotSchema = z.object({
   agent_id: z.string(),
   /** Quart choisi par agent (mode Matin/Soir ou Jour/Nuit). */
@@ -130,6 +181,8 @@ export const agentPlanningSlotSchema = z.object({
     .array(z.enum(JOUR_VALUES))
     .min(1, "Sélectionnez au moins un jour travaillé"),
   jour_repos: z.enum([...JOUR_VALUES, ""]).optional(),
+  /** Le planning réel sur la période : les jours ci-dessus ne servent qu’à le remplir. */
+  cellules: z.record(z.string(), z.enum(CELLULES)).optional(),
 });
 
 export type AgentPlanningSlot = z.infer<typeof agentPlanningSlotSchema>;
@@ -265,7 +318,9 @@ export const agentPlanningSchema = z
       }
     }
 
-    if (v.repartition === "moities" && v.slots.length >= 2) {
+    const parCellules = v.slots.every((s) => s.cellules);
+
+    if (!parCellules && v.repartition === "moities" && v.slots.length >= 2) {
       const q0 = v.slots[0]?.quart;
       const q1 = v.slots[1]?.quart;
       if (q0 && q1 && q0 === q1) {
@@ -280,6 +335,30 @@ export const agentPlanningSchema = z
 
     // Alternance (sans quarts) : un seul agent par jour — jours complémentaires.
     if (
+      parCellules &&
+      v.repartition === "jour_entier" &&
+      v.mode_effectif === "alternance" &&
+      v.slots.length >= 2
+    ) {
+      const seen = new Set<string>();
+      for (let i = 0; i < v.slots.length; i++) {
+        for (const [date, cellule] of Object.entries(v.slots[i].cellules ?? {})) {
+          if (cellule === "repos" || date < v.date_debut || date > v.date_fin) continue;
+          if (seen.has(date)) {
+            ctx.addIssue({
+              code: "custom",
+              path: ["slots", i, "jours_travailles"],
+              message: `En mode alternance, un seul agent peut travailler le ${date}.`,
+            });
+            break;
+          }
+          seen.add(date);
+        }
+      }
+    }
+
+    if (
+      !parCellules &&
       v.repartition === "jour_entier" &&
       v.mode_effectif === "alternance" &&
       v.slots.length >= 2
@@ -590,6 +669,257 @@ export function expandPlanningShifts(input: {
   }
 
   return shifts;
+}
+
+export const datesDePeriode = eachDateInclusive;
+
+/** Remplit la période en répétant un motif de semaine (alternance : motifs tournants). */
+export function cellulesDepuisSemaine(input: {
+  date_debut: string;
+  date_fin: string;
+  jours_travailles: JourSemaine[];
+  travail: CellulePlanning;
+  mode_effectif?: "ensemble" | "alternance";
+  alternanceMotifs?: JourSemaine[][];
+  slotIndex?: number;
+}): CellulesPlanning {
+  const cellules: CellulesPlanning = {};
+  for (const date of eachDateInclusive(input.date_debut, input.date_fin)) {
+    cellules[date] = "repos";
+  }
+  const travaille = expandPlanningShifts({
+    ...input,
+    quart: "jour",
+    heure_debut: "06:00",
+    heure_fin: "18:00",
+  });
+  for (const { date } of travaille) cellules[date] = input.travail;
+  return cellules;
+}
+
+/**
+ * Remplit la période avec un cycle indépendant de la semaine (ex. 2 jours
+ * travaillés, 1 de repos). `decalage` fait démarrer l’agent plus loin dans le cycle.
+ */
+export function cellulesDepuisCycle(input: {
+  date_debut: string;
+  date_fin: string;
+  travail: number;
+  repos: number;
+  decalage?: number;
+  cellule: CellulePlanning;
+}): CellulesPlanning {
+  const total = Math.max(1, input.travail + input.repos);
+  const decalage = input.decalage ?? 0;
+  const cellules: CellulesPlanning = {};
+  eachDateInclusive(input.date_debut, input.date_fin).forEach((date, i) => {
+    cellules[date] = (i + decalage) % total < input.travail ? input.cellule : "repos";
+  });
+  return cellules;
+}
+
+/** Créneau tenu par le titulaire (cédé à un remplaçant compris), pas par un remplaçant. */
+function estDuTitulaire(v: Vacation) {
+  if (v.est_remplacement) return false;
+  return v.statut !== "annulee" || Boolean(v.remplacee);
+}
+
+/** Programme enregistré d’un agent : ce que la grille doit réafficher à l’identique. */
+export function cellulesEnregistrees(
+  agentId: string,
+  vacations: Vacation[],
+  quartDe: (v: Vacation) => "jour" | "nuit",
+): CellulesPlanning {
+  const cellules: CellulesPlanning = {};
+  for (const v of vacations) {
+    if (v.agent_id !== agentId || !estDuTitulaire(v)) continue;
+    const date = v.date_debut.slice(0, 10);
+    const quart = quartDe(v);
+    const deja = cellules[date];
+    cellules[date] = deja && deja !== quart ? "les_deux" : quart;
+  }
+  return cellules;
+}
+
+/**
+ * Titulaires du poste sur la période, dans un ordre stable (jour puis nuit, le
+ * plus présent d’abord) : la même liste à chaque retour sur l’écran.
+ */
+export function titulairesDuPoste(
+  vacations: Vacation[],
+  dateDebut: string,
+  dateFin: string,
+  quartDe: (v: Vacation) => "jour" | "nuit",
+): { id: string; quart: "jour" | "nuit"; dates: string[] }[] {
+  const titulaires = vacations.filter(estDuTitulaire);
+  const surLaPeriode = titulaires.filter((v) => {
+    const date = v.date_debut.slice(0, 10);
+    return date >= dateDebut && date <= dateFin;
+  });
+  const source = surLaPeriode.length > 0 ? surLaPeriode : titulaires;
+
+  const parAgent = new Map<string, { jour: number; nuit: number; dates: string[] }>();
+  for (const v of source) {
+    const ligne = parAgent.get(v.agent_id) ?? { jour: 0, nuit: 0, dates: [] };
+    ligne[quartDe(v)] += 1;
+    ligne.dates.push(v.date_debut.slice(0, 10));
+    parAgent.set(v.agent_id, ligne);
+  }
+
+  return [...parAgent.entries()]
+    .map(([id, l]) => ({
+      id,
+      quart: (l.nuit > l.jour ? "nuit" : "jour") as "jour" | "nuit",
+      dates: l.dates,
+    }))
+    .sort(
+      (a, b) =>
+        a.quart.localeCompare(b.quart) ||
+        b.dates.length - a.dates.length ||
+        a.id.localeCompare(b.id),
+    );
+}
+
+/**
+ * Agents du poste hors de la grille (ex. relève du jour de repos) : leurs créneaux
+ * à venir, ceux qu’un enregistrement du poste effacerait s’ils n’étaient pas gardés.
+ */
+export function agentsEnPlus(
+  vacations: Vacation[],
+  agentsDeLaGrille: Set<string>,
+  aujourdhui: string,
+): { id: string; nom: string; creneaux: number }[] {
+  const parAgent = new Map<string, { id: string; nom: string; creneaux: number }>();
+  for (const v of vacations) {
+    if (agentsDeLaGrille.has(v.agent_id) || v.est_remplacement) continue;
+    if (v.date_debut.slice(0, 10) < aujourdhui) continue;
+    if (v.statut !== "planifiee" && !(v.statut === "a_recouvrir" && v.absence_id)) continue;
+    const ligne = parAgent.get(v.agent_id) ?? {
+      id: v.agent_id,
+      nom: v.agent ? `${v.agent.prenom} ${v.agent.nom}` : "Agent",
+      creneaux: 0,
+    };
+    ligne.creneaux += 1;
+    parAgent.set(v.agent_id, ligne);
+  }
+  return [...parAgent.values()].sort(
+    (a, b) => b.creneaux - a.creneaux || a.id.localeCompare(b.id),
+  );
+}
+
+/** Période à réafficher : la dernière enregistrée, tant qu’elle n’est pas terminée. */
+export function periodeEnregistree(
+  poste: Pick<Poste, "planning_date_debut" | "planning_date_fin">,
+  aujourdhui: string,
+): { debut: string; fin: string } | null {
+  const debut = poste.planning_date_debut?.slice(0, 10);
+  const fin = poste.planning_date_fin?.slice(0, 10);
+  if (!debut || !fin || fin < aujourdhui) return null;
+  return { debut, fin };
+}
+
+/**
+ * Cases que l’enregistrement ne peut plus changer pour cet agent : le passé, ce
+ * qui a démarré, ce qu’il a cédé à un remplaçant. Valeur : la raison affichée.
+ */
+export function joursVerrouilles(
+  agentId: string,
+  vacations: Vacation[],
+  dates: string[],
+  aujourdhui: string,
+): Record<string, string> {
+  const verrous: Record<string, string> = {};
+  for (const date of dates) {
+    if (date < aujourdhui) verrous[date] = "Date passée";
+  }
+  for (const v of vacations) {
+    const date = v.date_debut.slice(0, 10);
+    if (v.agent_id !== agentId) continue;
+    if (v.statut === "en_cours" || v.statut === "terminee") {
+      verrous[date] = "Vacation déjà démarrée";
+    } else if (v.statut === "annulee" && v.remplacee) {
+      const remplacant = vacations.find(
+        (r) =>
+          r.est_remplacement &&
+          r.statut !== "annulee" &&
+          r.date_debut.slice(0, 10) === date &&
+          r.heure_debut === v.heure_debut,
+      );
+      verrous[date] = remplacant?.agent
+        ? `Remplacé par ${remplacant.agent.prenom} ${remplacant.agent.nom}`
+        : "Remplacé";
+    }
+  }
+  return verrous;
+}
+
+/**
+ * Complète la période sans toucher aux cases déjà connues : l’enregistré d’abord
+ * (repos entre deux jours enregistrés), le rythme au-delà du dernier jour enregistré.
+ */
+export function completerCellules(
+  actuelles: CellulesPlanning | undefined,
+  dates: string[],
+  enregistrees: CellulesPlanning,
+  rythme: CellulesPlanning,
+): CellulesPlanning {
+  const dernier = Object.keys(enregistrees).sort().at(-1);
+  const cellules: CellulesPlanning = { ...actuelles };
+  for (const date of dates) {
+    if (cellules[date]) continue;
+    cellules[date] =
+      enregistrees[date] ??
+      (dernier && date <= dernier ? "repos" : (rythme[date] ?? "repos"));
+  }
+  return cellules;
+}
+
+/** Case suivante au clic : les choix possibles dépendent des quarts du poste. */
+export function celluleSuivante(
+  cellule: CellulePlanning,
+  options: { decoupage: boolean; agentSeul: boolean },
+): CellulePlanning {
+  const ordre: CellulePlanning[] = !options.decoupage
+    ? ["jour", "repos"]
+    : options.agentSeul
+      ? ["les_deux", "jour", "nuit", "repos"]
+      : ["jour", "nuit", "repos"];
+  return ordre[(ordre.indexOf(cellule) + 1) % ordre.length];
+}
+
+/** Créneaux à créer depuis la grille : une vacation par case travaillée (hors verrous). */
+export function creneauxDepuisCellules(input: {
+  cellules: CellulesPlanning;
+  date_debut: string;
+  date_fin: string;
+  index: number;
+  total: number;
+  verrous?: Record<string, string>;
+  heure_debut: string;
+  heure_fin: string;
+  heure_debut_nuit?: string;
+  heure_fin_nuit?: string;
+  repartition?: "jour_entier" | "moities";
+}): PlannedShift[] {
+  return eachDateInclusive(input.date_debut, input.date_fin).flatMap((date) => {
+    const cellule = input.cellules[date];
+    if (!cellule || cellule === "repos" || input.verrous?.[date]) return [];
+    const hours = hoursForAgentSlot(input.index, input.total, {
+      ...input,
+      quart: cellule === "nuit" ? "nuit" : "jour",
+    });
+    const seul = hours.quart === "les_deux";
+    return expandPlanningShifts({
+      date_debut: date,
+      date_fin: date,
+      jours_travailles: [...JOUR_VALUES],
+      quart: cellule,
+      heure_debut: hours.heure_debut,
+      heure_fin: hours.heure_fin,
+      heure_debut_nuit: seul ? input.heure_debut_nuit : undefined,
+      heure_fin_nuit: seul ? input.heure_fin_nuit : undefined,
+    });
+  });
 }
 
 export function weekdayIndex(jour: JourSemaine) {

@@ -4,6 +4,7 @@ import type {
   DataResponse,
   MobileUser,
   Paginated,
+  Remplacant,
   Vacation,
 } from "@/types/api";
 
@@ -38,6 +39,30 @@ export const vacationsApi = {
     });
     return apiRequest<Paginated<Vacation>>(`/vacations?${q}`, { token });
   },
+
+  /** Cases à recouvrir d’aujourd’hui sur le périmètre du contrôleur. */
+  aRecouvrir: (token: string, aujourdhui: string) => {
+    const q = new URLSearchParams({
+      statut: "a_recouvrir",
+      date_from: aujourdhui,
+      date_to: aujourdhui,
+      per_page: "50",
+    });
+    return apiRequest<Paginated<Vacation>>(`/vacations?${q}`, { token });
+  },
+
+  remplacants: (token: string, vacationId: string) =>
+    apiRequest<DataResponse<Remplacant[]>>(
+      `/vacations/${vacationId}/remplacants`,
+      { token },
+    ),
+
+  recouvrir: (token: string, vacationId: string, agentId: string) =>
+    apiRequest<DataResponse<Vacation>>(`/vacations/${vacationId}/recouvrir`, {
+      method: "POST",
+      token,
+      body: { agent_id: agentId },
+    }),
 };
 
 export const controlesApi = {
@@ -60,10 +85,11 @@ export const controlesApi = {
       poste_id?: string | null;
       latitude: number;
       longitude: number;
+      resultat: "present" | "absent";
       commentaire?: string;
       client_uuid?: string;
-      /** JPEG/PNG encodé base64 (sans data-uri de préférence). */
-      photo_base64: string;
+      /** JPEG/PNG encodé base64 — obligatoire si présent, optionnel si absent. */
+      photo_base64?: string;
     },
   ) =>
     apiRequest<DataResponse<Controle>>("/controles", {
@@ -76,9 +102,12 @@ export const controlesApi = {
         poste_id: payload.poste_id || undefined,
         latitude: payload.latitude,
         longitude: payload.longitude,
+        resultat: payload.resultat,
         commentaire: payload.commentaire,
         client_uuid: payload.client_uuid,
-        photo_base64: payload.photo_base64,
+        ...(payload.photo_base64
+          ? { photo_base64: payload.photo_base64 }
+          : {}),
       },
     }),
 };

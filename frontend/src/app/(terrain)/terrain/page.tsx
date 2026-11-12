@@ -3,16 +3,17 @@
 import { useCallback, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ChevronRight, RefreshCw } from "lucide-react";
+import { AlertCircle, ChevronRight, Clock, Lock, RefreshCw } from "lucide-react";
 import { useChargement } from "@/application/hooks/useChargement";
 import { useAuth } from "@/presentation/providers/AuthProvider";
 import { controlesApi, vacationsApi } from "@/infrastructure/http/resources";
 import { Button } from "@/presentation/components/ui/Button";
 import { Spinner } from "@/presentation/components/ui/Spinner";
 import {
-  hintPassagesRequis,
+  disponibiliteControle,
   indexControlesParPassage,
   labelBadgeControle,
+  labelHorairesVacation,
   statusControleVacation,
   type PassageStatus,
 } from "@/domain/controle-passages";
@@ -189,34 +190,81 @@ export default function TerrainHomePage() {
               const badge = status
                 ? labelBadgeControle(status)
                 : { text: "À faire", tone: "muted" as const };
-              const hint = status ? hintPassagesRequis(status) : null;
+              const dispo = status
+                ? disponibiliteControle(v, status)
+                : null;
+              const locked = Boolean(dispo && !dispo.cliquable);
               const complet = Boolean(status?.complet);
+              const fenetreActive = dispo?.fenetresManquantes.find(
+                (f) => f.passage === dispo.passageActif,
+              );
+              const fenetreLabel = fenetreActive
+                ? `${fenetreActive.debutHm}–${fenetreActive.finHm}`
+                : dispo?.fenetresManquantes
+                    .map((f) => `${f.debutHm}–${f.finHm}`)
+                    .join(" · ") || null;
               return (
-                <li key={v.id}>
+                <li
+                  key={v.id}
+                  className={cn(locked && "bg-paper-muted/70 opacity-70")}
+                >
                   <button
                     type="button"
-                    onClick={() =>
-                      router.push(`/terrain/controle?vacationId=${v.id}`)
-                    }
-                    className="flex w-full items-center gap-3 px-3 py-3 text-left transition hover:bg-paper-muted/60"
+                    disabled={locked}
+                    onClick={() => {
+                      if (locked) return;
+                      router.push(`/terrain/controle?vacationId=${v.id}`);
+                    }}
+                    className={cn(
+                      "flex w-full items-center gap-3 px-3 py-3 text-left transition",
+                      locked
+                        ? "cursor-not-allowed"
+                        : "hover:bg-paper-muted/60",
+                    )}
                   >
-                    <div className="flex size-10 shrink-0 items-center justify-center border border-[#0F6B5C]/25 bg-[#E6F2EF] text-xs font-bold text-[#0F6B5C]">
+                    <div
+                      className={cn(
+                        "flex size-10 shrink-0 items-center justify-center border text-xs font-bold",
+                        locked
+                          ? "border-border bg-paper-muted text-ink-faint"
+                          : "border-[#0F6B5C]/25 bg-[#E6F2EF] text-[#0F6B5C]",
+                      )}
+                    >
                       {initials(v.agent?.prenom, v.agent?.nom)}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-ink">
+                      <p
+                        className={cn(
+                          "truncate text-sm font-semibold",
+                          locked ? "text-ink-muted" : "text-ink",
+                        )}
+                      >
                         {v.agent?.prenom} {v.agent?.nom}
                       </p>
                       <p className="truncate text-xs text-ink-muted">
                         {v.site?.nom ?? "Site"} · {v.poste?.nom ?? "Poste"}
                       </p>
-                      {hint ? (
-                        <p className="mt-0.5 truncate text-[10px] text-ink-faint">
-                          {hint}
+                      <p className="mt-0.5 truncate text-[10px] text-ink-faint">
+                        Vacation {labelHorairesVacation(v)}
+                      </p>
+                      {fenetreLabel ? (
+                        <p
+                          className={cn(
+                            "mt-0.5 flex items-center gap-1 text-[10px] font-semibold",
+                            locked ? "text-ink-faint" : "text-[#0A4F44]",
+                          )}
+                        >
+                          <Clock className="size-3 shrink-0" />
+                          Contrôle {fenetreLabel}
                         </p>
                       ) : null}
                     </div>
-                    {complet ? (
+                    {locked ? (
+                      <span className="flex shrink-0 items-center gap-1 border border-border bg-paper-muted px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-ink-faint">
+                        <Lock className="size-3" />
+                        Verrouillé
+                      </span>
+                    ) : complet ? (
                       <span
                         className={cn(
                           "shrink-0 border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",

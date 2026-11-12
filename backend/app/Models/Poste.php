@@ -8,6 +8,7 @@ use App\Domain\Shared\Traits\Auditable;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Poste extends Model
@@ -15,7 +16,7 @@ class Poste extends Model
     use Auditable, HasUuids, SoftDeletes;
 
     protected $fillable = [
-        'site_id', 'nom', 'agents_requis', 'mode_effectif', 'planning_continu',
+        'site_id', 'nom', 'agents_requis', 'mode_effectif', 'planning_continu', 'planning_date_debut', 'planning_date_fin',
         'heure_debut', 'heure_fin',
         'heure_debut_nuit', 'heure_fin_nuit',
     ];
@@ -26,6 +27,8 @@ class Poste extends Model
             'agents_requis' => 'integer',
             'mode_effectif' => ModeEffectifPoste::class,
             'planning_continu' => 'boolean',
+            'planning_date_debut' => 'date:Y-m-d',
+            'planning_date_fin' => 'date:Y-m-d',
         ];
     }
 
@@ -91,5 +94,10 @@ class Poste extends Model
     public function site(): BelongsTo
     {
         return $this->belongsTo(Site::class);
+    }
+
+    public function planningSemaines(): HasMany
+    {
+        return $this->hasMany(PlanningSemaine::class);
     }
 }

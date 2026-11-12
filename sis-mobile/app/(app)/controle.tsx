@@ -19,15 +19,13 @@ import { Button } from "@/components/Button";
 import { CheckBox } from "@/components/CheckBox";
 import { EmptyState } from "@/components/EmptyState";
 import { Field } from "@/components/Field";
-import {
-  PresenceToggle,
-  type PresenceValue,
-} from "@/components/PresenceToggle";
-import { ControlesPassagePill } from "@/components/StatusPill";
+import type { PresenceValue } from "@/components/PresenceToggle";
+import { ControlesPassagePill, StatusPill } from "@/components/StatusPill";
 import { StepFooter } from "@/components/StepFooter";
 import {
-  hintPassagesRequis,
+  disponibiliteControle,
   indexControlesParPassage,
+  labelHorairesVacation,
   statusControleVacation,
   type PassageStatus,
 } from "@/lib/controlePassages";
@@ -36,7 +34,7 @@ import { prepareControlPhoto } from "@/lib/prepareControlPhoto";
 import { colors, radii, shadows, spacing, typography } from "@/theme/tokens";
 import type { ControleResultat, Vacation } from "@/types/api";
 
-type Step = "list" | "photo" | "confirm" | "done";
+type Step = "list" | "presence" | "photo" | "confirm" | "done";
 
 function uuid() {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -45,8 +43,6 @@ function uuid() {
     return v.toString(16);
   });
 }
-
-const STEPS: Step[] = ["list", "photo", "confirm", "done"];
 
 export default function ControlesScreen() {
   const { user, token } = useAuth();
@@ -128,17 +124,20 @@ export default function ControlesScreen() {
 
   function selectAgent(v: Vacation) {
     const status = statusByVacation.get(v.id);
-    // Complet : on laisse quand même ouvrir pour un éventuel recontrôle
-    // (le serveur applique le délai minimum). Partiel 24h : 2ᵉ passage OK.
-    if (status?.complet) {
-      // Inform without locking — same spirit as web terrain.
+    if (status) {
+      const dispo = disponibiliteControle(v, status);
+      if (!dispo.cliquable) {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        setError(dispo.motif);
+        return;
+      }
     }
     void Haptics.selectionAsync();
     setSelected(v);
     resetForm();
     setOkMessage(null);
     setError(null);
-    setStep("photo");
+    setStep("presence");
   }
 
   // Depuis l’accueil : ouvrir directement l’agent choisi (pas toute la liste).
@@ -188,8 +187,13 @@ export default function ControlesScreen() {
   }
 
   async function submit() {
-    if (!token || !user?.agent?.id || !selected || !photoBase64 || !presence) {
+    if (!token || !user?.agent?.id || !selected || !presence) {
       setError("Complétez toutes les étapes.");
+      return;
+    }
+    if (presence === "present" && !photoBase64) {
+      setError("Une photo est obligatoire pour une présence.");
+      setStep("photo");
       return;
     }
     if (!confirmed) {
@@ -212,9 +216,10 @@ export default function ControlesScreen() {
         poste_id: selected.poste_id,
         latitude: coords.latitude,
         longitude: coords.longitude,
+        resultat: presence,
         commentaire: note.trim() ? `${auto}. ${note.trim()}` : auto,
         client_uuid: uuid(),
-        photo_base64: photoBase64,
+        ...(photoBase64 ? { photo_base64: photoBase64 } : {}),
       });
       const resultat =
         created.data.resultat ??
@@ -236,15 +241,18 @@ export default function ControlesScreen() {
     }
   }
 
-  const stepIndex = Math.max(0, STEPS.indexOf(step));
   const progressLabel =
     step === "list"
       ? "Choisir un agent"
-      : step === "photo"
-        ? "Étape 1 / 2 · Photo"
-        : step === "confirm"
-          ? "Étape 2 / 2 · Validation"
-          : "Terminé";
+      : step === "presence"
+        ? "Étape 1 · Présence"
+        : step === "photo"
+          ? "Étape 2 · Photo"
+          : step === "confirm"
+            ? presence === "absent"
+              ? "Étape 2 · Validation"
+              : "Étape 3 · Validation"
+            : "Terminé";
 
   return (
     <View style={styles.root}>
@@ -253,9 +261,11 @@ export default function ControlesScreen() {
           vacation={selected}
           progress={progressLabel}
           onBack={() => {
+            setError(null);
             if (step === "confirm") {
-              setStep("photo");
-              setError(null);
+              setStep(presence === "present" ? "photo" : "presence");
+            } else if (step === "photo") {
+              setStep("presence");
             } else {
               backToList();
             }
@@ -272,7 +282,8 @@ export default function ControlesScreen() {
           <View style={styles.listHeader}>
             <Text style={styles.listTitle}>Agents en poste</Text>
             <Text style={styles.listLead}>
-              Touchez un agent pour démarrer le contrôle — une étape à la fois.
+              Contrôle possible uniquement dans le créneau affiché (matin avant
+              14h, soir après).
             </Text>
             <View style={styles.countPill}>
               <Ionicons name="people" size={14} color={colors.teal} />
@@ -300,57 +311,124 @@ export default function ControlesScreen() {
             />
           ) : (
             <View style={styles.list}>
-              {vacations.map((v) => {
-                const status = statusByVacation.get(v.id);
-                const hint = status ? hintPassagesRequis(status) : null;
-                return (
-                  <Pressable
-                    key={v.id}
-                    onPress={() => selectAgent(v)}
-                    style={({ pressed }) => [
-                      styles.agentCard,
-                      pressed && {
-                        opacity: 0.92,
-                        transform: [{ scale: 0.99 }],
-                      },
-                    ]}
-                  >
-                    <Avatar prenom={v.agent?.prenom} nom={v.agent?.nom} />
-                    <View style={styles.agentCopy}>
-                      <Text style={styles.agentName}>
-                        {v.agent?.prenom} {v.agent?.nom}
-                      </Text>
-                      <Text style={styles.agentMeta}>
-                        {v.site?.nom}
-                        {v.poste ? ` · ${v.poste.nom}` : ""}
-                      </Text>
-                      {hint ? (
-                        <Text style={styles.agentMeta}>{hint}</Text>
-                      ) : null}
-                      <View style={styles.statusRow}>
-                        {status ? (
-                          <ControlesPassagePill status={status} compact />
+              {[...vacations]
+                .map((v) => {
+                  const status = statusByVacation.get(v.id);
+                  const dispo = status
+                    ? disponibiliteControle(v, status)
+                    : null;
+                  return { v, status, dispo };
+                })
+                .sort((a, b) => {
+                  // Cliquables d’abord, puis hors créneau, puis complets.
+                  const rank = (x: typeof a) => {
+                    if (x.status?.complet) return 2;
+                    if (x.dispo?.cliquable) return 0;
+                    return 1;
+                  };
+                  return rank(a) - rank(b);
+                })
+                .map(({ v, status, dispo }) => {
+                  const locked = Boolean(dispo && !dispo.cliquable);
+                  const actif = Boolean(dispo?.cliquable && !status?.complet);
+                  const fenetreActive = dispo?.fenetresManquantes.find(
+                    (f) => f.passage === dispo.passageActif,
+                  );
+                  const fenetreLabel = fenetreActive
+                    ? `${fenetreActive.debutHm}–${fenetreActive.finHm}`
+                    : dispo?.fenetresManquantes
+                        .map((f) => `${f.debutHm}–${f.finHm}`)
+                        .join(" · ") || null;
+                  return (
+                    <Pressable
+                      key={v.id}
+                      onPress={() => selectAgent(v)}
+                      disabled={locked}
+                      style={({ pressed }) => [
+                        styles.agentCard,
+                        actif && styles.agentCardActive,
+                        locked && styles.agentCardLocked,
+                        status?.complet && styles.agentCardDone,
+                        pressed &&
+                          !locked && {
+                            opacity: 0.92,
+                            transform: [{ scale: 0.99 }],
+                          },
+                      ]}
+                    >
+                      <Avatar prenom={v.agent?.prenom} nom={v.agent?.nom} />
+                      <View style={styles.agentCopy}>
+                        <Text
+                          style={[
+                            styles.agentName,
+                            locked && styles.agentNameLocked,
+                          ]}
+                        >
+                          {v.agent?.prenom} {v.agent?.nom}
+                        </Text>
+                        <Text style={styles.agentMeta}>
+                          {v.site?.nom}
+                          {v.poste ? ` · ${v.poste.nom}` : ""}
+                        </Text>
+                        <Text style={styles.agentShift}>
+                          Vacation {labelHorairesVacation(v)}
+                        </Text>
+                        {fenetreLabel ? (
+                          <View style={styles.fenetreRow}>
+                            <Ionicons
+                              name="time-outline"
+                              size={13}
+                              color={
+                                locked ? colors.inkFaint : colors.tealDark
+                              }
+                            />
+                            <Text
+                              style={[
+                                styles.fenetreText,
+                                locked && styles.fenetreTextLocked,
+                              ]}
+                            >
+                              Contrôle {fenetreLabel}
+                            </Text>
+                          </View>
                         ) : null}
-                        {status?.dernierEffectueAt ? (
-                          <Text style={styles.agentMeta}>
-                            {new Date(status.dernierEffectueAt).toLocaleTimeString(
-                              "fr-FR",
-                              { hour: "2-digit", minute: "2-digit" },
-                            )}
+                        {locked ? (
+                          <Text style={styles.lockedHint}>
+                            Hors créneau — ligne désactivée
                           </Text>
                         ) : null}
+                        <View style={styles.statusRow}>
+                          {status ? (
+                            <ControlesPassagePill status={status} compact />
+                          ) : null}
+                          {status?.dernierEffectueAt ? (
+                            <Text style={styles.agentMeta}>
+                              {new Date(
+                                status.dernierEffectueAt,
+                              ).toLocaleTimeString("fr-FR", {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </Text>
+                          ) : null}
+                        </View>
                       </View>
-                    </View>
-                    <View style={styles.chevron}>
-                      <Ionicons
-                        name="chevron-forward"
-                        size={18}
-                        color={colors.teal}
-                      />
-                    </View>
-                  </Pressable>
-                );
-              })}
+                      <View
+                        style={[
+                          styles.chevron,
+                          locked && styles.chevronLocked,
+                          actif && styles.chevronActive,
+                        ]}
+                      >
+                        <Ionicons
+                          name={locked ? "lock-closed" : "chevron-forward"}
+                          size={16}
+                          color={locked ? colors.inkFaint : colors.teal}
+                        />
+                      </View>
+                    </Pressable>
+                  );
+                })}
             </View>
           )}
 
@@ -363,6 +441,73 @@ export default function ControlesScreen() {
         </ScrollView>
       ) : null}
 
+      {step === "presence" && selected ? (
+        <>
+          <ScrollView
+            style={styles.flex}
+            contentContainerStyle={styles.stepContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Text style={styles.stepTitle}>L’agent est-il au poste ?</Text>
+            <Text style={styles.stepLead}>
+              Choisissez d’abord le constat. La photo n’est demandée qu’en cas
+              de présence.
+            </Text>
+
+            <Pressable
+              onPress={() => {
+                setPresence("present");
+                setConfirmed(false);
+                setError(null);
+                void Haptics.selectionAsync();
+                setStep("photo");
+              }}
+              style={({ pressed }) => [
+                styles.presenceChoice,
+                styles.presenceChoiceOk,
+                pressed && { opacity: 0.9 },
+              ]}
+            >
+              <Text style={styles.presenceChoiceTitleOk}>Présent</Text>
+              <Text style={styles.presenceChoiceHintOk}>
+                Puis photographier l’agent au poste
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => {
+                setPresence("absent");
+                setPhotoUri(null);
+                setPhotoBase64(null);
+                setConfirmed(false);
+                setError(null);
+                void Haptics.selectionAsync();
+                setStep("confirm");
+              }}
+              style={({ pressed }) => [
+                styles.presenceChoice,
+                styles.presenceChoiceDanger,
+                pressed && { opacity: 0.9 },
+              ]}
+            >
+              <Text style={styles.presenceChoiceTitleDanger}>Absent</Text>
+              <Text style={styles.presenceChoiceHintDanger}>
+                Pas de photo — validation directe de l’absence
+              </Text>
+            </Pressable>
+
+            {error ? <Banner tone="error" text={error} /> : null}
+          </ScrollView>
+          <StepFooter
+            secondaryLabel="Changer d’agent"
+            onSecondary={backToList}
+            primaryLabel="Choisir Présent ou Absent"
+            onPrimary={() => undefined}
+            primaryDisabled
+          />
+        </>
+      ) : null}
+
       {step === "photo" && selected ? (
         <>
           <ScrollView
@@ -370,9 +515,10 @@ export default function ControlesScreen() {
             contentContainerStyle={styles.stepContent}
             keyboardShouldPersistTaps="handled"
           >
-            <Text style={styles.stepTitle}>Photographier l’agent</Text>
+            <Text style={styles.stepTitle}>Photo de présence</Text>
             <Text style={styles.stepLead}>
-              Preuve visuelle obligatoire avant de valider la présence.
+              Preuve visuelle obligatoire pour confirmer que l’agent est au
+              poste.
             </Text>
 
             <Pressable onPress={openCamera} style={styles.photoBox}>
@@ -398,8 +544,11 @@ export default function ControlesScreen() {
             {error ? <Banner tone="error" text={error} /> : null}
           </ScrollView>
           <StepFooter
-            secondaryLabel="Changer d’agent"
-            onSecondary={backToList}
+            secondaryLabel="Retour"
+            onSecondary={() => {
+              setStep("presence");
+              setError(null);
+            }}
             primaryLabel={photoBase64 ? "Continuer" : "Prendre la photo"}
             onPrimary={() => {
               if (!photoBase64) {
@@ -420,12 +569,44 @@ export default function ControlesScreen() {
             contentContainerStyle={styles.stepContent}
             keyboardShouldPersistTaps="handled"
           >
-            <Text style={styles.stepTitle}>Confirmer la présence</Text>
+            <Text style={styles.stepTitle}>
+              {presence === "absent"
+                ? "Confirmer l’absence"
+                : "Confirmer la présence"}
+            </Text>
             <Text style={styles.stepLead}>
-              Indiquez le statut, puis validez — GPS enregistré automatiquement.
+              GPS enregistré automatiquement à la validation.
             </Text>
 
-            {photoUri ? (
+            <View
+              style={[
+                styles.constatBox,
+                presence === "absent" && styles.constatBoxDanger,
+              ]}
+            >
+              <Text style={styles.fieldLabel}>Constat</Text>
+              <Text
+                style={[
+                  styles.constatText,
+                  presence === "absent" && styles.constatTextDanger,
+                ]}
+              >
+                {presence === "absent"
+                  ? "Agent absent du poste"
+                  : "Agent présent"}
+              </Text>
+              <Pressable
+                onPress={() => {
+                  setConfirmed(false);
+                  setStep("presence");
+                }}
+                hitSlop={8}
+              >
+                <Text style={styles.link}>Modifier</Text>
+              </Pressable>
+            </View>
+
+            {presence === "present" && photoUri ? (
               <View style={styles.thumbRow}>
                 <Image source={{ uri: photoUri }} style={styles.thumb} />
                 <Pressable onPress={() => setStep("photo")} hitSlop={8}>
@@ -434,14 +615,11 @@ export default function ControlesScreen() {
               </View>
             ) : null}
 
-            <Text style={styles.fieldLabel}>Statut</Text>
-            <PresenceToggle
-              value={presence}
-              onChange={(v) => {
-                setPresence(v);
-                setConfirmed(false);
-              }}
-            />
+            {presence === "absent" ? (
+              <Text style={styles.agentMeta}>
+                Aucune photo requise : l’agent n’est pas au poste.
+              </Text>
+            ) : null}
 
             <Text style={[styles.fieldLabel, { marginTop: spacing.lg }]}>
               Confirmation
@@ -483,15 +661,21 @@ export default function ControlesScreen() {
             {error ? <Banner tone="error" text={error} /> : null}
           </ScrollView>
           <StepFooter
-            secondaryLabel="Retour photo"
+            secondaryLabel={
+              presence === "present" ? "Retour photo" : "Retour"
+            }
             onSecondary={() => {
-              setStep("photo");
+              setStep(presence === "present" ? "photo" : "presence");
               setError(null);
             }}
             primaryLabel="Valider le contrôle"
             onPrimary={submit}
             primaryLoading={busy}
-            primaryDisabled={!presence || !confirmed || !photoBase64}
+            primaryDisabled={
+              !presence ||
+              !confirmed ||
+              (presence === "present" && !photoBase64)
+            }
           />
         </>
       ) : null}
@@ -520,10 +704,23 @@ export default function ControlesScreen() {
           <Text style={styles.doneHint}>
             Le statut apparaît maintenant sur la liste des agents.
           </Text>
+          {doneResultat === "absent" &&
+          user?.permissions?.includes("vacations.recouvrir") ? (
+            <Button
+              label="Désigner un remplaçant"
+              variant="danger"
+              onPress={() => {
+                backToList();
+                router.push("/(app)/recouvrir");
+              }}
+              style={{ marginTop: spacing.xl, alignSelf: "stretch" }}
+            />
+          ) : null}
           <Button
             label="Retour à la liste"
+            variant={doneResultat === "absent" ? "secondary" : "primary"}
             onPress={backToList}
-            style={{ marginTop: spacing.xl, alignSelf: "stretch" }}
+            style={{ marginTop: spacing.md, alignSelf: "stretch" }}
           />
         </View>
       ) : null}
@@ -632,17 +829,52 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     ...shadows.soft,
   },
+  agentCardActive: {
+    borderColor: colors.teal,
+    borderWidth: 1.5,
+    backgroundColor: colors.white,
+  },
+  agentCardDone: {
+    borderColor: colors.border,
+    backgroundColor: colors.white,
+    opacity: 0.92,
+  },
   agentCardLocked: {
     borderColor: colors.border,
     backgroundColor: colors.paperMuted,
-    opacity: 0.85,
-  },
-  chevronLocked: {
-    backgroundColor: colors.paperMuted,
+    opacity: 0.72,
+    ...({ shadowOpacity: 0, elevation: 0 } as object),
   },
   agentCopy: { flex: 1, gap: 2 },
   agentName: { ...typography.bodyStrong, color: colors.ink },
+  agentNameLocked: { color: colors.inkMuted },
   agentMeta: { ...typography.caption, color: colors.inkMuted },
+  agentShift: {
+    ...typography.caption,
+    color: colors.inkFaint,
+    marginTop: 1,
+  },
+  fenetreRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 3,
+  },
+  fenetreText: {
+    ...typography.caption,
+    color: colors.tealDark,
+    fontWeight: "600",
+  },
+  fenetreTextLocked: {
+    color: colors.inkFaint,
+    fontWeight: "500",
+  },
+  lockedHint: {
+    ...typography.caption,
+    color: colors.inkFaint,
+    marginTop: 2,
+    fontStyle: "italic",
+  },
   statusRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -656,6 +888,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.tealSoft,
     alignItems: "center",
     justifyContent: "center",
+  },
+  chevronActive: {
+    backgroundColor: colors.tealSoft,
+  },
+  chevronLocked: {
+    backgroundColor: "transparent",
   },
   refreshRow: {
     flexDirection: "row",
@@ -697,6 +935,57 @@ const styles = StyleSheet.create({
     color: colors.inkFaint,
     textTransform: "uppercase",
     letterSpacing: 0.7,
+  },
+  presenceChoice: {
+    borderWidth: 1.5,
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+    gap: 4,
+  },
+  presenceChoiceOk: {
+    borderColor: colors.teal,
+    backgroundColor: colors.tealSoft,
+  },
+  presenceChoiceDanger: {
+    borderColor: "#FECACA",
+    backgroundColor: "#FEF2F2",
+  },
+  presenceChoiceTitleOk: {
+    ...typography.bodyStrong,
+    color: colors.tealDark,
+  },
+  presenceChoiceTitleDanger: {
+    ...typography.bodyStrong,
+    color: colors.danger,
+  },
+  presenceChoiceHintOk: {
+    ...typography.caption,
+    color: colors.tealDark,
+    opacity: 0.85,
+  },
+  presenceChoiceHintDanger: {
+    ...typography.caption,
+    color: colors.danger,
+    opacity: 0.85,
+  },
+  constatBox: {
+    borderWidth: 1,
+    borderColor: colors.teal,
+    backgroundColor: colors.tealSoft,
+    borderRadius: radii.lg,
+    padding: spacing.md,
+    gap: 4,
+  },
+  constatBoxDanger: {
+    borderColor: "#FECACA",
+    backgroundColor: "#FEF2F2",
+  },
+  constatText: {
+    ...typography.bodyStrong,
+    color: colors.tealDark,
+  },
+  constatTextDanger: {
+    color: colors.danger,
   },
   photoBox: {
     borderRadius: radii.lg,

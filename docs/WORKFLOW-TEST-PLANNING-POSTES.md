@@ -47,6 +47,7 @@
 | 2 | Choisir N agents distincts | Pas le même agent deux fois |
 | 3 | Période : début / fin (ex. 7–14 jours) | Dates OK |
 | 4 | Jours travaillés : laisser Lun–Dim ou retirer un jour | Aperçu calendrier se met à jour |
+| 4 bis | Section « Planning de la période » : cliquer une case (J / N / repos), ou appliquer un cycle (ex. 2 travaillés, 1 repos) | Seule cette date change ; aperçu et compteur suivent |
 | 5 | Enregistrer | Toast succès ; redirection Planning |
 | 6 | Vérifier la grille / liste | Vacations créées pour **tous** les agents sur ce poste / période |
 | 7 | Poste 24h | Un agent en jour, l’autre en nuit (selon slots) |
@@ -56,7 +57,10 @@
 | # | Action | Résultat attendu |
 |---|--------|------------------|
 | 1 | Replanifier le **même poste** + **mêmes agents** sur une période qui chevauche | Anciennes vacations de ces agents sur ce poste (période) remplacées |
+| 1b | Ouvrir un poste qui a plus d’agents que l’effectif requis (ex. relève du jour de repos), enregistrer | L’écran signale l’agent hors de la grille ; il garde ses créneaux, sauf si on clique sur **Retirer** avant d’enregistrer |
 | 2 | Vérifier | Pas de doublons jour/agent/poste |
+| 3 | Quitter puis rouvrir le poste | Mêmes agents, même période, même grille, même compteur |
+| 4 | Réenregistrer avec un remplacement saisi ou une date passée | Remplacement, passé et vacations démarrées conservés (cases estompées) |
 
 ### A4 — Cas d’erreur
 

@@ -32,7 +32,7 @@ class RolePermissionSeeder extends Seeder
             'perimetres.view', 'perimetres.manage',
 
             // Planning / terrain
-            'vacations.view', 'vacations.create', 'vacations.update', 'vacations.delete',
+            'vacations.view', 'vacations.create', 'vacations.update', 'vacations.delete', 'vacations.recouvrir',
             'rondes.view', 'rondes.manage',
             'controles.view', 'controles.create',
             'anomalies.view', 'anomalies.create', 'anomalies.update', 'anomalies.delete',
@@ -207,7 +207,7 @@ class RolePermissionSeeder extends Seeder
         $controleur->syncPermissions([
             'controles.create', 'controles.view',
             'anomalies.create', 'anomalies.view',
-            'vacations.view',
+            'vacations.view', 'vacations.recouvrir',
             'sites.view',
             'postes.view',
             'agents.view',

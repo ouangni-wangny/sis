@@ -3,6 +3,7 @@
 namespace App\Application\Operation;
 
 use App\Domain\Shared\Enums\StatutVacation;
+use App\Domain\Shared\Support\ShiftInterval;
 use App\Domain\Shared\Support\ShiftSchedule;
 use App\Models\Agent;
 use App\Models\Vacation;
@@ -26,6 +27,15 @@ final class RecouvrirVacationAction
     public function execute(Vacation $trou, string $remplacantId, bool $heuresSupplementaires = false): Vacation
     {
         return DB::transaction(function () use ($trou, $remplacantId, $heuresSupplementaires) {
+            // Deux personnes peuvent traiter la même case : la seconde est prévenue.
+            $trou = Vacation::query()->lockForUpdate()->findOrFail($trou->id);
+
+            if ($trou->remplacee) {
+                throw ValidationException::withMessages([
+                    'vacation' => 'Cette case vient déjà d’être recouverte. Actualisez la liste.',
+                ]);
+            }
+
             if ($trou->statut !== StatutVacation::ARecouvrir) {
                 throw ValidationException::withMessages([
                     'vacation' => 'Seules les vacations « à recouvrir » peuvent être remplacées.',
@@ -68,10 +78,32 @@ final class RecouvrirVacationAction
                 $remplacement ??= $created;
             }
 
-            $trou->update(['statut' => StatutVacation::Annulee->value]);
+            $trou->update(['statut' => StatutVacation::Annulee->value, 'remplacee' => true]);
 
             return $remplacement->load(['agent', 'site', 'poste']);
         });
+    }
+
+    /**
+     * Case à recouvrir du même poste et du même créneau : y ajouter un agent,
+     * c’est la recouvrir, quel que soit l’écran utilisé.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public static function trouDuCreneau(array $data): ?Vacation
+    {
+        if (empty($data['poste_id'])) {
+            return null;
+        }
+
+        return Vacation::query()
+            ->where('poste_id', $data['poste_id'])
+            ->where('agent_id', '!=', $data['agent_id'])
+            ->where('statut', StatutVacation::ARecouvrir->value)
+            ->whereDate('date_debut', $data['date_debut'])
+            ->get()
+            ->first(fn (Vacation $v) => ShiftInterval::hm((string) $v->heure_debut) === ShiftInterval::hm((string) $data['heure_debut'])
+                && ShiftInterval::hm((string) $v->heure_fin) === ShiftInterval::hm((string) $data['heure_fin']));
     }
 
     /**
