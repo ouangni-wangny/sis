@@ -78,6 +78,15 @@ const LEGEND_ITEMS = [
   },
 ] as const;
 
+function hm(value?: string | null) {
+  if (!value) return "";
+  return value.slice(0, 5);
+}
+
+function todayIso() {
+  return toIso(new Date());
+}
+
 export function PlanningCalendarLegend({
   className,
   compact = false,
@@ -94,6 +103,37 @@ export function PlanningCalendarLegend({
       : LEGEND_ITEMS.filter(
           (item) => !("readonlyOnly" in item && item.readonlyOnly),
         );
+
+  if (mode === "readonly") {
+    return (
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border/80 bg-gradient-to-r from-paper via-white to-paper px-3 py-2.5",
+          className,
+        )}
+        role="list"
+        aria-label="Légende du calendrier"
+      >
+        <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-ink-faint">
+          Légende
+        </span>
+        {items.map((item) => (
+          <div
+            key={item.key}
+            role="listitem"
+            className="inline-flex items-center gap-1.5 text-[11px] font-medium text-ink"
+            title={item.hint}
+          >
+            <span
+              className={cn("size-2.5 shrink-0 rounded-full", item.swatch)}
+              aria-hidden
+            />
+            {item.label}
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -171,6 +211,63 @@ function eachDateInclusive(from: string, to: string): string[] {
   return out;
 }
 
+function EventChip({
+  tone,
+  title,
+  subtitle,
+  titleAttr,
+}: {
+  tone: "planifie" | "trou" | "present" | "absent" | "rh" | "jour" | "nuit";
+  title: string;
+  subtitle?: string;
+  titleAttr?: string;
+}) {
+  return (
+    <div
+      title={titleAttr ?? (subtitle ? `${title} · ${subtitle}` : title)}
+      className={cn(
+        "mb-1 overflow-hidden rounded-md border px-1.5 py-1 shadow-[0_1px_0_rgba(15,23,42,0.04)]",
+        tone === "planifie" &&
+          "border-sky-200/80 bg-gradient-to-br from-sky-50 to-sky-100/80 text-sky-900",
+        tone === "trou" &&
+          "border-rose-200/80 bg-gradient-to-br from-rose-50 to-rose-100/90 text-rose-900",
+        tone === "present" &&
+          "border-teal/25 bg-gradient-to-br from-[#E8EEE4] to-[#D7E0D0] text-teal-dark",
+        tone === "absent" &&
+          "border-orange-200/80 bg-gradient-to-br from-orange-50 to-orange-100/90 text-orange-900",
+        tone === "rh" &&
+          "border-indigo-200/80 bg-gradient-to-br from-indigo-50 to-indigo-100/90 text-indigo-900",
+        tone === "jour" &&
+          "border-emerald-200/80 bg-gradient-to-br from-emerald-50 to-emerald-100/90 text-emerald-900",
+        tone === "nuit" &&
+          "border-violet-200/80 bg-gradient-to-br from-violet-50 to-violet-100/90 text-violet-900",
+      )}
+    >
+      <div className="flex items-center gap-1">
+        <span
+          className={cn(
+            "size-1.5 shrink-0 rounded-full",
+            tone === "planifie" && "bg-sky-500",
+            tone === "trou" && "bg-rose-500",
+            tone === "present" && "bg-teal",
+            tone === "absent" && "bg-orange-500",
+            tone === "rh" && "bg-indigo-500",
+            tone === "jour" && "bg-emerald-500",
+            tone === "nuit" && "bg-violet-600",
+          )}
+          aria-hidden
+        />
+        <p className="truncate text-[10px] font-bold leading-tight">{title}</p>
+      </div>
+      {subtitle ? (
+        <p className="mt-0.5 truncate pl-2.5 text-[9px] font-semibold tabular-nums opacity-75">
+          {subtitle}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function AgentMonthCalendar({
   month,
   onMonthChange,
@@ -202,6 +299,7 @@ export function AgentMonthCalendar({
   density?: "comfortable" | "compact";
 }) {
   const compact = density === "compact";
+  const today = todayIso();
   const reposSet = useMemo(() => {
     const fromList = reposDayIndexes ?? [];
     if (fromList.length > 0) return new Set(fromList);
@@ -290,10 +388,19 @@ export function AgentMonthCalendar({
     onMonthChange(`${y}-${m}`);
   };
 
+  const goToday = () => {
+    const now = new Date();
+    onMonthChange(
+      `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`,
+    );
+  };
+
   const inMonth = (d: Date) => {
     const [y, m] = month.split("-").map(Number);
     return d.getFullYear() === y && d.getMonth() === m - 1;
   };
+
+  const readonly = mode === "readonly";
 
   return (
     <div className="space-y-3">
@@ -303,35 +410,46 @@ export function AgentMonthCalendar({
 
       <div
         className={cn(
-          "overflow-hidden border border-border bg-white",
-          compact ? "rounded-lg" : "rounded-xl",
+          "overflow-hidden border border-border bg-white shadow-[0_8px_30px_rgba(15,23,42,0.04)]",
+          compact ? "rounded-lg" : "rounded-2xl",
         )}
       >
         <div
           className={cn(
-            "flex items-center justify-between",
-            compact ? "px-1.5 py-1.5" : "px-2 py-2",
+            "flex items-center justify-between gap-2 border-b border-border/70 bg-gradient-to-b from-paper to-white",
+            compact ? "px-1.5 py-1.5" : "px-3 py-2.5",
           )}
         >
           <button
             type="button"
-            className="inline-flex size-8 items-center justify-center rounded-md text-ink-muted transition hover:bg-paper-muted hover:text-ink"
+            className="inline-flex size-8 items-center justify-center rounded-lg text-ink-muted transition hover:bg-paper-muted hover:text-ink"
             onClick={() => shiftMonth(-1)}
             aria-label="Mois précédent"
           >
             <ChevronLeft className="size-4" />
           </button>
-          <p
-            className={cn(
-              "font-semibold capitalize text-ink",
-              compact ? "text-xs" : "text-sm",
-            )}
-          >
-            {monthLabel(month)}
-          </p>
+          <div className="flex min-w-0 flex-1 flex-col items-center gap-1 sm:flex-row sm:justify-center sm:gap-3">
+            <p
+              className={cn(
+                "font-semibold capitalize text-ink",
+                compact ? "text-xs" : "text-sm",
+              )}
+            >
+              {monthLabel(month)}
+            </p>
+            {!compact ? (
+              <button
+                type="button"
+                onClick={goToday}
+                className="rounded-full border border-border bg-white px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-ink-muted transition hover:border-teal/40 hover:text-teal"
+              >
+                Aujourd’hui
+              </button>
+            ) : null}
+          </div>
           <button
             type="button"
-            className="inline-flex size-8 items-center justify-center rounded-md text-ink-muted transition hover:bg-paper-muted hover:text-ink"
+            className="inline-flex size-8 items-center justify-center rounded-lg text-ink-muted transition hover:bg-paper-muted hover:text-ink"
             onClick={() => shiftMonth(1)}
             aria-label="Mois suivant"
           >
@@ -341,18 +459,24 @@ export function AgentMonthCalendar({
 
         <div
           className={cn(
-            "grid grid-cols-7 border-t border-border bg-emerald-50/40 text-center font-bold uppercase tracking-wide text-emerald-800/70",
+            "grid grid-cols-7 border-b border-border bg-teal/[0.04] text-center font-bold uppercase tracking-[0.08em] text-teal-dark/70",
             compact ? "text-[9px]" : "text-[10px]",
           )}
         >
-          {WEEKDAYS_SHORT.map((d) => (
-            <div key={d} className={compact ? "py-1" : "py-1.5"}>
+          {WEEKDAYS_SHORT.map((d, idx) => (
+            <div
+              key={d}
+              className={cn(
+                compact ? "py-1" : "py-2",
+                idx >= 5 && "text-ink-faint",
+              )}
+            >
               {compact ? d.charAt(0) : d}
             </div>
           ))}
         </div>
 
-        <div className="grid grid-cols-7 border-t border-border">
+        <div className="grid grid-cols-7">
           {cells.map((d) => {
             const iso = toIso(d);
             const plannedDay = plannedByDate.get(iso) ?? [];
@@ -361,6 +485,8 @@ export function AgentMonthCalendar({
             const controleDay = controleByDate.get(iso) ?? [];
             const isRepos = reposSet.has(d.getDay());
             const muted = !inMonth(d);
+            const isToday = iso === today;
+            const weekend = d.getDay() === 0 || d.getDay() === 6;
             const hasPlanned = plannedDay.length > 0;
             const hasExisting = existingDay.length > 0;
             const hasTrou = existingDay.some((v) => v.statut === "a_recouvrir");
@@ -370,10 +496,16 @@ export function AgentMonthCalendar({
             const hasAbsent =
               absenceDay.length > 0 ||
               controleDay.some((c) => c.resultat === "absent");
-            const hasPresent = controleDay.some((c) => c.resultat === "present");
+            const hasPresent = controleDay.some(
+              (c) => c.resultat === "present",
+            );
             const conflict = hasPlanned && hasExisting && !isRepos;
             const plannedJour = plannedDay.some((s) => s.quart !== "nuit");
             const plannedNuit = plannedDay.some((s) => s.quart === "nuit");
+            const hasContent =
+              hasPlanned ||
+              hasExisting ||
+              (readonly && (hasAbsent || hasPresent || absenceDay.length > 0));
 
             return (
               <div
@@ -391,41 +523,50 @@ export function AgentMonthCalendar({
                       : undefined
                 }
                 className={cn(
-                  "relative border-b border-r border-border/70 last:border-r-0",
-                  compact ? "min-h-[44px] p-0.5" : "min-h-[72px] p-1",
-                  muted && "bg-slate-50 text-ink-faint",
-                  isRepos && !muted && (compact ? "bg-amber-50" : "bg-amber-100"),
+                  "relative border-b border-r border-border/60 transition-colors last:border-r-0",
+                  compact ? "min-h-[44px] p-0.5" : "min-h-[92px] p-1.5",
+                  muted && "bg-slate-50/80 text-ink-faint",
+                  !muted && weekend && !isRepos && !hasContent && "bg-paper/50",
+                  isRepos &&
+                    !muted &&
+                    (compact ? "bg-amber-50" : "bg-amber-50/90"),
                   hasPlanned &&
                     !muted &&
                     !isRepos &&
                     !conflict &&
-                    "bg-lime-50",
+                    "bg-lime-50/90",
                   conflict && !muted && "bg-rose-50",
-                  hasTrou && !muted && !isRepos && "bg-rose-50/70",
+                  hasTrou && !muted && !isRepos && "bg-rose-50/60",
                   hasPlanifie &&
                     !hasPlanned &&
                     !muted &&
                     !isRepos &&
                     !hasTrou &&
-                    "bg-sky-50/80",
+                    "bg-sky-50/50",
                   hasAbsent &&
                     !hasTrou &&
                     !hasPlanifie &&
                     !muted &&
                     !isRepos &&
-                    "bg-orange-50/80",
+                    "bg-orange-50/70",
+                  isToday && !muted && "ring-1 ring-inset ring-teal/35",
                 )}
               >
                 <div
                   className={cn(
                     "flex items-center justify-between gap-0.5 font-semibold tabular-nums",
-                    compact ? "text-[10px]" : "mb-0.5 text-[11px]",
+                    compact ? "text-[10px]" : "mb-1 text-[11px]",
                     hasPlanned && !muted && "text-emerald-800",
                     conflict && !muted && "text-rose-700",
                   )}
                 >
                   <span
                     className={cn(
+                      "inline-flex items-center justify-center",
+                      !compact &&
+                        isToday &&
+                        !muted &&
+                        "size-6 rounded-full bg-teal text-[11px] font-bold text-white shadow-sm",
                       compact &&
                         hasPlanned &&
                         !muted &&
@@ -436,6 +577,7 @@ export function AgentMonthCalendar({
                         !muted &&
                         !hasPlanned &&
                         "text-amber-700",
+                      !isToday && muted && "opacity-50",
                     )}
                   >
                     {d.getDate()}
@@ -443,29 +585,13 @@ export function AgentMonthCalendar({
                   {!compact ? (
                     <span className="flex items-center gap-0.5">
                       {isRepos && !muted ? (
-                        <span className="rounded bg-amber-400 px-1 text-[8px] font-bold uppercase text-amber-950">
-                          R
-                        </span>
-                      ) : null}
-                      {hasPresent && !muted ? (
-                        <span
-                          className="rounded bg-teal px-1 text-[8px] font-bold uppercase text-white"
-                          title="Contrôle : présent"
-                        >
-                          P
-                        </span>
-                      ) : null}
-                      {hasAbsent && !muted ? (
-                        <span
-                          className="rounded bg-orange-500 px-1 text-[8px] font-bold uppercase text-white"
-                          title="Absent"
-                        >
-                          A
+                        <span className="rounded-full bg-amber-400/90 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-amber-950">
+                          Repos
                         </span>
                       ) : null}
                       {conflict && !muted ? (
                         <span
-                          className="cursor-help rounded bg-rose-500 px-1 text-[8px] font-bold uppercase text-white"
+                          className="cursor-help rounded-full bg-rose-500 px-1.5 py-0.5 text-[8px] font-bold uppercase text-white"
                           title={`Conflit le ${d.toLocaleDateString("fr-FR")}`}
                         >
                           !
@@ -502,71 +628,83 @@ export function AgentMonthCalendar({
                 ) : (
                   <>
                     {plannedDay.map((s, i) => (
-                      <div
+                      <EventChip
                         key={`${s.date}-${s.quart}-${i}`}
-                        className={cn(
-                          "mb-0.5 truncate rounded-md px-1 py-0.5 text-[9px] font-bold shadow-sm",
-                          s.quart === "nuit"
-                            ? "bg-violet-600 text-white"
-                            : "bg-emerald-500 text-white",
-                        )}
-                        title={`${s.heure_debut}–${s.heure_fin}`}
-                      >
-                        {s.quart === "nuit" ? "N" : "J"} {s.heure_debut}
-                      </div>
+                        tone={s.quart === "nuit" ? "nuit" : "jour"}
+                        title={s.quart === "nuit" ? "Nuit" : "Jour"}
+                        subtitle={`${s.heure_debut}–${s.heure_fin}`}
+                      />
                     ))}
                     {existingDay.slice(0, 2).map((v) => {
                       const trou = v.statut === "a_recouvrir";
+                      const debut = hm(v.heure_debut);
+                      const fin = hm(v.heure_fin);
                       return (
-                        <div
+                        <EventChip
                           key={v.id}
-                          className={cn(
-                            "mb-0.5 truncate rounded-md px-1 py-0.5 text-[9px] font-bold text-white shadow-sm",
-                            trou ? "bg-rose-500" : "bg-sky-500",
-                          )}
+                          tone={trou ? "trou" : "planifie"}
                           title={
                             trou
-                              ? `À recouvrir · ${v.site?.nom ?? "Site"} ${v.heure_debut?.slice(0, 5)}–${v.heure_fin?.slice(0, 5)}`
-                              : `${v.site?.nom ?? "Site"} ${v.heure_debut?.slice(0, 5)}–${v.heure_fin?.slice(0, 5)}`
+                              ? "À recouvrir"
+                              : (v.site?.nom ?? v.poste?.nom ?? "Vacation")
                           }
-                        >
-                          {trou ? "Trou" : (v.site?.nom ?? "Existant")}
-                        </div>
+                          subtitle={
+                            debut && fin
+                              ? `${debut}–${fin}`
+                              : v.poste?.nom
+                          }
+                          titleAttr={
+                            trou
+                              ? `À recouvrir · ${v.site?.nom ?? "Site"} ${debut}–${fin}`
+                              : `${v.site?.nom ?? "Site"} · ${v.poste?.nom ?? "Poste"} · ${debut}–${fin}`
+                          }
+                        />
                       );
                     })}
                     {existingDay.length > 2 ? (
-                      <span className="text-[9px] font-semibold text-sky-700">
-                        +{existingDay.length - 2}
+                      <span className="mb-1 block text-[9px] font-semibold text-sky-700">
+                        +{existingDay.length - 2} autre
+                        {existingDay.length - 2 > 1 ? "s" : ""}
                       </span>
                     ) : null}
-                    {mode === "readonly" &&
-                    absenceDay.length > 0 &&
-                    !hasTrou ? (
-                      <div
-                        className={cn(
-                          "mb-0.5 truncate rounded-md px-1 py-0.5 text-[9px] font-bold text-white shadow-sm",
+                    {readonly && absenceDay.length > 0 && !hasTrou ? (
+                      <EventChip
+                        tone={
                           absenceDay[0]?.source === "controle"
-                            ? "bg-orange-500"
-                            : "bg-indigo-500",
-                        )}
+                            ? "absent"
+                            : "rh"
+                        }
                         title={
+                          absenceDay[0]?.source === "controle"
+                            ? "Absent (contrôle)"
+                            : "Absence RH"
+                        }
+                        subtitle={absenceDay[0]?.motif || undefined}
+                        titleAttr={
                           absenceDay[0]?.source === "controle"
                             ? `Contrôle · ${absenceDay[0]?.motif || "Absent"}`
                             : `RH · ${absenceDay[0]?.motif || "Absence"}`
                         }
-                      >
-                        {absenceDay[0]?.source === "controle"
-                          ? "Ctrl absent"
-                          : "Absence RH"}
-                      </div>
+                      />
                     ) : null}
-                    {mode === "readonly" && hasPresent ? (
-                      <div
-                        className="mb-0.5 truncate rounded-md bg-teal px-1 py-0.5 text-[9px] font-bold text-white shadow-sm"
-                        title="Contrôle terrain : présent"
-                      >
-                        Présent
-                      </div>
+                    {readonly && hasPresent ? (
+                      <EventChip
+                        tone="present"
+                        title="Présent"
+                        subtitle="Contrôle terrain"
+                        titleAttr="Contrôle terrain : présent"
+                      />
+                    ) : null}
+                    {readonly &&
+                    hasAbsent &&
+                    absenceDay.length === 0 &&
+                    !hasTrou ? (
+                      <EventChip
+                        tone="absent"
+                        title="Absent"
+                        subtitle="Contrôle terrain"
+                        titleAttr="Absence constatée au contrôle"
+                      />
                     ) : null}
                   </>
                 )}

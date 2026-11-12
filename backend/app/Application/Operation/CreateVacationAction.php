@@ -155,6 +155,12 @@ final class CreateVacationAction
             $data['agent_id'],
         );
 
+        // Case cochée « Remplacement » : marque la vacation pour la grille
+        // (pas de « Repos » fantôme les autres jours de la semaine).
+        if ($remplacement) {
+            $data['est_remplacement'] = true;
+        }
+
         unset($data['annuler_conflits'], $data['remplacement'], $data['statuts_autorises']);
 
         $vacation = Vacation::query()->create($data);

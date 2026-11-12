@@ -85,10 +85,11 @@ export const controlesApi = {
       poste_id?: string | null;
       latitude: number;
       longitude: number;
+      resultat: "present" | "absent";
       commentaire?: string;
       client_uuid?: string;
-      /** JPEG/PNG encodé base64 (sans data-uri de préférence). */
-      photo_base64: string;
+      /** JPEG/PNG encodé base64 — obligatoire si présent, optionnel si absent. */
+      photo_base64?: string;
     },
   ) =>
     apiRequest<DataResponse<Controle>>("/controles", {
@@ -101,9 +102,12 @@ export const controlesApi = {
         poste_id: payload.poste_id || undefined,
         latitude: payload.latitude,
         longitude: payload.longitude,
+        resultat: payload.resultat,
         commentaire: payload.commentaire,
         client_uuid: payload.client_uuid,
-        photo_base64: payload.photo_base64,
+        ...(payload.photo_base64
+          ? { photo_base64: payload.photo_base64 }
+          : {}),
       },
     }),
 };

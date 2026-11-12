@@ -9,13 +9,13 @@ import {
 const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export const JOURS_SEMAINE: { value: JourSemaine; label: string; short: string }[] = [
-  { value: "lundi", label: "Lundi", short: "lun" },
-  { value: "mardi", label: "Mardi", short: "mar" },
-  { value: "mercredi", label: "Mercredi", short: "mer" },
-  { value: "jeudi", label: "Jeudi", short: "jeu" },
-  { value: "vendredi", label: "Vendredi", short: "ven" },
-  { value: "samedi", label: "Samedi", short: "sam" },
-  { value: "dimanche", label: "Dimanche", short: "dim" },
+  { value: "lundi", label: "Lundi", short: "Lun" },
+  { value: "mardi", label: "Mardi", short: "Mar" },
+  { value: "mercredi", label: "Mercredi", short: "Mer" },
+  { value: "jeudi", label: "Jeudi", short: "Jeu" },
+  { value: "vendredi", label: "Vendredi", short: "Ven" },
+  { value: "samedi", label: "Samedi", short: "Sam" },
+  { value: "dimanche", label: "Dimanche", short: "Dim" },
 ];
 
 const JOUR_VALUES = [
@@ -95,6 +95,52 @@ function addDaysToIsoDate(iso: string, days: number): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+/** Jour ISO 1=lundi … 7=dimanche. */
+export function isoJourFromDate(dateIso: string): number {
+  const d = new Date(`${dateIso.slice(0, 10)}T12:00:00`).getDay();
+  return d === 0 ? 7 : d;
+}
+
+/** Année / numéro de semaine ISO + lundi de la semaine. */
+export function isoWeekFromDate(dateIso: string): {
+  annee_iso: number;
+  semaine_iso: number;
+  lundi: string;
+  dimanche: string;
+} {
+  const lundi = mondayOfIsoWeek(dateIso);
+  const thursday = addDaysToIsoDate(lundi, 3);
+  const annee_iso = Number(thursday.slice(0, 4));
+  const jan4 = `${annee_iso}-01-04`;
+  const week1Monday = mondayOfIsoWeek(jan4);
+  const lundiMs = new Date(`${lundi}T12:00:00`).getTime();
+  const week1Ms = new Date(`${week1Monday}T12:00:00`).getTime();
+  const semaine_iso = Math.floor((lundiMs - week1Ms) / 86_400_000 / 7) + 1;
+  return {
+    annee_iso,
+    semaine_iso,
+    lundi,
+    dimanche: addDaysToIsoDate(lundi, 6),
+  };
+}
+
+/** Lundi (Y-m-d) de la semaine ISO donnée. */
+export function lundiFromIsoWeek(annee_iso: number, semaine_iso: number): string {
+  const jan4 = `${annee_iso}-01-04`;
+  const week1Monday = mondayOfIsoWeek(jan4);
+  return addDaysToIsoDate(week1Monday, (semaine_iso - 1) * 7);
+}
+
+/** Décale une semaine ISO de `delta` semaines. */
+export function shiftIsoWeek(
+  annee_iso: number,
+  semaine_iso: number,
+  delta: number,
+): { annee_iso: number; semaine_iso: number; lundi: string; dimanche: string } {
+  const lundi = addDaysToIsoDate(lundiFromIsoWeek(annee_iso, semaine_iso), delta * 7);
+  return isoWeekFromDate(lundi);
 }
 
 /**

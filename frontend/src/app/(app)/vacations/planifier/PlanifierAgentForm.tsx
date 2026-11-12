@@ -4,14 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  CalendarDays,
-} from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   useAgents,
-  useCreateVacationsBulk,
+  useDupliquerPlanningSemaine,
+  usePlanningSemaine,
   usePostes,
+  usePublierPlanningSemaine,
   useSites,
+  useUpsertPlanningSemaine,
   useVacations,
 } from "@/application/hooks/useResources";
 import {
@@ -19,7 +20,6 @@ import {
   buildAlternanceMotifs,
   cellulesDepuisCycle,
   cellulesDepuisSemaine,
-  agentsEnPlus,
   cellulesEnregistrees,
   celluleSuivante,
   completerCellules,
@@ -27,10 +27,11 @@ import {
   datesDePeriode,
   emptyPlanningSlot,
   hoursForAgentSlot,
+  isoJourFromDate,
+  isoWeekFromDate,
   joursVerrouilles,
   needsAlternanceMotifPrefill,
-  periodeEnregistree,
-  titulairesDuPoste,
+  shiftIsoWeek,
   pickAlternanceReferenceWeekStart,
   JOURS_SEMAINE,
   slotFromAgentRepos,
@@ -44,7 +45,6 @@ import { Alert } from "@/presentation/components/ui/Alert";
 import { Badge } from "@/presentation/components/ui/Badge";
 import { Button } from "@/presentation/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/presentation/components/ui/Card";
-import { DatePicker } from "@/presentation/components/ui/DatePicker";
 import {
   FieldHint,
   FieldLabel,
@@ -52,15 +52,10 @@ import {
 import { Select } from "@/presentation/components/ui/Select";
 import { useAuth } from "@/presentation/providers/AuthProvider";
 import { useToast } from "@/presentation/providers/ToastProvider";
-import { getApiErrorMessage, getBlockingVacationIds } from "@/shared/lib/api-error";
+import { getApiErrorMessage } from "@/shared/lib/api-error";
 import { can } from "@/shared/lib/can";
 import { cn } from "@/shared/lib/cn";
-import { BlockingVacationAlert } from "../BlockingVacationAlert";
 import { PlanningPeriodeGrille } from "./PlanningPeriodeGrille";
-import {
-  AgentMonthCalendar,
-  PlanningCalendarLegend,
-} from "./AgentMonthCalendar";
 import {
   derivePlanningRepartition,
   hasDecoupageQuarts,
@@ -88,8 +83,15 @@ function addDaysIso(iso: string, days: number) {
   return d.toISOString().slice(0, 10);
 }
 
-function monthOf(iso: string) {
-  return iso.slice(0, 7);
+function formatWeekLabel(lundi: string, dimanche: string) {
+  const fmt = (iso: string) => {
+    const d = new Date(`${iso}T12:00:00`);
+    return d.toLocaleDateString("fr-FR", {
+      day: "numeric",
+      month: "short",
+    });
+  };
+  return `${fmt(lundi)} → ${fmt(dimanche)}`;
 }
 
 /** Garantit 1 jour + 1 nuit quand couverture en moitiés (2 agents). */
@@ -109,23 +111,14 @@ function ensureDistinctQuarts(
 /** Un titulaire en congé aujourd’hui reste sur le planning des jours où il revient. */
 const STATUTS_PLANIFIABLES = ["disponible", "en_activite", "conge", "malade"];
 
-/** Motifs semaine 0 = jours saisis de chaque slot (alternance N agents). */
-function alternanceMotifsFromSlots(
-  slots: AgentPlanningSlot[],
-  modeEffectif: "ensemble" | "alternance",
-): JourSemaine[][] | undefined {
-  if (modeEffectif !== "alternance" || slots.length < 2) return undefined;
-  const motifs = slots.map((s) => (s.jours_travailles ?? []) as JourSemaine[]);
-  if (motifs.some((m) => m.length === 0)) return undefined;
-  return motifs;
-}
+const currentWeek = isoWeekFromDate(todayIso());
 
 const emptyDefaults: AgentPlanningFormValues = {
   slots: [],
   site_id: "",
   poste_id: "",
-  date_debut: todayIso(),
-  date_fin: addDaysIso(todayIso(), 27),
+  date_debut: currentWeek.lundi,
+  date_fin: currentWeek.dimanche,
   repartition: "jour_entier",
   mode_effectif: "ensemble",
   quart: "jour",
@@ -167,23 +160,31 @@ export function PlanifierAgentForm() {
   const { toast } = useToast();
   const { user } = useAuth();
   const canCreate = can(user, "vacations.create");
-  const createBulk = useCreateVacationsBulk();
-  const [formError, setFormError] = useState<{
-    message: string;
-    blockingVacationIds: string[];
-  } | null>(null);
+  const upsertPlanning = useUpsertPlanningSemaine();
+  const publierPlanning = usePublierPlanningSemaine();
+  const dupliquerPlanning = useDupliquerPlanningSemaine();
+  const [formError, setFormError] = useState<string | null>(null);
   const [progress, setProgress] = useState(false);
-  const [calendarMonth, setCalendarMonth] = useState(monthOf(todayIso()));
   const [agentsVusParPoste, setAgentsVusParPoste] = useState<Record<string, string[]>>({});
-  const [aRetirerParPoste, setARetirerParPoste] = useState<Record<string, string[]>>({});
 
   const urlAgentId = searchParams.get("agent_id") ?? "";
   const urlSiteId = searchParams.get("site_id") ?? "";
   const urlPosteId = searchParams.get("poste_id") ?? "";
   const urlDate = searchParams.get("date") ?? "";
+  const urlAnnee = searchParams.get("annee_iso");
+  const urlSemaine = searchParams.get("semaine_iso");
+
+  const initialWeek = useMemo(() => {
+    if (urlAnnee && urlSemaine) {
+      const shifted = shiftIsoWeek(Number(urlAnnee), Number(urlSemaine), 0);
+      return shifted;
+    }
+    return isoWeekFromDate(urlDate || todayIso());
+  }, [urlAnnee, urlSemaine, urlDate]);
+
+  const [week, setWeek] = useState(initialWeek);
 
   const {
-    register,
     handleSubmit,
     control,
     setValue,
@@ -200,9 +201,16 @@ export function PlanifierAgentForm() {
       slots: urlAgentId ? [emptyPlanningSlot(urlAgentId)] : [],
       site_id: urlSiteId,
       poste_id: urlPosteId,
-      date_debut: urlDate || emptyDefaults.date_debut,
+      date_debut: initialWeek.lundi,
+      date_fin: initialWeek.dimanche,
     },
   });
+
+  // Aligner la période du formulaire sur la semaine ISO sélectionnée.
+  useEffect(() => {
+    setValue("date_debut", week.lundi, { shouldDirty: false });
+    setValue("date_fin", week.dimanche, { shouldDirty: false });
+  }, [week.lundi, week.dimanche, setValue]);
 
   const slots = useWatch({ control, name: "slots" }) ?? [];
   const siteId = useWatch({ control, name: "site_id" });
@@ -227,15 +235,24 @@ export function PlanifierAgentForm() {
   );
   const { data: posteVacations, isFetching: posteVacationsLoading } =
     useVacations(
-      // Le passé lointain n’est plus modifiable : inutile de tout recharger.
       {
         poste_id: posteId,
         all: true,
-        date_from:
-          dateDebut && dateDebut < addDaysIso(todayIso(), -7)
-            ? dateDebut
-            : addDaysIso(todayIso(), -7),
+        date_from: week.lundi,
+        date_to: week.dimanche,
       },
+      { enabled: !!posteId },
+    );
+
+  const { data: planningSemaineData, isFetching: planningSemaineLoading } =
+    usePlanningSemaine(
+      posteId
+        ? {
+            poste_id: posteId,
+            annee_iso: week.annee_iso,
+            semaine_iso: week.semaine_iso,
+          }
+        : undefined,
       { enabled: !!posteId },
     );
 
@@ -243,6 +260,17 @@ export function PlanifierAgentForm() {
     () => posteVacations?.data ?? [],
     [posteVacations],
   );
+
+  const planningExistant = planningSemaineData?.data;
+  const planningADesCreneaux =
+    (planningExistant?.creneaux?.length ?? 0) > 0;
+  const planningStatut = !planningExistant?.id
+    ? ("absent" as const)
+    : !planningADesCreneaux
+      ? ("absent" as const)
+      : planningExistant.statut === "publiee"
+        ? ("publiee" as const)
+        : ("brouillon" as const);
 
   const pendingPosteRef = useRef(urlPosteId);
   const prefilledPosteRef = useRef("");
@@ -370,86 +398,177 @@ export function PlanifierAgentForm() {
     setValue("slots", next, { shouldValidate: true });
   }, [selectedPoste?.id, selectedPoste?.agents_requis, getValues, setValue]);
 
-  // Retour sur un poste planifié : on recharge ce qui est enregistré, sans rien deviner.
+  // Semaine sans template : slots vides — pas d’héritage S→S+1.
+  // L’utilisateur doit « Dupliquer semaine précédente » ou saisir à neuf.
   useEffect(() => {
-    if (!posteId || !selectedPoste || !posteVacations) return;
-    if (posteVacationsLoading || postesFetching || agentsLoading) return;
+    if (!posteId || !selectedPoste) return;
+    if (planningSemaineLoading || !planningSemaineData) return;
     if (hoursAppliedPosteRef.current !== posteId) return;
-    if (prefilledPosteRef.current === posteId) return;
+    const weekKey = `${posteId}:${week.annee_iso}-${week.semaine_iso}`;
+    if (prefilledPosteRef.current === weekKey) return;
+    if ((planningSemaineData.data.creneaux?.length ?? 0) > 0) return;
 
     const n = Math.max(1, selectedPoste.agents_requis ?? 1);
-    const periode = urlDate
-      ? null
-      : periodeEnregistree(selectedPoste, todayIso());
-    if (periode) {
-      setValue("date_debut", periode.debut);
-      setValue("date_fin", periode.fin);
-    }
-
-    const titulaires = titulairesDuPoste(
-      posteVacations.data,
-      periode?.debut ?? getValues("date_debut"),
-      periode?.fin ?? getValues("date_fin"),
-      quartDeVacation,
-    ).filter((t) =>
-      (agentsData?.data ?? []).some(
-        (a) => a.id === t.id && STATUTS_PLANIFIABLES.includes(a.statut),
-      ),
+    const repartition = getValues("repartition") ?? "jour_entier";
+    let next = Array.from({ length: n }, (_, i) =>
+      emptyPlanningSlot("", i === 0 ? "jour" : "nuit"),
     );
-    const referenceWeek =
-      n >= 2 && !posteHasDecoupage && selectedPoste.mode_effectif === "alternance"
-        ? pickAlternanceReferenceWeekStart(titulaires.flatMap((t) => t.dates))
-        : null;
-
-    const current = getValues("slots") ?? [];
-    const pris = new Set(current.map((s) => s.agent_id).filter(Boolean));
-    const pool = titulaires.filter((t) => !pris.has(t.id));
-    const prendre = (quart: "jour" | "nuit") => {
-      const i = pool.findIndex((t) => t.quart === quart);
-      return pool.splice(Math.max(i, 0), 1)[0] ?? null;
-    };
-
-    let next = Array.from({ length: n }, (_, i) => {
-      const defaut = i === 0 ? "jour" : "nuit";
-      const existant = current[i];
-      const titulaire = existant?.agent_id
-        ? (titulaires.find((t) => t.id === existant.agent_id) ?? null)
-        : prendre(defaut);
-      if (!titulaire) {
-        return existant ?? emptyPlanningSlot("", defaut);
-      }
-      return slotFromAgentRepos(
-        titulaire.id,
-        null,
-        titulaire.dates,
-        titulaire.quart,
-        referenceWeek,
-      );
-    });
-    if (n === 2 && getValues("repartition") === "moities") {
+    if (n === 2 && repartition === "moities") {
       next = ensureDistinctQuarts(next);
     }
-
     setValue("slots", next, { shouldValidate: true });
-    prefilledPosteRef.current = posteId;
+    prefilledPosteRef.current = weekKey;
   }, [
     posteId,
     selectedPoste,
-    posteVacations,
-    posteVacationsLoading,
-    postesFetching,
-    agentsLoading,
-    agentsData,
-    quartDeVacation,
-    posteHasDecoupage,
-    urlDate,
+    planningSemaineData,
+    planningSemaineLoading,
+    week.annee_iso,
+    week.semaine_iso,
     getValues,
     setValue,
   ]);
 
-  // Changement de poste → réautoriser sync horaires / préremplissage.
+  // Charge le template de la semaine ISO (créneaux enregistrés).
+  useEffect(() => {
+    if (!posteId || !selectedPoste || !planningSemaineData) return;
+    if (planningSemaineLoading || hoursAppliedPosteRef.current !== posteId) return;
+    const key = `${posteId}:${week.annee_iso}-${week.semaine_iso}`;
+    if (prefilledPosteRef.current === key) return;
+
+    const creneaux = planningSemaineData.data.creneaux ?? [];
+    if (creneaux.length === 0) return;
+
+    const n = Math.max(1, selectedPoste.agents_requis ?? 1);
+    const byAgent = new Map<
+      string,
+      {
+        jours: Set<JourSemaine>;
+        quart: "jour" | "nuit";
+        jourCount: number;
+        nuitCount: number;
+        cellules: CellulesPlanning;
+      }
+    >();
+
+    for (const c of creneaux) {
+      const date = addDaysIso(week.lundi, c.jour - 1);
+      const jourName = JOURS_SEMAINE[c.jour - 1]?.value;
+      if (!jourName) continue;
+      const quart = (c.quart === "nuit" ? "nuit" : "jour") as "jour" | "nuit";
+      const entry = byAgent.get(c.agent_id) ?? {
+        jours: new Set<JourSemaine>(),
+        quart,
+        jourCount: 0,
+        nuitCount: 0,
+        cellules: {},
+      };
+      entry.jours.add(jourName);
+      if (quart === "nuit") entry.nuitCount += 1;
+      else entry.jourCount += 1;
+      entry.quart = entry.nuitCount > entry.jourCount ? "nuit" : "jour";
+      entry.cellules[date] =
+        quart === "nuit"
+          ? entry.cellules[date] === "jour"
+            ? "les_deux"
+            : "nuit"
+          : entry.cellules[date] === "nuit"
+            ? "les_deux"
+            : "jour";
+      byAgent.set(c.agent_id, entry);
+    }
+
+    // Titulaires = agents avec le plus de jours. Exclure les parasites 1 jour
+    // quand d’autres agents ont un rythme plus dense.
+    const allEntries = [...byAgent.entries()];
+    const maxJours = Math.max(0, ...allEntries.map(([, info]) => info.jours.size));
+    const titulairesOnly =
+      maxJours > 1
+        ? allEntries.filter(([, info]) => info.jours.size > 1)
+        : allEntries;
+    const ranked = (titulairesOnly.length > 0 ? titulairesOnly : allEntries).sort(
+      (a, b) =>
+        b[1].jours.size - a[1].jours.size ||
+        b[1].jourCount + b[1].nuitCount - (a[1].jourCount + a[1].nuitCount) ||
+        a[0].localeCompare(b[0]),
+    );
+
+    const toSlot = (
+      agentId: string,
+      info: {
+        jours: Set<JourSemaine>;
+        quart: "jour" | "nuit";
+        cellules: CellulesPlanning;
+      },
+      fallbackQuart: "jour" | "nuit",
+    ): AgentPlanningSlot => ({
+      agent_id: agentId,
+      quart: info.quart || fallbackQuart,
+      jours_travailles: JOURS_SEMAINE.map((j) => j.value).filter((j) =>
+        info.jours.has(j),
+      ),
+      jour_repos: "",
+      cellules: info.cellules,
+    });
+
+    let next: AgentPlanningSlot[];
+    const decoupage = posteHasDecoupage || getValues("repartition") === "moities";
+    if (decoupage && n >= 2) {
+      const pick = (quart: "jour" | "nuit") =>
+        ranked.find(([, info]) => info.quart === quart) ??
+        ranked.find(([, info]) =>
+          quart === "nuit" ? info.nuitCount > 0 : info.jourCount > 0,
+        );
+      const jourRow = pick("jour");
+      const nuitRow = ranked.find(
+        ([id, info]) =>
+          id !== jourRow?.[0] &&
+          (info.quart === "nuit" || info.nuitCount > 0),
+      ) ?? ranked.find(([id]) => id !== jourRow?.[0]);
+      next = [
+        jourRow
+          ? toSlot(jourRow[0], jourRow[1], "jour")
+          : emptyPlanningSlot("", "jour"),
+        nuitRow
+          ? toSlot(nuitRow[0], nuitRow[1], "nuit")
+          : emptyPlanningSlot("", "nuit"),
+      ];
+      while (next.length < n) {
+        next.push(emptyPlanningSlot("", "jour"));
+      }
+      next = ensureDistinctQuarts(next.slice(0, n));
+    } else {
+      next = Array.from({ length: n }, (_, i) => {
+        const row = ranked[i];
+        if (!row) return emptyPlanningSlot("", i === 0 ? "jour" : "nuit");
+        return toSlot(row[0], row[1], i === 0 ? "jour" : "nuit");
+      });
+    }
+
+    setValue("slots", next, { shouldValidate: true });
+    prefilledPosteRef.current = key;
+  }, [
+    posteId,
+    selectedPoste,
+    planningSemaineData,
+    planningSemaineLoading,
+    posteHasDecoupage,
+    week.annee_iso,
+    week.semaine_iso,
+    week.lundi,
+    getValues,
+    setValue,
+  ]);
+
+  // Changement de poste / semaine → réautoriser sync horaires / préremplissage.
   useEffect(() => {
     prefilledPosteRef.current = "";
+    if (posteId) {
+      // horaires poste : seulement au changement de poste
+    }
+  }, [posteId, week.annee_iso, week.semaine_iso]);
+
+  useEffect(() => {
     hoursAppliedPosteRef.current = "";
   }, [posteId]);
 
@@ -559,26 +678,25 @@ export function PlanifierAgentForm() {
       quart: slot.quart ?? (index === 0 ? "jour" : "nuit"),
     }).quart;
 
+  /** Grille d’une semaine ISO = jours cochés tels quels (pas de rotation S→S+1). */
   const rythmeDeSemaine = (
     slot: AgentPlanningSlot,
     index: number,
-    tous: AgentPlanningSlot[],
+    _tous: AgentPlanningSlot[],
   ): CellulesPlanning =>
     cellulesDepuisSemaine({
       date_debut: datesPeriode[0],
       date_fin: datesPeriode[datesPeriode.length - 1],
       jours_travailles: slot.jours_travailles as JourSemaine[],
       travail: celluleDeTravail(slot, index),
-      mode_effectif: posteModeEffectif,
-      alternanceMotifs: alternanceMotifsFromSlots(tous, posteModeEffectif),
-      slotIndex: index,
     });
 
   // Chaque jour de la période a sa case : l’enregistré, sinon le rythme de l’agent.
   const agentsKey = slots.map((s) => s.agent_id).join("|");
   useEffect(() => {
     if (datesPeriode.length === 0 || !heureDebut || !heureFin) return;
-    if (posteVacationsLoading || prefilledPosteRef.current !== posteId) return;
+    const weekKey = `${posteId}:${week.annee_iso}-${week.semaine_iso}`;
+    if (posteVacationsLoading || prefilledPosteRef.current !== weekKey) return;
     const current = getValues("slots") ?? [];
     let changed = false;
     const next = current.map((slot, index) => {
@@ -591,9 +709,10 @@ export function PlanifierAgentForm() {
         cellules: completerCellules(
           slot.cellules,
           datesPeriode,
+          // Template éditeur : jamais les remplacements 1 jour (ops).
           cellulesEnregistrees(
             slot.agent_id,
-            vacationsDuPoste,
+            vacationsDuPoste.filter((v) => !v.est_remplacement),
             quartDeVacation,
           ),
           rythmeDeSemaine(slot, index, current),
@@ -656,14 +775,6 @@ export function PlanifierAgentForm() {
     setValue,
   ]);
 
-  // Le calendrier suit la date de début : ajustement pendant le rendu plutôt
-  // qu’un setState dans un effet (rendu en cascade).
-  const [moisSuiviPour, setMoisSuiviPour] = useState<string | undefined>(undefined);
-  if (dateDebut !== moisSuiviPour) {
-    setMoisSuiviPour(dateDebut);
-    if (dateDebut) setCalendarMonth(monthOf(dateDebut));
-  }
-
   const selectedAgentIds = useMemo(
     () => slots.map((s) => s.agent_id).filter(Boolean),
     [slots],
@@ -714,12 +825,6 @@ export function PlanifierAgentForm() {
             date_fin: dateFin,
             index,
             total: filled.length,
-            verrous: joursVerrouilles(
-              slot.agent_id,
-              vacationsDuPoste,
-              datesPeriode,
-              todayIso(),
-            ),
           }),
           // La grille décide jour par jour : plus de repos fixe par jour de semaine.
           reposIndexes: [] as number[],
@@ -753,8 +858,8 @@ export function PlanifierAgentForm() {
     >();
     for (const v of posteVacations?.data ?? []) {
       if (!v.agent_id) continue;
-      // Ces vacations seront effacées par `replace` à l’enregistrement :
-      // ne pas les afficher comme « déjà planifié / conflit » dans l’aperçu.
+      // À la republication, le prévu non-remplacement de la semaine est resync :
+      // ne pas les afficher comme conflit dans l’aperçu template.
       const date = v.date_debut.slice(0, 10);
       const willReplace =
         !!posteId &&
@@ -809,18 +914,6 @@ export function PlanifierAgentForm() {
         : parPoste;
     });
   }, [selectedAgentIds, posteId]);
-
-  const agentsARetirer = aRetirerParPoste[posteId] ?? [];
-
-  const autresAgentsDuPoste = useMemo(
-    () =>
-      agentsEnPlus(
-        vacationsDuPoste,
-        new Set([...(agentsVusParPoste[posteId] ?? []), ...selectedAgentIds]),
-        todayIso(),
-      ),
-    [vacationsDuPoste, agentsVusParPoste, posteId, selectedAgentIds],
-  );
 
   const agentOptionsForSlot = (slotIndex: number) => {
     const taken = new Set(
@@ -965,14 +1058,19 @@ export function PlanifierAgentForm() {
       ? joursVerrouilles(agentId, vacationsDuPoste, datesPeriode, todayIso())
       : {};
 
+  /**
+   * Applique le rythme sur toute la semaine, y compris les jours déjà passés.
+   * Les verrous bloquent seulement le clic case-par-case : sinon lun/mar
+   * resteraient figés (souvent « J » pour les 2 agents) et bloqueraient
+   * l’alternance + la duplication vers la semaine suivante.
+   */
   const appliquerHorsVerrous = (
-    slot: AgentPlanningSlot,
+    _slot: AgentPlanningSlot,
     nouvelles: CellulesPlanning,
   ): CellulesPlanning => {
-    const verrous = verrousDe(slot.agent_id);
-    const cellules: CellulesPlanning = { ...slot.cellules };
+    const cellules: CellulesPlanning = {};
     for (const date of datesPeriode) {
-      if (!verrous[date]) cellules[date] = nouvelles[date] ?? "repos";
+      cellules[date] = nouvelles[date] ?? "repos";
     }
     return cellules;
   };
@@ -1045,115 +1143,166 @@ export function PlanifierAgentForm() {
     });
   };
 
-  const busy = isSubmitting || createBulk.isPending || progress;
+  const busy =
+    isSubmitting ||
+    upsertPlanning.isPending ||
+    publierPlanning.isPending ||
+    dupliquerPlanning.isPending ||
+    progress;
 
-  const onSubmit = handleSubmit(async (values) => {
-    try {
-      await runPlanning(values, false);
-    } catch {
-      // formError déjà renseigné
-    }
-  });
-
-  const runPlanning = async (
-    values: AgentPlanningFormValues,
-    annulerConflits: boolean,
-  ) => {
-    if (!canCreate) {
-      toast("Vous n’avez pas le droit de planifier.", "danger");
-      return;
-    }
-    setFormError(null);
-
+  /**
+   * Template semaine = tous les jours cochés, y compris le passé.
+   * Les verrous (dates passées) bloquent l’édition UI / publication vacations,
+   * mais ne doivent pas effacer lundi–mardi du modèle qu’on duplique ensuite.
+   */
+  const buildCreneauxPayload = (values: AgentPlanningFormValues) => {
     const filledSlots = values.slots.filter((s) => s.agent_id);
-    if (filledSlots.length === 0) {
-      setFormError({
-        message: "Sélectionnez les agents du poste.",
-        blockingVacationIds: [],
-      });
-      return;
-    }
-
-    const agentPlans = filledSlots.map((slot, index) => ({
-      agentId: slot.agent_id,
-      shifts: creneauxDepuisCellules({
+    return filledSlots.flatMap((slot, index) => {
+      const shifts = creneauxDepuisCellules({
         cellules: slot.cellules ?? {},
-        date_debut: values.date_debut,
-        date_fin: values.date_fin,
+        date_debut: week.lundi,
+        date_fin: week.dimanche,
         index,
         total: filledSlots.length,
-        verrous: verrousDe(slot.agent_id),
         heure_debut: values.heure_debut || "",
         heure_fin: values.heure_fin || "",
         heure_debut_nuit: values.heure_debut_nuit || undefined,
         heure_fin_nuit: values.heure_fin_nuit || undefined,
         repartition: values.repartition ?? "jour_entier",
-      }),
-    }));
-
-    const vacations = agentPlans.flatMap((plan) =>
-      plan.shifts.map((shift) => ({
-        agent_id: plan.agentId,
-        site_id: values.site_id,
-        poste_id: values.poste_id,
-        date_debut: shift.date,
-        date_fin: shift.date_fin,
+      });
+      return shifts.map((shift) => ({
+        agent_id: slot.agent_id,
+        jour: isoJourFromDate(shift.date),
         heure_debut: shift.heure_debut,
         heure_fin: shift.heure_fin,
-      })),
-    );
+        quart: (inferQuartFromHours(
+          shift.heure_debut,
+          shift.heure_fin,
+          posteHalves,
+        ) ?? slot.quart ?? "jour") as "jour" | "nuit",
+      }));
+    });
+  };
 
-    if (vacations.length === 0) {
-      setFormError({
-        message:
-          "Aucun créneau à créer avec ce rythme — vérifiez les jours et horaires.",
-        blockingVacationIds: [],
-      });
+  const saveBrouillon = async (values: AgentPlanningFormValues) => {
+    if (!canCreate) {
+      toast("Vous n’avez pas le droit de planifier.", "danger");
       return;
     }
-
+    setFormError(null);
+    const filledSlots = values.slots.filter((s) => s.agent_id);
+    if (filledSlots.length === 0) {
+      setFormError("Sélectionnez les agents du poste.");
+      return;
+    }
+    const creneaux = buildCreneauxPayload(values);
+    if (creneaux.length === 0) {
+      setFormError(
+        "Aucun créneau — cochez des jours travaillés ou ajustez la grille.",
+      );
+      return;
+    }
     setProgress(true);
     try {
-      const result = await createBulk.mutateAsync({
-        vacations,
-        annuler_conflits: annulerConflits || undefined,
-        replace: {
-          poste_id: values.poste_id,
-          date_debut: values.date_debut,
-          date_fin: values.date_fin,
-          scope: "poste",
-          agent_ids: filledSlots.map((s) => s.agent_id),
-          conserver_agent_ids: autresAgentsDuPoste
-            .map((a) => a.id)
-            .filter((id) => !agentsARetirer.includes(id)),
-        },
+      await upsertPlanning.mutateAsync({
+        poste_id: values.poste_id,
+        annee_iso: week.annee_iso,
+        semaine_iso: week.semaine_iso,
+        creneaux,
       });
-
-      const created = result.data.created;
-      const removed = result.data.removed;
-      const agentLabel =
-        filledSlots.length === 1
-          ? "1 agent"
-          : `${filledSlots.length} agents`;
-      const creneauxLabel =
-        created === 1 ? "1 créneau" : `${created} créneaux`;
       toast(
-        [
-          removed > 0 ? `${removed} ancienne(s) remplacée(s)` : null,
-          `${agentLabel} · ${creneauxLabel}`,
-        ]
-          .filter(Boolean)
-          .join(" · ") + ".",
+        `Brouillon enregistré · semaine ${week.semaine_iso}/${week.annee_iso} · ${creneaux.length} créneau${creneaux.length > 1 ? "x" : ""}.`,
+      );
+    } catch (err) {
+      const message = getApiErrorMessage(err, "Échec de l’enregistrement.");
+      setFormError(message);
+      toast(message, "danger");
+      throw err;
+    } finally {
+      setProgress(false);
+    }
+  };
+
+  const publierSemaine = async (values: AgentPlanningFormValues) => {
+    if (!canCreate) {
+      toast("Vous n’avez pas le droit de planifier.", "danger");
+      return;
+    }
+    setFormError(null);
+    const filledSlots = values.slots.filter((s) => s.agent_id);
+    if (filledSlots.length === 0) {
+      setFormError("Sélectionnez les agents du poste.");
+      return;
+    }
+    const creneaux = buildCreneauxPayload(values);
+    if (creneaux.length === 0) {
+      setFormError(
+        "Aucun créneau à publier — vérifiez les jours et horaires.",
+      );
+      return;
+    }
+    setProgress(true);
+    try {
+      await upsertPlanning.mutateAsync({
+        poste_id: values.poste_id,
+        annee_iso: week.annee_iso,
+        semaine_iso: week.semaine_iso,
+        creneaux,
+      });
+      await publierPlanning.mutateAsync({
+        poste_id: values.poste_id,
+        annee_iso: week.annee_iso,
+        semaine_iso: week.semaine_iso,
+      });
+      toast(
+        `Semaine ${week.semaine_iso}/${week.annee_iso} publiée · ${creneaux.length} créneau${creneaux.length > 1 ? "x" : ""}.`,
       );
       router.push("/vacations");
     } catch (err) {
-      const message = getApiErrorMessage(err, "Échec de la planification.");
-      setFormError({
-        message,
-        blockingVacationIds: getBlockingVacationIds(err),
-      });
+      const message = getApiErrorMessage(err, "Échec de la publication.");
+      setFormError(message);
       toast(message, "danger");
       throw err;
+    } finally {
+      setProgress(false);
+    }
+  };
+
+  const onSubmit = handleSubmit(async (values) => {
+    try {
+      await saveBrouillon(values);
+    } catch {
+      // formError déjà renseigné
+    }
+  });
+
+  const onPublier = handleSubmit(async (values) => {
+    try {
+      await publierSemaine(values);
+    } catch {
+      // formError déjà renseigné
+    }
+  });
+
+  const onDupliquerPrecedente = async () => {
+    if (!posteId) return;
+    setFormError(null);
+    setProgress(true);
+    try {
+      await dupliquerPlanning.mutateAsync({
+        poste_id: posteId,
+        annee_iso: week.annee_iso,
+        semaine_iso: week.semaine_iso,
+      });
+      prefilledPosteRef.current = "";
+      toast("Semaine précédente copiée — ajustez puis publiez.");
+    } catch (err) {
+      const message = getApiErrorMessage(
+        err,
+        "Impossible de dupliquer la semaine précédente.",
+      );
+      setFormError(message);
+      toast(message, "danger");
     } finally {
       setProgress(false);
     }
@@ -1162,8 +1311,8 @@ export function PlanifierAgentForm() {
   const submitLabel = progress
     ? `Enregistrement · ${totalPlannedShifts} créneau${totalPlannedShifts > 1 ? "x" : ""}…`
     : totalPlannedShifts > 0
-      ? `Enregistrer · ${totalPlannedShifts} créneau${totalPlannedShifts > 1 ? "x" : ""}`
-      : "Enregistrer le planning";
+      ? `Enregistrer brouillon · ${totalPlannedShifts} créneau${totalPlannedShifts > 1 ? "x" : ""}`
+      : "Enregistrer brouillon";
 
   const slotsError =
     errors.slots?.message ||
@@ -1176,8 +1325,8 @@ export function PlanifierAgentForm() {
     <PlanningWorkspaceShell
       siteId={siteId || undefined}
       icon={<CalendarDays className="size-5" />}
-      title="Planifier le poste"
-      description="Choisissez un poste : le formulaire s’adapte à l’effectif. Chaque agent a son propre rythme."
+      title="Planifier la semaine"
+      description="Emploi du temps d’une semaine ISO — chaque semaine se saisit et se publie indépendamment."
     >
       {!canCreate ? (
         <Alert tone="danger">Droits insuffisants pour planifier.</Alert>
@@ -1405,6 +1554,7 @@ export function PlanifierAgentForm() {
                                             key={j.value}
                                             type="button"
                                             title={j.label}
+                                            aria-label={j.label}
                                             aria-pressed={selected}
                                             onClick={() => {
                                               const current =
@@ -1417,13 +1567,18 @@ export function PlanifierAgentForm() {
                                               setJoursAt(index, next);
                                             }}
                                             className={cn(
-                                              "inline-flex size-10 shrink-0 items-center justify-center rounded-md border text-xs font-semibold transition",
+                                              "inline-flex h-10 min-w-10 shrink-0 flex-col items-center justify-center rounded-md border px-1.5 text-[10px] font-semibold leading-tight transition sm:min-w-12 sm:text-xs",
                                               selected
                                                 ? "border-teal bg-teal text-white"
                                                 : "border-border bg-white text-ink-muted hover:border-teal/40 hover:text-ink",
                                             )}
                                           >
-                                            {j.short}
+                                            <span className="hidden sm:inline">
+                                              {j.label}
+                                            </span>
+                                            <span className="sm:hidden">
+                                              {j.short}
+                                            </span>
                                           </button>
                                         );
                                       })}
@@ -1440,8 +1595,8 @@ export function PlanifierAgentForm() {
                       })}
                     </div>
                     <p className="mt-2.5 text-xs text-ink-muted">
-                      Ces jours remplissent la période ; ajustez ensuite chaque
-                      date dans le planning ci-dessous.
+                      Ces jours préremplissent la semaine affichée ; ajustez
+                      ensuite chaque case dans la grille.
                     </p>
                     {slotsError ? (
                       <p className="mt-2 text-xs text-danger">{slotsError}</p>
@@ -1453,25 +1608,94 @@ export function PlanifierAgentForm() {
                   <CardBody className="p-4">
                     <SectionTitle
                       step="3"
-                      title="Période"
-                      hint="Dates communes à tous les agents du poste."
+                      title="Semaine ISO"
+                      hint="Chaque semaine se saisit à part. Dupliquez la précédente pour partir d’une base."
                     />
-
-                    <div className="grid gap-2.5 sm:grid-cols-2">
-                      <DatePicker
-                        label="Début"
-                        requiredMark
-                        error={errors.date_debut?.message}
-                        {...register("date_debut")}
-                      />
-                      <DatePicker
-                        label="Fin"
-                        requiredMark
-                        hint="Après cette date, le planning se poursuit automatiquement."
-                        error={errors.date_fin?.message}
-                        {...register("date_fin")}
-                      />
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() =>
+                            setWeek((w) =>
+                              shiftIsoWeek(w.annee_iso, w.semaine_iso, -1),
+                            )
+                          }
+                          aria-label="Semaine précédente"
+                        >
+                          <ChevronLeft className="size-4" />
+                        </Button>
+                        <div className="min-w-[11rem] text-center">
+                          <p className="text-sm font-semibold text-ink">
+                            S{week.semaine_iso} · {week.annee_iso}
+                          </p>
+                          <p className="text-xs text-ink-muted">
+                            {formatWeekLabel(week.lundi, week.dimanche)}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() =>
+                            setWeek((w) =>
+                              shiftIsoWeek(w.annee_iso, w.semaine_iso, 1),
+                            )
+                          }
+                          aria-label="Semaine suivante"
+                        >
+                          <ChevronRight className="size-4" />
+                        </Button>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge
+                          tone={
+                            planningStatut === "publiee"
+                              ? "success"
+                              : planningStatut === "brouillon"
+                                ? "warning"
+                                : "danger"
+                          }
+                        >
+                          {planningStatut === "publiee"
+                            ? "Publiée"
+                            : planningStatut === "brouillon"
+                              ? "Brouillon non publié"
+                              : "Pas encore créée"}
+                        </Badge>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          disabled={busy || !posteId}
+                          onClick={() => void onDupliquerPrecedente()}
+                        >
+                          Dupliquer semaine précédente
+                        </Button>
+                      </div>
                     </div>
+                    {planningStatut === "absent" ? (
+                      <Alert tone="warning" className="mt-3">
+                        Aucun planning pour la semaine S{week.semaine_iso}.
+                        Saisissez les titulaires ou utilisez « Dupliquer semaine
+                        précédente » — les ajouts 1 jour depuis la grille ne
+                        remplissent pas ce modèle.
+                      </Alert>
+                    ) : planningStatut === "brouillon" ? (
+                      <Alert tone="info" className="mt-3">
+                        Brouillon = modèle de la semaine (pas un patch d’une
+                        case). Publiez pour générer les vacations prévues ; les
+                        remplacements déjà saisis sont conservés.
+                      </Alert>
+                    ) : (
+                      <Alert tone="success" className="mt-3">
+                        Semaine publiée. Republier remplace seulement le prévu
+                        de cette semaine (remplacements / HS inchangés).
+                      </Alert>
+                    )}
                   </CardBody>
                 </Card>
 
@@ -1480,8 +1704,8 @@ export function PlanifierAgentForm() {
                     <CardBody className="p-4">
                       <SectionTitle
                         step="4"
-                        title="Planning de la période"
-                        hint="Le programme exact de chaque agent, date par date. Cliquez sur une case pour la changer."
+                        title="Grille de la semaine"
+                        hint="Cliquez une case pour changer jour / nuit / repos. Publiez pour générer les vacations de cette semaine seule."
                       />
                       <PlanningPeriodeGrille
                         dates={datesPeriode}
@@ -1508,55 +1732,9 @@ export function PlanifierAgentForm() {
                   </Card>
                 ) : null}
 
-                {autresAgentsDuPoste.length > 0 ? (
-                  <Alert tone="warning">
-                    <div className="space-y-2">
-                      <p>Ce poste a aussi d’autres agents, absents de la grille :</p>
-                      {autresAgentsDuPoste.map((a) => {
-                        const retire = agentsARetirer.includes(a.id);
-                        const creneaux = `${a.creneaux} créneau${a.creneaux > 1 ? "x" : ""}`;
-                        return (
-                          <div
-                            key={a.id}
-                            className="flex flex-wrap items-center justify-between gap-2"
-                          >
-                            <span>
-                              {retire
-                                ? `${a.nom} perdra ses ${creneaux} à l’enregistrement.`
-                                : `${a.nom} garde ses ${creneaux}.`}
-                            </span>
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              onClick={() =>
-                                setARetirerParPoste((parPoste) => ({
-                                  ...parPoste,
-                                  [posteId]: retire
-                                    ? agentsARetirer.filter((id) => id !== a.id)
-                                    : [...agentsARetirer, a.id],
-                                }))
-                              }
-                            >
-                              {retire ? "Garder" : "Retirer"}
-                            </Button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </Alert>
-                ) : null}
+                {formError ? <Alert tone="danger">{formError}</Alert> : null}
 
-                {formError ? (
-                  <BlockingVacationAlert
-                    message={formError.message}
-                    blockingVacationIds={formError.blockingVacationIds}
-                    onForceApply={async () => {
-                      await runPlanning(getValues(), true);
-                    }}
-                  />
-                ) : null}
-
-                <div className="hidden gap-2 lg:flex">
+                <div className="hidden flex-wrap gap-2 lg:flex">
                   <Button
                     type="button"
                     variant="secondary"
@@ -1566,8 +1744,16 @@ export function PlanifierAgentForm() {
                     Annuler
                   </Button>
                   <Button type="submit" loading={busy} disabled={!canCreate}>
-                    <CalendarDays className="size-4" />
                     {submitLabel}
+                  </Button>
+                  <Button
+                    type="button"
+                    loading={busy}
+                    disabled={!canCreate}
+                    onClick={() => void onPublier()}
+                  >
+                    <CalendarDays className="size-4" />
+                    Publier la semaine
                   </Button>
                 </div>
               </>
@@ -1576,7 +1762,7 @@ export function PlanifierAgentForm() {
                 <CardBody className="p-4">
                   <p className="text-sm text-ink-muted">
                     Choisissez un site puis un poste pour continuer : agents,
-                    période et horaires s’adaptent à l’effectif.
+                    semaine et horaires s’adaptent à l’effectif.
                   </p>
                 </CardBody>
               </Card>
@@ -1586,73 +1772,43 @@ export function PlanifierAgentForm() {
           <aside className="min-w-0 space-y-4 lg:sticky lg:top-6 lg:self-start">
             <Card>
               <CardHeader
-                title="Calendriers"
-                description={
-                  agentCalendars.length > 1
-                    ? "Un calendrier par agent sélectionné."
-                    : "Aperçu des créneaux à créer."
-                }
+                title="Cette semaine"
+                description={`S${week.semaine_iso} · ${formatWeekLabel(week.lundi, week.dimanche)}`}
               />
-              <CardBody className="space-y-4 p-3 pt-0">
-                {agentCalendars.length === 0 ? (
-                  <p className="text-sm text-ink-muted">
-                    Sélectionnez les agents et leurs jours travaillés pour
-                    afficher les calendriers.
-                  </p>
-                ) : (
-                  <>
-                    <PlanningCalendarLegend compact />
-                    {agentCalendars.map((cal) => (
-                      <div key={cal.agentId} className="space-y-1.5">
-                        <p className="text-xs font-semibold text-ink">
-                          {cal.title}
-                          <span className="ml-1.5 font-normal text-ink-faint">
-                            · {cal.planned.length} créneau
-                            {cal.planned.length > 1 ? "x" : ""}
-                          </span>
-                        </p>
-                        <AgentMonthCalendar
-                          month={calendarMonth}
-                          onMonthChange={setCalendarMonth}
-                          planned={cal.planned}
-                          existing={existingByAgent.get(cal.agentId) ?? []}
-                          reposDayIndexes={cal.reposIndexes}
-                          showLegend={false}
-                          density="compact"
-                        />
-                      </div>
-                    ))}
-                  </>
-                )}
+              <CardBody className="space-y-2 p-4 pt-0 text-sm text-ink-muted">
+                <p>
+                  {totalPlannedShifts > 0
+                    ? `${totalPlannedShifts} créneau${totalPlannedShifts > 1 ? "x" : ""} prêt${totalPlannedShifts > 1 ? "s" : ""} à enregistrer.`
+                    : "Sélectionnez les agents et leurs jours pour remplir la grille."}
+                </p>
+                <p className="text-xs text-ink-faint">
+                  Enregistrer / Publier = emploi du temps de la semaine entière,
+                  pas une case isolée. Les ajouts ponctuels se font depuis la
+                  grille site (remplacement 1 jour).
+                </p>
               </CardBody>
             </Card>
-
-            <p className="hidden text-xs leading-relaxed text-ink-faint lg:block">
-              À l’enregistrement, le planning à venir de ce poste sur la période
-              est remplacé par cette grille. Le passé, les vacations démarrées
-              et les remplacements déjà saisis sont conservés.
-            </p>
           </aside>
 
           {posteReady ? (
             <div className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-white/95 p-3 backdrop-blur lg:hidden">
               <div className="mx-auto flex max-w-screen-2xl gap-2">
                 <Button
-                  type="button"
-                  variant="secondary"
-                  className="flex-1"
-                  disabled={busy}
-                  onClick={() => router.push("/vacations")}
-                >
-                  Annuler
-                </Button>
-                <Button
                   type="submit"
                   className="flex-1"
                   loading={busy}
                   disabled={!canCreate}
                 >
-                  {submitLabel}
+                  Brouillon
+                </Button>
+                <Button
+                  type="button"
+                  className="flex-1"
+                  loading={busy}
+                  disabled={!canCreate}
+                  onClick={() => void onPublier()}
+                >
+                  Publier
                 </Button>
               </div>
             </div>

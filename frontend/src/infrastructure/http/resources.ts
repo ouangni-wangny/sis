@@ -50,6 +50,7 @@ import type {
   SystemSetting,
   TresorerieStats,
   User,
+  PlanningSemaine,
   Vacation,
   Ville,
   Zone,
@@ -346,6 +347,58 @@ export const vacationsApi = {
       "/vacations/conflits",
       { params: toQuery(params as ListParams) },
     ),
+};
+
+export const planningSemainesApi = {
+  show: (params: {
+    poste_id: string;
+    annee_iso: number;
+    semaine_iso: number;
+  }) =>
+    api.get<DataResponse<PlanningSemaine>>("/planning-semaines/show", {
+      params: toQuery(params),
+    }),
+  list: (params: { poste_id: string; annee_iso?: number }) =>
+    api.get<{ data: PlanningSemaine[] }>("/planning-semaines", {
+      params: toQuery(params),
+    }),
+  upsert: (payload: {
+    poste_id: string;
+    annee_iso: number;
+    semaine_iso: number;
+    creneaux: Array<{
+      agent_id: string;
+      jour: number;
+      heure_debut: string;
+      heure_fin: string;
+      quart?: "jour" | "nuit";
+    }>;
+  }) =>
+    api.put<DataResponse<PlanningSemaine>>("/planning-semaines", payload),
+  publier: (payload: {
+    poste_id: string;
+    annee_iso: number;
+    semaine_iso: number;
+  }) =>
+    api.post<DataResponse<PlanningSemaine>>(
+      "/planning-semaines/publier",
+      payload,
+    ),
+  dupliquer: (payload: {
+    poste_id: string;
+    annee_iso: number;
+    semaine_iso: number;
+    source_annee_iso?: number;
+    source_semaine_iso?: number;
+  }) =>
+    api.post<DataResponse<PlanningSemaine>>(
+      "/planning-semaines/dupliquer",
+      payload,
+    ),
+  preparer: (payload: { poste_id: string; nombre?: number }) =>
+    api.post<
+      DataResponse<{ preparees: number; plannings: PlanningSemaine[] }>
+    >("/planning-semaines/preparer", payload),
 };
 
 export const anomaliesApi = {

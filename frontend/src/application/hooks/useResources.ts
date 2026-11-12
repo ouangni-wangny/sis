@@ -27,6 +27,7 @@ import {
   sitesApi,
   tresorerieApi,
   usersApi,
+  planningSemainesApi,
   vacationsApi,
   villesApi,
 } from "@/infrastructure/http/resources";
@@ -247,6 +248,63 @@ export function useCreateVacationsBulk() {
       invalidateVacations(qc);
       void qc.invalidateQueries({ queryKey: ["postes"] });
     },
+  });
+}
+
+function invalidatePlanningSemaines(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ queryKey: ["planning-semaines"] });
+  invalidateVacations(qc);
+  void qc.invalidateQueries({ queryKey: ["postes"] });
+}
+
+export function usePlanningSemaine(
+  params:
+    | { poste_id: string; annee_iso: number; semaine_iso: number }
+    | undefined,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: ["planning-semaines", "show", params],
+    queryFn: () => planningSemainesApi.show(params!),
+    enabled: (options?.enabled ?? true) && !!params?.poste_id,
+  });
+}
+
+export function useUpsertPlanningSemaine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Parameters<typeof planningSemainesApi.upsert>[0]) =>
+      planningSemainesApi.upsert(payload),
+    onSuccess: () => invalidatePlanningSemaines(qc),
+  });
+}
+
+export function usePublierPlanningSemaine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Parameters<typeof planningSemainesApi.publier>[0]) =>
+      planningSemainesApi.publier(payload),
+    onSuccess: () => invalidatePlanningSemaines(qc),
+  });
+}
+
+export function useDupliquerPlanningSemaine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (
+      payload: Parameters<typeof planningSemainesApi.dupliquer>[0],
+    ) => planningSemainesApi.dupliquer(payload),
+    onSuccess: () => invalidatePlanningSemaines(qc),
+  });
+}
+
+export function usePreparerProchainesSemaines() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (
+      payload: Parameters<typeof planningSemainesApi.preparer>[0],
+    ) => planningSemainesApi.preparer(payload),
+    onSuccess: () => invalidatePlanningSemaines(qc),
   });
 }
 

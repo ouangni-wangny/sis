@@ -53,6 +53,19 @@ class StoreControleRequest extends FormRequest
                 return;
             }
 
+            // Absence au poste : pas de photo possible → non exigée.
+            $resultat = (string) $this->input('resultat', '');
+            if ($resultat === ResultatControle::Absent->value) {
+                if (
+                    filled($this->input('photo_base64'))
+                    && ! $this->looksLikeImageBase64((string) $this->input('photo_base64'))
+                ) {
+                    $validator->errors()->add('photo_base64', 'La photo encodée est invalide.');
+                }
+
+                return;
+            }
+
             $hasUpload = $this->hasFile('photos')
                 || $this->hasFile('photos.0')
                 || $this->hasFile('photo');

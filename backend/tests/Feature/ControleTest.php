@@ -116,6 +116,27 @@ it('stores the resultat as a real field and does not create an anomalie when pre
     expect($vacation->fresh()->statut->value)->toBe('planifiee');
 });
 
+it('requires a photo when the agent is present', function () {
+    Carbon::setTestNow(Carbon::parse('2026-07-20 10:00:00'));
+    Vacation::query()->create([
+        'agent_id' => $this->agentPoste->id,
+        'site_id' => $this->site->id,
+        'date_debut' => '2026-07-20',
+        'date_fin' => null,
+        'heure_debut' => '08:00:00',
+        'heure_fin' => '17:00:00',
+        'statut' => 'planifiee',
+    ]);
+
+    $payload = controlePayload($this, ['resultat' => 'present']);
+    unset($payload['photo_base64']);
+
+    $this->actingAs($this->admin)
+        ->postJson('/api/v1/controles', $payload)
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['photos']);
+});
+
 it('creates an anomalie, RH absence and marks the vacation a_recouvrir when absent', function () {
     Carbon::setTestNow(Carbon::parse('2026-07-20 10:00:00'));
     $vacation = Vacation::query()->create([
@@ -128,9 +149,13 @@ it('creates an anomalie, RH absence and marks the vacation a_recouvrir when abse
         'statut' => 'planifiee',
     ]);
 
+    // Absence : pas de photo (l’agent n’est pas au poste).
+    $payload = controlePayload($this, ['resultat' => 'absent']);
+    unset($payload['photo_base64']);
+
     $response = $this->actingAs($this->admin)->postJson(
         '/api/v1/controles',
-        controlePayload($this, ['resultat' => 'absent'])
+        $payload
     );
 
     $response->assertCreated()->assertJsonPath('data.resultat', 'absent');

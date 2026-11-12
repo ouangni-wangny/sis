@@ -193,3 +193,146 @@ export function hintPassagesRequis(status: PassageStatus): string | null {
   }
   return "Poste 24h — contrôle matin et soir";
 }
+
+export type FenetreControle = {
+  passage: PassageControle;
+  /** HH:mm inclus */
+  debutHm: string;
+  /** HH:mm inclus (peut être le lendemain pour le soir/nuit) */
+  finHm: string;
+  /** true si finHm est le calendrier lendemain */
+  finLendemain: boolean;
+  label: string;
+};
+
+function hmToMinutes(hm: string): number {
+  const [h, m] = hm.split(":").map(Number);
+  return h * 60 + m;
+}
+
+/**
+ * Fenêtre horaire pendant laquelle le contrôleur peut faire le passage.
+ * Matin : début vacation → coupure 14h.
+ * Soir : coupure 14h → fin vacation (nuit = lendemain).
+ */
+export function fenetrePourPassage(
+  vacation: VacationControleInput,
+  passage: PassageControle,
+  cutoffHour = CONTROLE_MATIN_SOIR_CUTOFF_HOUR,
+): FenetreControle {
+  const debutVac =
+    normalizeHm(vacation.heure_debut) || vacation.heure_debut.slice(0, 5) || "06:30";
+  const finVac =
+    normalizeHm(vacation.heure_fin) || vacation.heure_fin.slice(0, 5) || "18:30";
+  const overnight = isOvernight(debutVac, finVac) || isCycle24h(debutVac, finVac);
+  const cutoff = `${String(cutoffHour).padStart(2, "0")}:00`;
+
+  if (passage === "matin") {
+    const debutHm = debutVac;
+    // Fin matin = min(cutoff, fin vacation) si même jour ; sinon cutoff.
+    let finHm = cutoff;
+    if (!overnight && hmToMinutes(finVac) < hmToMinutes(cutoff)) {
+      finHm = finVac;
+    }
+    return {
+      passage: "matin",
+      debutHm,
+      finHm,
+      finLendemain: false,
+      label: `Créneau matin ${debutHm}–${finHm}`,
+    };
+  }
+
+  // Soir : max(cutoff, début vac) → fin vac (évent. lendemain)
+  let debutHm = cutoff;
+  if (hmToMinutes(debutVac) >= hmToMinutes(cutoff) || overnight) {
+    // Quart nuit qui commence après 14h : fenêtre dès le début du quart.
+    if (hmToMinutes(debutVac) >= hmToMinutes(cutoff)) {
+      debutHm = debutVac;
+    }
+  }
+  return {
+    passage: "soir",
+    debutHm,
+    finHm: finVac,
+    finLendemain: overnight || hmToMinutes(finVac) <= hmToMinutes(debutHm),
+    label: `Créneau soir ${debutHm}–${finVac}${overnight || hmToMinutes(finVac) <= hmToMinutes(debutHm) ? " (+1j)" : ""}`,
+  };
+}
+
+/** Le passage est-il dans sa fenêtre à l’instant `now` ? */
+export function estDansFenetre(
+  fenetre: FenetreControle,
+  now: Date = new Date(),
+): boolean {
+  const mins = now.getHours() * 60 + now.getMinutes();
+  const debut = hmToMinutes(fenetre.debutHm);
+  const fin = hmToMinutes(fenetre.finHm);
+  if (!fenetre.finLendemain) {
+    return mins >= debut && mins < fin;
+  }
+  // Traverse minuit : [debut, 24h) U [0, fin)
+  return mins >= debut || mins < fin;
+}
+
+export type DisponibiliteControle = {
+  /** Ligne cliquable pour démarrer un contrôle maintenant */
+  cliquable: boolean;
+  /** Passage attendu maintenant (parmi les manquants), si dans la fenêtre */
+  passageActif: PassageControle | null;
+  /** Fenêtres des passages encore manquants */
+  fenetresManquantes: FenetreControle[];
+  /** Texte court pour la carte */
+  motif: string;
+};
+
+/**
+ * Disponibilité contrôleur : désactive la ligne hors créneau.
+ * Les contrôles déjà complets restent ouverts (recontrôle).
+ */
+export function disponibiliteControle(
+  vacation: VacationControleInput,
+  status: PassageStatus,
+  now: Date = new Date(),
+): DisponibiliteControle {
+  if (status.complet) {
+    return {
+      cliquable: true,
+      passageActif: null,
+      fenetresManquantes: [],
+      motif: "Contrôle complet — recontrôle possible",
+    };
+  }
+
+  const fenetresManquantes = status.manquants.map((p) =>
+    fenetrePourPassage(vacation, p),
+  );
+  const ouvertes = fenetresManquantes.filter((f) => estDansFenetre(f, now));
+  if (ouvertes.length > 0) {
+    const f = ouvertes[0]!;
+    return {
+      cliquable: true,
+      passageActif: f.passage,
+      fenetresManquantes,
+      motif: f.label,
+    };
+  }
+
+  const prochaine = fenetresManquantes[0];
+  return {
+    cliquable: false,
+    passageActif: null,
+    fenetresManquantes,
+    motif: prochaine
+      ? `Hors créneau · ${prochaine.label}`
+      : "Hors créneau de contrôle",
+  };
+}
+
+/** Intervalle vacation affiché (ex. 06:30–18:30). */
+export function labelHorairesVacation(vacation: VacationControleInput): string {
+  const d =
+    normalizeHm(vacation.heure_debut) || vacation.heure_debut.slice(0, 5);
+  const f = normalizeHm(vacation.heure_fin) || vacation.heure_fin.slice(0, 5);
+  return `${d}–${f}`;
+}

@@ -135,9 +135,9 @@ export type Poste = {
   agents_requis: number;
   /** Sans quarts + effectif ≥ 2 : ensemble (en même temps) | alternance (tour de rôle). */
   mode_effectif?: "ensemble" | "alternance" | null;
-  /** Le planning de ce poste se reconduit automatiquement. */
+  /** Conservé pour compat : les semaines se publient désormais manuellement. */
   planning_continu?: boolean;
-  /** Dernière période enregistrée par « Planifier le poste ». */
+  /** Dernière semaine publiée (lundi → dimanche). */
   planning_date_debut?: string | null;
   planning_date_fin?: string | null;
   heure_debut: string | null;
@@ -517,6 +517,32 @@ export type StatutVacation =
   | "terminee"
   | "annulee"
   | "a_recouvrir";
+
+export type StatutPlanningSemaine = "brouillon" | "publiee";
+
+export type PlanningSemaineCreneau = {
+  id?: string;
+  agent_id: string;
+  jour: number;
+  heure_debut: string;
+  heure_fin: string;
+  quart?: "jour" | "nuit";
+  agent?: Pick<Agent, "id" | "nom" | "prenom" | "matricule"> | null;
+};
+
+export type PlanningSemaine = {
+  id: string | null;
+  poste_id: string;
+  annee_iso: number;
+  semaine_iso: number;
+  statut: StatutPlanningSemaine;
+  date_lundi?: string;
+  date_dimanche?: string;
+  creneaux: PlanningSemaineCreneau[];
+  poste?: Pick<Poste, "id" | "nom" | "site_id"> & {
+    site?: Pick<Site, "id" | "nom"> | null;
+  };
+};
 
 export type Vacation = {
   id: string;

@@ -918,7 +918,7 @@ function VacationsPageContent() {
               title={view === "grille" ? "Grille site" : "Détail des vacations"}
               description={
                 view === "grille"
-                  ? "Vue hebdomadaire par poste — cliquez une case pour planifier. Le planning se reconduit seul chaque semaine."
+                  ? "Vue hebdomadaire par poste — cliquez une case pour planifier. Chaque semaine se publie indépendamment."
                   : "Liste filtrable des affectations jour par jour."
               }
               action={canCreate ? <PlanifierLink size="sm" /> : undefined}
@@ -1288,6 +1288,12 @@ function VacationsPageContent() {
                       return;
                     }
                   }
+                  // Ajout 1 jour depuis la grille = exception ops, jamais titulaire
+                  // du template (évite « Repos » fantômes + pollution à la republication).
+                  const ponctuel =
+                    Boolean(createContext) ||
+                    !saisiePeriode ||
+                    remplacement;
                   await createVacation.mutateAsync({
                     agent_id: values.agent_id,
                     site_id: values.site_id,
@@ -1296,7 +1302,7 @@ function VacationsPageContent() {
                     heure_fin: values.heure_fin,
                     date_debut: values.date_debut,
                     date_fin: values.date_fin || values.date_debut,
-                    ...(remplacement ? { remplacement: true } : {}),
+                    ...(ponctuel ? { remplacement: true } : {}),
                     ...(saisiePeriode ? { exclure_jour_repos: true } : {}),
                   });
                   toast("Agent ajouté pour ce jour.");
@@ -1372,15 +1378,18 @@ function VacationsPageContent() {
                     <input
                       type="checkbox"
                       className="mt-0.5 size-4 rounded border-border text-teal focus:ring-teal/40"
-                      checked={remplacement}
+                      checked={Boolean(createContext) || remplacement}
+                      disabled={Boolean(createContext)}
                       onChange={(e) => setRemplacement(e.target.checked)}
                     />
                     <span>
-                      Remplacement d’un collègue absent
+                      {createContext
+                        ? "Ajout ponctuel (1 jour)"
+                        : "Remplacement d’un collègue absent"}
                       <span className="block text-xs text-ink-faint">
-                        Permet de reconduire un agent qui vient de faire son jour
-                        ou son quart (repos minimum levé, chevauchement toujours
-                        interdit).
+                        {createContext
+                          ? "Ne modifie pas l’emploi du temps de la semaine — vacation marquée remplacement."
+                          : "Permet de reconduire un agent qui vient de faire son jour ou son quart (repos minimum levé, chevauchement toujours interdit)."}
                       </span>
                     </span>
                   </label>

@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Camera, Check } from "lucide-react";
+import { ArrowLeft, Camera, Check, Clock, Lock } from "lucide-react";
 import { useChargement } from "@/application/hooks/useChargement";
 import { useAuth } from "@/presentation/providers/AuthProvider";
 import { controlesApi, vacationsApi } from "@/infrastructure/http/resources";
@@ -15,9 +15,10 @@ import {
   uuid,
 } from "@/shared/lib/terrain";
 import {
-  hintPassagesRequis,
+  disponibiliteControle,
   indexControlesParPassage,
   labelBadgeControle,
+  labelHorairesVacation,
   statusControleVacation,
   type PassageStatus,
 } from "@/domain/controle-passages";
@@ -25,7 +26,7 @@ import type { Controle, ControleResultat, Vacation } from "@/domain/types/entiti
 import { formatDateTime } from "@/shared/lib/format";
 import { cn } from "@/shared/lib/cn";
 
-type Step = "list" | "photo" | "confirm" | "done";
+type Step = "list" | "presence" | "photo" | "confirm" | "done";
 type Presence = "present" | "absent" | null;
 type ListTab = "en_poste" | "historique";
 
@@ -152,15 +153,20 @@ export default function ControleClient() {
   }
 
   function selectAgent(v: Vacation) {
-    // Un agent déjà "Fait" reste sélectionnable pour un recontrôle — le
-    // serveur applique le délai minimum entre deux contrôles et renvoie
-    // une erreur explicite si c'est trop tôt (utile après une absence
-    // constatée, pour vérifier que l'agent est revenu à son poste).
+    const status = statusByVacation.get(v.id);
+    if (status) {
+      const dispo = disponibiliteControle(v, status);
+      if (!dispo.cliquable) {
+        setError(dispo.motif);
+        return;
+      }
+    }
+    // Complet : recontrôle possible (délai min. côté serveur).
     setSelected(v);
     resetForm();
     setOkMessage(null);
     setError(null);
-    setStep("photo");
+    setStep("presence");
   }
 
   // Lien direct (?vacationId=…) : ouvre l’agent une fois les données chargées
@@ -186,8 +192,13 @@ export default function ControleClient() {
   }
 
   async function submit() {
-    if (!user?.agent?.id || !selected || !photoBase64 || !presence) {
+    if (!user?.agent?.id || !selected || !presence) {
       setError("Complétez toutes les étapes.");
+      return;
+    }
+    if (presence === "present" && !photoBase64) {
+      setError("Une photo est obligatoire pour une présence.");
+      setStep("photo");
       return;
     }
     if (!confirmed) {
@@ -209,7 +220,7 @@ export default function ControleClient() {
         resultat: presence,
         commentaire: note.trim() || undefined,
         client_uuid: uuid(),
-        photo_base64: photoBase64,
+        ...(photoBase64 ? { photo_base64: photoBase64 } : {}),
       });
       const resultat = created.data.resultat;
       setDoneResultat(resultat);
@@ -240,9 +251,11 @@ export default function ControleClient() {
             <button
               type="button"
               onClick={() => {
+                setError(null);
                 if (step === "confirm") {
-                  setStep("photo");
-                  setError(null);
+                  setStep(presence === "present" ? "photo" : "presence");
+                } else if (step === "photo") {
+                  setStep("presence");
                 } else {
                   backToList();
                 }
@@ -261,44 +274,50 @@ export default function ControleClient() {
               </p>
               {(() => {
                 const st = statusByVacation.get(selected.id);
-                const hint = st ? hintPassagesRequis(st) : null;
-                if (!hint && !st?.manquants.length) return null;
-                const missing =
-                  st && !st.complet
-                    ? st.manquants
-                        .map((p) => (p === "matin" ? "matin" : "soir"))
-                        .join(" + ")
-                    : null;
+                const dispo = st
+                  ? disponibiliteControle(selected, st)
+                  : null;
+                const fenetre =
+                  dispo?.fenetresManquantes
+                    .map((f) => `${f.debutHm}–${f.finHm}`)
+                    .join(" · ") || null;
                 return (
                   <p className="mt-0.5 truncate text-[10px] text-[#0F6B5C]">
-                    {hint}
-                    {missing ? ` · reste : ${missing}` : null}
+                    Vacation {labelHorairesVacation(selected)}
+                    {fenetre ? ` · contrôle ${fenetre}` : null}
                   </p>
                 );
               })()}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-px bg-border">
-            <div
-              className={cn(
-                "bg-white px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wide",
-                step === "photo"
-                  ? "text-[#0F6B5C]"
-                  : "text-ink-faint",
-              )}
-            >
-              1 · Photo
-            </div>
-            <div
-              className={cn(
-                "bg-white px-3 py-2 text-center text-[11px] font-bold uppercase tracking-wide",
-                step === "confirm"
-                  ? "text-[#0F6B5C]"
-                  : "text-ink-faint",
-              )}
-            >
-              2 · Validation
-            </div>
+          <div
+            className={cn(
+              "grid gap-px bg-border",
+              presence === "absent" ? "grid-cols-2" : "grid-cols-3",
+            )}
+          >
+            {(
+              presence === "absent"
+                ? ([
+                    ["presence", "1 · Présence"],
+                    ["confirm", "2 · Validation"],
+                  ] as const)
+                : ([
+                    ["presence", "1 · Présence"],
+                    ["photo", "2 · Photo"],
+                    ["confirm", "3 · Validation"],
+                  ] as const)
+            ).map(([id, label]) => (
+              <div
+                key={id}
+                className={cn(
+                  "bg-white px-2 py-2 text-center text-[11px] font-bold uppercase tracking-wide",
+                  step === id ? "text-[#0F6B5C]" : "text-ink-faint",
+                )}
+              >
+                {label}
+              </div>
+            ))}
           </div>
         </div>
       ) : (
@@ -310,6 +329,8 @@ export default function ControleClient() {
                 {pendingCount > 0
                   ? `${pendingCount} agent${pendingCount > 1 ? "s" : ""} à contrôler`
                   : "Mission du jour"}
+                {" · "}
+                créneau matin avant 14h, soir après
               </p>
             </div>
             <button
@@ -377,40 +398,115 @@ export default function ControleClient() {
                 </div>
               ) : (
                 <ul className="divide-y divide-border border border-border bg-white">
-                  {vacations.map((v) => {
-                    const status = statusByVacation.get(v.id);
-                    const badge = status
-                      ? labelBadgeControle(status)
-                      : { text: "À faire", tone: "muted" as const };
-                    const hint = status ? hintPassagesRequis(status) : null;
-                    return (
-                      <li key={v.id}>
-                        <button
-                          type="button"
-                          onClick={() => selectAgent(v)}
-                          className="flex w-full items-center gap-3 px-3 py-3 text-left transition hover:bg-paper-muted/60"
+                  {[...vacations]
+                    .map((v) => {
+                      const status = statusByVacation.get(v.id);
+                      const dispo = status
+                        ? disponibiliteControle(v, status)
+                        : null;
+                      return { v, status, dispo };
+                    })
+                    .sort((a, b) => {
+                      const rank = (x: typeof a) => {
+                        if (x.status?.complet) return 2;
+                        if (x.dispo?.cliquable) return 0;
+                        return 1;
+                      };
+                      return rank(a) - rank(b);
+                    })
+                    .map(({ v, status, dispo }) => {
+                      const badge = status
+                        ? labelBadgeControle(status)
+                        : { text: "À faire", tone: "muted" as const };
+                      const locked = Boolean(dispo && !dispo.cliquable);
+                      const actif = Boolean(
+                        dispo?.cliquable && !status?.complet,
+                      );
+                      const fenetreActive = dispo?.fenetresManquantes.find(
+                        (f) => f.passage === dispo.passageActif,
+                      );
+                      const fenetreLabel = fenetreActive
+                        ? `${fenetreActive.debutHm}–${fenetreActive.finHm}`
+                        : dispo?.fenetresManquantes
+                            .map((f) => `${f.debutHm}–${f.finHm}`)
+                            .join(" · ") || null;
+                      return (
+                        <li
+                          key={v.id}
+                          className={cn(
+                            locked && "bg-paper-muted/70 opacity-70",
+                            actif && "bg-[#E6F2EF]/35",
+                          )}
                         >
-                          <div className="flex size-10 items-center justify-center border border-[#0F6B5C]/25 bg-[#E6F2EF] text-xs font-bold text-[#0F6B5C]">
-                            {initials(v.agent?.prenom, v.agent?.nom)}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-semibold">
-                              {v.agent?.prenom} {v.agent?.nom}
-                            </p>
-                            <p className="truncate text-xs text-ink-muted">
-                              {v.site?.nom} · {v.poste?.nom ?? "Poste"}
-                            </p>
-                            {hint ? (
-                              <p className="mt-0.5 truncate text-[10px] text-ink-faint">
-                                {hint}
+                          <button
+                            type="button"
+                            onClick={() => selectAgent(v)}
+                            disabled={locked}
+                            aria-disabled={locked}
+                            className={cn(
+                              "flex w-full items-center gap-3 px-3 py-3 text-left transition",
+                              locked
+                                ? "cursor-not-allowed"
+                                : "hover:bg-paper-muted/60",
+                              actif && "border-l-2 border-l-[#0F6B5C]",
+                            )}
+                          >
+                            <div
+                              className={cn(
+                                "flex size-10 shrink-0 items-center justify-center border text-xs font-bold",
+                                locked
+                                  ? "border-border bg-paper-muted text-ink-faint"
+                                  : "border-[#0F6B5C]/25 bg-[#E6F2EF] text-[#0F6B5C]",
+                              )}
+                            >
+                              {initials(v.agent?.prenom, v.agent?.nom)}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p
+                                className={cn(
+                                  "truncate text-sm font-semibold",
+                                  locked ? "text-ink-muted" : "text-ink",
+                                )}
+                              >
+                                {v.agent?.prenom} {v.agent?.nom}
                               </p>
-                            ) : null}
-                          </div>
-                          <Badge tone={badge.tone}>{badge.text}</Badge>
-                        </button>
-                      </li>
-                    );
-                  })}
+                              <p className="truncate text-xs text-ink-muted">
+                                {v.site?.nom} · {v.poste?.nom ?? "Poste"}
+                              </p>
+                              <p className="mt-0.5 truncate text-[10px] text-ink-faint">
+                                Vacation {labelHorairesVacation(v)}
+                              </p>
+                              {fenetreLabel ? (
+                                <p
+                                  className={cn(
+                                    "mt-0.5 flex items-center gap-1 text-[10px] font-semibold",
+                                    locked
+                                      ? "text-ink-faint"
+                                      : "text-[#0A4F44]",
+                                  )}
+                                >
+                                  <Clock className="size-3 shrink-0" />
+                                  Contrôle {fenetreLabel}
+                                </p>
+                              ) : null}
+                              {locked ? (
+                                <p className="mt-0.5 text-[10px] italic text-ink-faint">
+                                  Hors créneau — ligne désactivée
+                                </p>
+                              ) : null}
+                            </div>
+                            {locked ? (
+                              <span className="flex shrink-0 items-center gap-1 border border-border bg-paper-muted px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-ink-faint">
+                                <Lock className="size-3" />
+                                Verrouillé
+                              </span>
+                            ) : (
+                              <Badge tone={badge.tone}>{badge.text}</Badge>
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
                 </ul>
               )
             ) : history.length === 0 ? (
@@ -454,8 +550,60 @@ export default function ControleClient() {
         )
       ) : null}
 
+      {step === "presence" ? (
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-base font-bold text-ink">L’agent est-il au poste ?</h2>
+            <p className="mt-1 text-sm text-ink-muted">
+              Choisissez d’abord le constat. La photo n’est demandée qu’en cas
+              de présence.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setPresence("present");
+                setConfirmed(false);
+                setError(null);
+                setStep("photo");
+              }}
+              className="border border-[#0F6B5C]/40 bg-[#E6F2EF] px-4 py-4 text-left transition hover:border-[#0F6B5C]"
+            >
+              <p className="text-sm font-bold text-[#0F6B5C]">Présent</p>
+              <p className="mt-0.5 text-xs text-[#0A4F44]/80">
+                Puis photographier l’agent au poste
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPresence("absent");
+                setPhotoPreview(null);
+                setPhotoBase64(null);
+                setConfirmed(false);
+                setError(null);
+                setStep("confirm");
+              }}
+              className="border border-red-200 bg-red-50 px-4 py-4 text-left transition hover:border-danger"
+            >
+              <p className="text-sm font-bold text-danger">Absent</p>
+              <p className="mt-0.5 text-xs text-danger/80">
+                Pas de photo — validation directe de l’absence
+              </p>
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {step === "photo" ? (
         <div className="space-y-3">
+          <div>
+            <h2 className="text-base font-bold text-ink">Photo de présence</h2>
+            <p className="mt-1 text-sm text-ink-muted">
+              Preuve visuelle obligatoire pour confirmer que l’agent est au poste.
+            </p>
+          </div>
           <input
             ref={fileRef}
             type="file"
@@ -508,35 +656,61 @@ export default function ControleClient() {
 
       {step === "confirm" ? (
         <div className="space-y-4">
-          <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-faint">
-              Présence
+          <div
+            className={cn(
+              "border px-3 py-3",
+              presence === "absent"
+                ? "border-red-200 bg-red-50"
+                : "border-[#0F6B5C]/30 bg-[#E6F2EF]",
+            )}
+          >
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+              Constat
             </p>
-            <div className="grid grid-cols-2 gap-2">
-              {(
-                [
-                  ["present", "Présent"],
-                  ["absent", "Absent"],
-                ] as const
-              ).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setPresence(value)}
-                  className={cn(
-                    "border px-3 py-3.5 text-sm font-semibold transition",
-                    presence === value
-                      ? value === "present"
-                        ? "border-[#0F6B5C] bg-[#E6F2EF] text-[#0F6B5C]"
-                        : "border-danger bg-red-50 text-danger"
-                      : "border-border bg-white text-ink-muted",
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <p
+              className={cn(
+                "mt-1 text-sm font-bold",
+                presence === "absent" ? "text-danger" : "text-[#0F6B5C]",
+              )}
+            >
+              {presence === "absent" ? "Agent absent du poste" : "Agent présent"}
+            </p>
+            <button
+              type="button"
+              className="mt-1 text-xs font-semibold text-ink-muted underline"
+              onClick={() => {
+                setConfirmed(false);
+                setStep("presence");
+              }}
+            >
+              Modifier
+            </button>
           </div>
+
+          {presence === "present" && photoPreview ? (
+            <div className="flex items-center gap-3 border border-border bg-white px-3 py-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={photoPreview}
+                alt="Aperçu"
+                className="size-14 border border-border object-cover"
+              />
+              <button
+                type="button"
+                className="text-xs font-semibold text-[#0F6B5C]"
+                onClick={() => setStep("photo")}
+              >
+                Modifier la photo
+              </button>
+            </div>
+          ) : null}
+
+          {presence === "absent" ? (
+            <p className="text-xs text-ink-muted">
+              Aucune photo requise : l’agent n’est pas au poste pour être
+              photographié.
+            </p>
+          ) : null}
 
           <label className="flex items-start gap-2.5 border border-border bg-white px-3 py-3 text-sm">
             <input
@@ -546,7 +720,9 @@ export default function ControleClient() {
               className="mt-0.5 size-4 rounded-none border-border"
             />
             <span>
-              Je confirme avoir contrôlé cet agent sur le site indiqué.
+              {presence === "absent"
+                ? "Je confirme que l’agent est absent de son poste."
+                : "Je confirme avoir contrôlé cet agent présent sur le site."}
             </span>
           </label>
 
@@ -559,7 +735,11 @@ export default function ControleClient() {
               onChange={(e) => setNote(e.target.value)}
               rows={3}
               className="w-full border border-border bg-white px-3 py-2.5 text-sm outline-none focus:border-[#0F6B5C]"
-              placeholder="Observation…"
+              placeholder={
+                presence === "absent"
+                  ? "Précision sur l’absence…"
+                  : "Observation…"
+              }
             />
           </div>
 
@@ -567,7 +747,11 @@ export default function ControleClient() {
             type="button"
             className="w-full !rounded-none"
             loading={busy}
-            disabled={!presence || !confirmed}
+            disabled={
+              !presence ||
+              !confirmed ||
+              (presence === "present" && !photoBase64)
+            }
             onClick={() => void submit()}
           >
             Valider le contrôle

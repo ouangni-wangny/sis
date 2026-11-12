@@ -23,7 +23,16 @@ const CASE: Record<CellulePlanning, { lettre: string; titre: string; classe: str
   },
 };
 
-const JOURS = ["dim", "lun", "mar", "mer", "jeu", "ven", "sam"];
+const JOURS = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
+const JOURS_LONG = [
+  "Dimanche",
+  "Lundi",
+  "Mardi",
+  "Mercredi",
+  "Jeudi",
+  "Vendredi",
+  "Samedi",
+];
 
 function jourDe(date: string) {
   return new Date(`${date}T12:00:00`).getDay();
@@ -120,14 +129,19 @@ export function PlanningPeriodeGrille({
                 return (
                   <th
                     key={date}
+                    title={JOURS_LONG[jour]}
                     className={cn(
-                      "min-w-9 p-1 text-center font-medium text-ink-muted",
+                      "min-w-10 p-1 text-center font-medium text-ink-muted",
                       (jour === 0 || jour === 6) && "bg-paper-muted",
                       jour === 1 && "border-l border-border",
                     )}
                   >
-                    <div>{JOURS[jour]}</div>
-                    <div className="tabular-nums text-ink">{date.slice(8, 10)}</div>
+                    <div className="text-[10px] font-semibold uppercase tracking-wide">
+                      {JOURS[jour]}
+                    </div>
+                    <div className="tabular-nums text-ink">
+                      {date.slice(8, 10)}/{date.slice(5, 7)}
+                    </div>
                   </th>
                 );
               })}

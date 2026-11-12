@@ -2,6 +2,7 @@
 
 import { format, parseISO, isToday as isTodayFn } from "date-fns";
 import { fr } from "date-fns/locale";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import {
@@ -16,8 +17,17 @@ import {
   usePostes,
   useVacations,
 } from "@/application/hooks/useResources";
-import { postesApi } from "@/infrastructure/http/resources";
-import type { Poste, PosteCoverage, Vacation } from "@/domain/types/entities";
+import {
+  planningSemainesApi,
+  postesApi,
+} from "@/infrastructure/http/resources";
+import type {
+  PlanningSemaine,
+  Poste,
+  PosteCoverage,
+  Vacation,
+} from "@/domain/types/entities";
+import { isoWeekFromDate } from "@/domain/schemas/agent-planning";
 import {
   hasDecoupageQuarts,
   isCycle24hInterval,
@@ -32,7 +42,17 @@ import { Select } from "@/presentation/components/ui/Select";
 import { Spinner } from "@/presentation/components/ui/Spinner";
 import { cn } from "@/shared/lib/cn";
 
-const weekdayLabels = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+const weekdayLabels = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
+const weekdayShort = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+
+type PlanningWeekStatus = "absent" | "brouillon" | "publiee";
+
+function planningWeekStatus(planning?: PlanningSemaine | null): PlanningWeekStatus {
+  if (!planning?.id) return "absent";
+  if ((planning.creneaux?.length ?? 0) === 0) return "absent";
+  if (planning.statut === "publiee") return "publiee";
+  return "brouillon";
+}
 
 type WeekPosteAgent = {
   agentId: string;
@@ -91,16 +111,36 @@ function posteAgentsThisWeek(
   return [...byAgent.values()];
 }
 
-/** Remplaçant ponctuel : ne travaille que sur des jours où un titulaire a un trou/annulation. */
+/**
+ * Remplaçant ponctuel : ne doit pas apparaître en « Repos » les autres jours.
+ * Cas : trou/annulation, flag est_remplacement, ou agent qui ne fait qu’1 (ou
+ * peu de) jour(s) alors que d’autres agents du poste en font plus (ex. AKISSI
+ * ajoutée un jeudi pour couvrir le repos de BI).
+ */
 function isRemplacantPonctuel(
   agent: WeekPosteAgent,
   vacations: Vacation[],
   posteId: string,
+  weekAgents: WeekPosteAgent[] = [],
 ): boolean {
   if (agent.workDates.size === 0) return false;
   // Titulaire s’il a au moins un trou / annulation à son nom.
   if (agent.rosterDates.size > agent.workDates.size) return false;
 
+  const sesVacations = vacations.filter(
+    (v) =>
+      v.poste_id === posteId &&
+      v.agent_id === agent.agentId &&
+      v.statut !== "annulee",
+  );
+  if (
+    sesVacations.length > 0 &&
+    sesVacations.every((v) => Boolean(v.est_remplacement))
+  ) {
+    return true;
+  }
+
+  let coversOnlyHoles = true;
   for (const d of agent.workDates) {
     const coversHole = vacations.some(
       (v) =>
@@ -110,17 +150,27 @@ function isRemplacantPonctuel(
         (v.statut === "annulee" || v.statut === "a_recouvrir") &&
         vacationShowsOnDate(v, d),
     );
-    if (!coversHole) return false;
+    if (!coversHole) {
+      coversOnlyHoles = false;
+      break;
+    }
   }
-  return true;
+  if (coversOnlyHoles) return true;
+
+  // Couverture d’un jour de repos : moins de jours travaillés que les titulaires.
+  const autresMax = Math.max(
+    0,
+    ...weekAgents
+      .filter((a) => a.agentId !== agent.agentId)
+      .map((a) => a.workDates.size),
+  );
+  return autresMax > 0 && agent.workDates.size < autresMax;
 }
 
 /**
  * Agents de la rotation absents ce jour → repos inféré.
- * Un remplaçant ponctuel ne s’affiche pas en « Repos » les autres jours.
- * Un titulaire dont la vacation du jour est annulée / à recouvrir
- * (absent, remplacé) n’est pas en repos non plus.
- * Jour sans vacation active → pas de liste repos (jour vide / non planifié).
+ * Si un template publié existe : uniquement ses titulaires.
+ * Sinon : heuristique (exclut remplacants ponctuels).
  */
 function restingAgentsForDay(
   weekAgents: WeekPosteAgent[],
@@ -128,6 +178,7 @@ function restingAgentsForDay(
   dayVacations: Vacation[],
   allVacations: Vacation[],
   posteId: string,
+  templateAgentIds?: Set<string> | null,
 ): WeekPosteAgent[] {
   if (dayVacations.length === 0) return [];
 
@@ -150,7 +201,10 @@ function restingAgentsForDay(
     if (present.has(a.agentId)) return false;
     if (a.workDates.has(date)) return false;
     if (scheduledOff.has(a.agentId)) return false;
-    if (isRemplacantPonctuel(a, allVacations, posteId)) return false;
+    if (templateAgentIds && templateAgentIds.size > 0) {
+      return templateAgentIds.has(a.agentId);
+    }
+    if (isRemplacantPonctuel(a, allVacations, posteId, weekAgents)) return false;
     return a.rosterDates.size > 0;
   });
 }
@@ -407,6 +461,57 @@ export function WeekGrid({
 
   const postes = postesData?.data ?? [];
   const vacations = vacationsData?.data ?? [];
+
+  const weekIso = useMemo(() => isoWeekFromDate(weekStart), [weekStart]);
+
+  const planningQueries = useQueries({
+    queries: postes.map((poste) => ({
+      queryKey: [
+        "planning-semaines",
+        "show",
+        {
+          poste_id: poste.id,
+          annee_iso: weekIso.annee_iso,
+          semaine_iso: weekIso.semaine_iso,
+        },
+      ],
+      queryFn: () =>
+        planningSemainesApi.show({
+          poste_id: poste.id,
+          annee_iso: weekIso.annee_iso,
+          semaine_iso: weekIso.semaine_iso,
+        }),
+      enabled: !!siteId && !!poste.id,
+    })),
+  });
+
+  const planningByPoste = useMemo(() => {
+    const map = new Map<string, PlanningWeekStatus>();
+    postes.forEach((poste, i) => {
+      map.set(
+        poste.id,
+        planningWeekStatus(planningQueries[i]?.data?.data ?? null),
+      );
+    });
+    return map;
+  }, [postes, planningQueries]);
+
+  /** Titulaires du template publié (pour « Repos » — pas les remplacants 1 jour). */
+  const templateAgentsByPoste = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    postes.forEach((poste, i) => {
+      const planning = planningQueries[i]?.data?.data;
+      if (!planning || planning.statut !== "publiee") return;
+      const ids = new Set(
+        (planning.creneaux ?? [])
+          .map((c) => c.agent_id)
+          .filter(Boolean),
+      );
+      if (ids.size > 0) map.set(poste.id, ids);
+    });
+    return map;
+  }, [postes, planningQueries]);
+
   const loading = postesLoading || vacationsLoading;
 
   const weekStats = useMemo(() => {
@@ -624,7 +729,10 @@ export function WeekGrid({
                           today ? "text-teal" : "text-ink-faint",
                         )}
                       >
-                        {weekdayLabels[i]}
+                        <span className="hidden sm:inline">
+                          {weekdayLabels[i]}
+                        </span>
+                        <span className="sm:hidden">{weekdayShort[i]}</span>
                       </span>
                       <span
                         className={cn(
@@ -652,6 +760,9 @@ export function WeekGrid({
                   poste.id,
                   dates,
                 );
+                const planStatus =
+                  planningByPoste.get(poste.id) ?? ("absent" as const);
+                const planifierHref = `/vacations/planifier?site_id=${siteId}&poste_id=${poste.id}&annee_iso=${weekIso.annee_iso}&semaine_iso=${weekIso.semaine_iso}`;
                 return (
                   <tr
                     key={poste.id}
@@ -661,6 +772,27 @@ export function WeekGrid({
                       <p className="font-semibold text-ink">{poste.nom}</p>
                       <div className="mt-1.5 space-y-1">
                         <Badge tone="success">{meta.badge}</Badge>
+                        {planStatus === "publiee" ? (
+                          <Badge tone="success">S{weekIso.semaine_iso} publiée</Badge>
+                        ) : planStatus === "brouillon" ? (
+                          <Badge tone="warning">
+                            S{weekIso.semaine_iso} brouillon
+                          </Badge>
+                        ) : (
+                          <Badge tone="danger">
+                            S{weekIso.semaine_iso} non planifiée
+                          </Badge>
+                        )}
+                        {planStatus === "absent" ? (
+                          <p className="text-[11px] leading-snug text-danger">
+                            Aucun planning enregistré pour cette semaine.
+                          </p>
+                        ) : planStatus === "brouillon" ? (
+                          <p className="text-[11px] leading-snug text-warning">
+                            Brouillon non publié — les vacations ne sont pas
+                            encore générées.
+                          </p>
+                        ) : null}
                         {meta.horaires ? (
                           <p className="text-[11px] text-ink-muted">
                             Horaires :{" "}
@@ -674,6 +806,16 @@ export function WeekGrid({
                             {meta.hint}
                           </p>
                         ) : null}
+                        <Link
+                          href={planifierHref}
+                          className="inline-flex text-[11px] font-medium text-teal hover:underline"
+                        >
+                          {planStatus === "absent"
+                            ? `Créer le planning S${weekIso.semaine_iso}`
+                            : planStatus === "brouillon"
+                              ? `Publier la semaine S${weekIso.semaine_iso}`
+                              : `Modifier la semaine S${weekIso.semaine_iso}`}
+                        </Link>
                       </div>
                     </td>
                     {dates.map((date) => {
@@ -694,6 +836,7 @@ export function WeekGrid({
                         dayVacations,
                         vacations,
                         poste.id,
+                        templateAgentsByPoste.get(poste.id),
                       );
                       const cov = coverageByDate
                         .get(date)
@@ -844,31 +987,49 @@ export function WeekGrid({
                               ))}
 
                               {empty ? (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    onCreateFor({
-                                      posteId: poste.id,
-                                      siteId,
-                                      date,
-                                      posteNom: poste.nom,
-                                      agentsRequis: poste.agents_requis,
-                                      heure_debut: poste.heure_debut,
-                                      heure_fin: poste.heure_fin,
-                                      heure_debut_nuit: poste.heure_debut_nuit,
-                                      heure_fin_nuit: poste.heure_fin_nuit,
-                                      occupied: [],
-                                    })
-                                  }
-                                  className="mt-auto flex flex-1 flex-col items-center justify-center rounded-md border border-dashed border-border/80 px-1 py-2 text-center transition hover:border-teal hover:bg-teal/5"
-                                >
-                                  <Plus className="size-4 text-ink-faint" />
-                                  <span className="mt-1 text-[10px] leading-tight text-ink-faint">
-                                    {cov?.statut === "non_couvert"
-                                      ? "Poste vide — ajouter"
-                                      : "Ajouter un agent"}
-                                  </span>
-                                </button>
+                                planStatus !== "publiee" ? (
+                                  <Link
+                                    href={planifierHref}
+                                    className="mt-auto flex flex-1 flex-col items-center justify-center rounded-md border border-dashed border-rose-300 bg-rose-50/40 px-1 py-2 text-center transition hover:border-teal hover:bg-teal/5"
+                                  >
+                                    <Plus className="size-4 text-rose-500" />
+                                    <span className="mt-1 text-[10px] font-medium leading-tight text-rose-700">
+                                      {planStatus === "brouillon"
+                                        ? "Brouillon non publié"
+                                        : "Planning non créé"}
+                                    </span>
+                                    <span className="mt-0.5 text-[9px] leading-tight text-ink-faint">
+                                      Ouvrir Planifier
+                                    </span>
+                                  </Link>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      onCreateFor({
+                                        posteId: poste.id,
+                                        siteId,
+                                        date,
+                                        posteNom: poste.nom,
+                                        agentsRequis: poste.agents_requis,
+                                        heure_debut: poste.heure_debut,
+                                        heure_fin: poste.heure_fin,
+                                        heure_debut_nuit:
+                                          poste.heure_debut_nuit,
+                                        heure_fin_nuit: poste.heure_fin_nuit,
+                                        occupied: [],
+                                      })
+                                    }
+                                    className="mt-auto flex flex-1 flex-col items-center justify-center rounded-md border border-dashed border-border/80 px-1 py-2 text-center transition hover:border-teal hover:bg-teal/5"
+                                  >
+                                    <Plus className="size-4 text-ink-faint" />
+                                    <span className="mt-1 text-[10px] leading-tight text-ink-faint">
+                                      {cov?.statut === "non_couvert"
+                                        ? "Poste vide — ajouter"
+                                        : "Ajouter un agent"}
+                                    </span>
+                                  </button>
+                                )
                               ) : null}
                             </div>
                           </div>

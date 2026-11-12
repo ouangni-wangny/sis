@@ -700,10 +700,10 @@ export default function SitesPage() {
                       onChange={(e) => setPlanningContinu(e.target.checked)}
                     />
                     <span>
-                      Reconduire le planning automatiquement
+                      Poste récurrent (indicatif)
                       <span className="block text-xs text-ink-muted">
-                        À décocher pour un poste temporaire : le planning
-                        s’arrêtera à sa dernière date.
+                        Les semaines se publient manuellement depuis Planifier.
+                        Décochez pour un poste temporaire.
                       </span>
                     </span>
                   </label>

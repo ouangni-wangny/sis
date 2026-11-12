@@ -121,11 +121,14 @@ class ControleController extends Controller
             }
         }
 
+        $resultat = (string) ($payload['resultat'] ?? '');
+        $photoRequired = ! $isSiege && $resultat !== 'absent';
+
         return new ControleResource(
             $action->execute(
                 $payload,
                 $photos,
-                requirePhoto: ! $isSiege,
+                requirePhoto: $photoRequired,
                 base64Photos: $base64Photos,
             )
         );
