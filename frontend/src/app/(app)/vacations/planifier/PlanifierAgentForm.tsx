@@ -18,7 +18,6 @@ import {
 import {
   agentPlanningSchema,
   buildAlternanceMotifs,
-  cellulesDepuisCycle,
   cellulesDepuisSemaine,
   cellulesEnregistrees,
   celluleSuivante,
@@ -29,6 +28,7 @@ import {
   hoursForAgentSlot,
   isoJourFromDate,
   isoWeekFromDate,
+  joursTravaillesDepuisCellules,
   joursVerrouilles,
   needsAlternanceMotifPrefill,
   shiftIsoWeek,
@@ -190,6 +190,7 @@ export function PlanifierAgentForm() {
     setValue,
     getValues,
     clearErrors,
+    reset,
     formState: { errors, isSubmitting },
   } = useForm<AgentPlanningFormValues>({
     resolver: zodResolver(agentPlanningSchema),
@@ -233,28 +234,38 @@ export function PlanifierAgentForm() {
     siteId ? { site_id: siteId, all: true } : undefined,
     { enabled: !!siteId, refetchOnMount: "always" },
   );
-  const { data: posteVacations, isFetching: posteVacationsLoading } =
-    useVacations(
-      {
-        poste_id: posteId,
-        all: true,
-        date_from: week.lundi,
-        date_to: week.dimanche,
-      },
-      { enabled: !!posteId },
-    );
+  const {
+    data: posteVacations,
+    isFetching: posteVacationsFetching,
+    isPending: posteVacationsPending,
+  } = useVacations(
+    {
+      poste_id: posteId,
+      all: true,
+      date_from: week.lundi,
+      date_to: week.dimanche,
+    },
+    { enabled: !!posteId },
+  );
+  const posteVacationsLoading = posteVacationsPending || (posteVacationsFetching && !posteVacations);
 
-  const { data: planningSemaineData, isFetching: planningSemaineLoading } =
-    usePlanningSemaine(
-      posteId
-        ? {
-            poste_id: posteId,
-            annee_iso: week.annee_iso,
-            semaine_iso: week.semaine_iso,
-          }
-        : undefined,
-      { enabled: !!posteId },
-    );
+  const {
+    data: planningSemaineData,
+    isFetching: planningSemaineFetching,
+    isPending: planningSemainePending,
+  } = usePlanningSemaine(
+    posteId
+      ? {
+          poste_id: posteId,
+          annee_iso: week.annee_iso,
+          semaine_iso: week.semaine_iso,
+        }
+      : undefined,
+    { enabled: !!posteId },
+  );
+  const planningSemaineLoading =
+    planningSemainePending ||
+    (planningSemaineFetching && !planningSemaineData);
 
   const vacationsDuPoste = useMemo(
     () => posteVacations?.data ?? [],
@@ -276,6 +287,31 @@ export function PlanifierAgentForm() {
   const prefilledPosteRef = useRef("");
   /** Poste pour lequel horaires ont déjà été appliqués. */
   const hoursAppliedPosteRef = useRef("");
+  /** Déclenche un re-render après application des horaires (les refs seules ne le font pas). */
+  const [hoursReadyPosteId, setHoursReadyPosteId] = useState("");
+
+  // Navigation client (grille → Planifier) : resync URL sans refresh.
+  const urlSyncKey = `${urlSiteId}|${urlPosteId}|${urlAnnee ?? ""}|${urlSemaine ?? ""}|${urlDate}|${urlAgentId}`;
+  useEffect(() => {
+    const nextWeek =
+      urlAnnee && urlSemaine
+        ? shiftIsoWeek(Number(urlAnnee), Number(urlSemaine), 0)
+        : isoWeekFromDate(urlDate || todayIso());
+    setWeek(nextWeek);
+    pendingPosteRef.current = urlPosteId;
+    prefilledPosteRef.current = "";
+    hoursAppliedPosteRef.current = "";
+    setHoursReadyPosteId("");
+    reset({
+      ...emptyDefaults,
+      slots: urlAgentId ? [emptyPlanningSlot(urlAgentId)] : [],
+      site_id: urlSiteId,
+      poste_id: urlPosteId,
+      date_debut: nextWeek.lundi,
+      date_fin: nextWeek.dimanche,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync uniquement quand l’URL change
+  }, [urlSyncKey, reset]);
 
   /** Agents planifiables : disponibles, ou déjà en activité (autres jours / postes). */
   const assignableAgents = useMemo(
@@ -398,24 +434,142 @@ export function PlanifierAgentForm() {
     setValue("slots", next, { shouldValidate: true });
   }, [selectedPoste?.id, selectedPoste?.agents_requis, getValues, setValue]);
 
-  // Semaine sans template : slots vides — pas d’héritage S→S+1.
-  // L’utilisateur doit « Dupliquer semaine précédente » ou saisir à neuf.
+  // Semaine sans template : préremplir depuis les vacations déjà en base
+  // (même semaine / poste). Pas d’héritage S→S+1.
   useEffect(() => {
     if (!posteId || !selectedPoste) return;
     if (planningSemaineLoading || !planningSemaineData) return;
-    if (hoursAppliedPosteRef.current !== posteId) return;
+    if (posteVacationsLoading) return;
+    if (hoursReadyPosteId !== posteId) return;
     const weekKey = `${posteId}:${week.annee_iso}-${week.semaine_iso}`;
     if (prefilledPosteRef.current === weekKey) return;
     if ((planningSemaineData.data.creneaux?.length ?? 0) > 0) return;
 
     const n = Math.max(1, selectedPoste.agents_requis ?? 1);
-    const repartition = getValues("repartition") ?? "jour_entier";
-    let next = Array.from({ length: n }, (_, i) =>
-      emptyPlanningSlot("", i === 0 ? "jour" : "nuit"),
-    );
-    if (n === 2 && repartition === "moities") {
-      next = ensureDistinctQuarts(next);
+    const byAgent = new Map<
+      string,
+      {
+        jours: Set<JourSemaine>;
+        quart: "jour" | "nuit";
+        jourCount: number;
+        nuitCount: number;
+        cellules: CellulesPlanning;
+      }
+    >();
+
+    for (const v of vacationsDuPoste) {
+      if (v.statut === "annulee") continue;
+      // Remplacements 1 jour ≠ titulaires du modèle.
+      if (v.est_remplacement) continue;
+      const date = v.date_debut.slice(0, 10);
+      if (date < week.lundi || date > week.dimanche) continue;
+      const jourIdx = isoJourFromDate(date) - 1;
+      const jourName = JOURS_SEMAINE[jourIdx]?.value;
+      if (!jourName) continue;
+      const quart = quartDeVacation(v);
+      const entry = byAgent.get(v.agent_id) ?? {
+        jours: new Set<JourSemaine>(),
+        quart,
+        jourCount: 0,
+        nuitCount: 0,
+        cellules: {},
+      };
+      entry.jours.add(jourName);
+      if (quart === "nuit") entry.nuitCount += 1;
+      else entry.jourCount += 1;
+      entry.quart = entry.nuitCount > entry.jourCount ? "nuit" : "jour";
+      entry.cellules[date] =
+        quart === "nuit"
+          ? entry.cellules[date] === "jour"
+            ? "les_deux"
+            : "nuit"
+          : entry.cellules[date] === "nuit"
+            ? "les_deux"
+            : "jour";
+      byAgent.set(v.agent_id, entry);
     }
+
+    const allEntries = [...byAgent.entries()];
+    const maxJours = Math.max(
+      0,
+      ...allEntries.map(([, info]) => info.jours.size),
+    );
+    const titulairesOnly =
+      maxJours > 1
+        ? allEntries.filter(([, info]) => info.jours.size > 1)
+        : allEntries;
+    const ranked = (
+      titulairesOnly.length > 0 ? titulairesOnly : allEntries
+    ).sort(
+      (a, b) =>
+        b[1].jours.size - a[1].jours.size ||
+        b[1].jourCount +
+          b[1].nuitCount -
+          (a[1].jourCount + a[1].nuitCount) ||
+        a[0].localeCompare(b[0]),
+    );
+
+    const toSlot = (
+      agentId: string,
+      info: {
+        jours: Set<JourSemaine>;
+        quart: "jour" | "nuit";
+        cellules: CellulesPlanning;
+      },
+      fallbackQuart: "jour" | "nuit",
+    ): AgentPlanningSlot => ({
+      agent_id: agentId,
+      quart: info.quart || fallbackQuart,
+      jours_travailles: JOURS_SEMAINE.map((j) => j.value).filter((j) =>
+        info.jours.has(j),
+      ),
+      jour_repos: "",
+      cellules: info.cellules,
+    });
+
+    let next: AgentPlanningSlot[];
+    const decoupage =
+      posteHasDecoupage || getValues("repartition") === "moities";
+    if (ranked.length === 0) {
+      next = Array.from({ length: n }, (_, i) =>
+        emptyPlanningSlot("", i === 0 ? "jour" : "nuit"),
+      );
+      if (n === 2 && getValues("repartition") === "moities") {
+        next = ensureDistinctQuarts(next);
+      }
+    } else if (decoupage && n >= 2) {
+      const pick = (quart: "jour" | "nuit") =>
+        ranked.find(([, info]) => info.quart === quart) ??
+        ranked.find(([, info]) =>
+          quart === "nuit" ? info.nuitCount > 0 : info.jourCount > 0,
+        );
+      const jourRow = pick("jour");
+      const nuitRow =
+        ranked.find(
+          ([id, info]) =>
+            id !== jourRow?.[0] &&
+            (info.quart === "nuit" || info.nuitCount > 0),
+        ) ?? ranked.find(([id]) => id !== jourRow?.[0]);
+      next = [
+        jourRow
+          ? toSlot(jourRow[0], jourRow[1], "jour")
+          : emptyPlanningSlot("", "jour"),
+        nuitRow
+          ? toSlot(nuitRow[0], nuitRow[1], "nuit")
+          : emptyPlanningSlot("", "nuit"),
+      ];
+      while (next.length < n) {
+        next.push(emptyPlanningSlot("", "jour"));
+      }
+      next = ensureDistinctQuarts(next.slice(0, n));
+    } else {
+      next = Array.from({ length: n }, (_, i) => {
+        const row = ranked[i];
+        if (!row) return emptyPlanningSlot("", i === 0 ? "jour" : "nuit");
+        return toSlot(row[0], row[1], i === 0 ? "jour" : "nuit");
+      });
+    }
+
     setValue("slots", next, { shouldValidate: true });
     prefilledPosteRef.current = weekKey;
   }, [
@@ -423,8 +577,15 @@ export function PlanifierAgentForm() {
     selectedPoste,
     planningSemaineData,
     planningSemaineLoading,
+    posteVacationsLoading,
+    vacationsDuPoste,
+    posteHasDecoupage,
+    quartDeVacation,
+    hoursReadyPosteId,
     week.annee_iso,
     week.semaine_iso,
+    week.lundi,
+    week.dimanche,
     getValues,
     setValue,
   ]);
@@ -432,7 +593,7 @@ export function PlanifierAgentForm() {
   // Charge le template de la semaine ISO (créneaux enregistrés).
   useEffect(() => {
     if (!posteId || !selectedPoste || !planningSemaineData) return;
-    if (planningSemaineLoading || hoursAppliedPosteRef.current !== posteId) return;
+    if (planningSemaineLoading || hoursReadyPosteId !== posteId) return;
     const key = `${posteId}:${week.annee_iso}-${week.semaine_iso}`;
     if (prefilledPosteRef.current === key) return;
 
@@ -553,6 +714,7 @@ export function PlanifierAgentForm() {
     planningSemaineData,
     planningSemaineLoading,
     posteHasDecoupage,
+    hoursReadyPosteId,
     week.annee_iso,
     week.semaine_iso,
     week.lundi,
@@ -563,13 +725,11 @@ export function PlanifierAgentForm() {
   // Changement de poste / semaine → réautoriser sync horaires / préremplissage.
   useEffect(() => {
     prefilledPosteRef.current = "";
-    if (posteId) {
-      // horaires poste : seulement au changement de poste
-    }
   }, [posteId, week.annee_iso, week.semaine_iso]);
 
   useEffect(() => {
     hoursAppliedPosteRef.current = "";
+    setHoursReadyPosteId("");
   }, [posteId]);
 
   // Horaires depuis le poste — une seule fois par poste (ne pas écraser le planning).
@@ -589,6 +749,7 @@ export function PlanifierAgentForm() {
     setValue("heure_fin", hours.heure_fin);
     setValue("heure_debut_nuit", hours.heure_debut_nuit);
     setValue("heure_fin_nuit", hours.heure_fin_nuit);
+    setHoursReadyPosteId(selectedPoste.id);
 
     const n = Math.max(1, selectedPoste.agents_requis ?? 1);
     const decoupage = hasDecoupageQuarts(hours);
@@ -905,7 +1066,9 @@ export function PlanifierAgentForm() {
   // Un agent sorti de la grille à la main est remplacé : seuls ceux qu’elle n’a
   // jamais montrés gardent leurs créneaux.
   useEffect(() => {
-    if (prefilledPosteRef.current !== posteId) return;
+    if (!posteId) return;
+    const weekKey = `${posteId}:${week.annee_iso}-${week.semaine_iso}`;
+    if (prefilledPosteRef.current !== weekKey) return;
     setAgentsVusParPoste((parPoste) => {
       const vus = parPoste[posteId] ?? [];
       const nouveaux = selectedAgentIds.filter((id) => !vus.includes(id));
@@ -913,7 +1076,7 @@ export function PlanifierAgentForm() {
         ? { ...parPoste, [posteId]: [...vus, ...nouveaux] }
         : parPoste;
     });
-  }, [selectedAgentIds, posteId]);
+  }, [selectedAgentIds, posteId, week.annee_iso, week.semaine_iso]);
 
   const agentOptionsForSlot = (slotIndex: number) => {
     const taken = new Set(
@@ -1079,34 +1242,18 @@ export function PlanifierAgentForm() {
     const slot = getValues("slots")?.[index];
     if (!slot) return;
     const actuelle = slot.cellules?.[date] ?? "repos";
+    const cellules: CellulesPlanning = {
+      ...slot.cellules,
+      [date]: celluleSuivante(actuelle, {
+        decoupage: posteHasDecoupage,
+        agentSeul: agentsRequis <= 1,
+      }),
+    };
     clearErrors(`slots.${index}.jours_travailles`);
     updateSlot(index, {
-      cellules: {
-        ...slot.cellules,
-        [date]: celluleSuivante(actuelle, {
-          decoupage: posteHasDecoupage,
-          agentSeul: agentsRequis <= 1,
-        }),
-      },
-    });
-  };
-
-  const appliquerCycle = (
-    index: number,
-    cycle: { travail: number; repos: number; decalage: number },
-  ) => {
-    const slot = getValues("slots")?.[index];
-    if (!slot || datesPeriode.length === 0) return;
-    updateSlot(index, {
-      cellules: appliquerHorsVerrous(
-        slot,
-        cellulesDepuisCycle({
-          ...cycle,
-          date_debut: datesPeriode[0],
-          date_fin: datesPeriode[datesPeriode.length - 1],
-          cellule: celluleDeTravail(slot, index),
-        }),
-      ),
+      cellules,
+      jours_travailles: joursTravaillesDepuisCellules(cellules, datesPeriode),
+      jour_repos: "" as const,
     });
   };
 
@@ -1151,15 +1298,25 @@ export function PlanifierAgentForm() {
     progress;
 
   /**
-   * Template semaine = tous les jours cochés, y compris le passé.
-   * Les verrous (dates passées) bloquent l’édition UI / publication vacations,
-   * mais ne doivent pas effacer lundi–mardi du modèle qu’on duplique ensuite.
+   * Template semaine = grille (cellules), y compris le passé.
+   * Les cases « Chaque semaine » ne font que préremplir la grille.
    */
   const buildCreneauxPayload = (values: AgentPlanningFormValues) => {
     const filledSlots = values.slots.filter((s) => s.agent_id);
     return filledSlots.flatMap((slot, index) => {
+      const hasCellules = datesPeriode.some((d) => slot.cellules?.[d] != null);
+      const cellules: CellulesPlanning = hasCellules
+        ? Object.fromEntries(
+            datesPeriode.map((d) => [d, slot.cellules?.[d] ?? "repos"]),
+          )
+        : cellulesDepuisSemaine({
+            date_debut: week.lundi,
+            date_fin: week.dimanche,
+            jours_travailles: (slot.jours_travailles ?? []) as JourSemaine[],
+            travail: celluleDeTravail(slot, index),
+          });
       const shifts = creneauxDepuisCellules({
-        cellules: slot.cellules ?? {},
+        cellules,
         date_debut: week.lundi,
         date_fin: week.dimanche,
         index,
@@ -1595,8 +1752,9 @@ export function PlanifierAgentForm() {
                       })}
                     </div>
                     <p className="mt-2.5 text-xs text-ink-muted">
-                      Ces jours préremplissent la semaine affichée ; ajustez
-                      ensuite chaque case dans la grille.
+                      Ces jours préremplissent la grille ci-dessous. Les
+                      ajustements se font ensuite case par case ; c’est la
+                      grille qui est enregistrée.
                     </p>
                     {slotsError ? (
                       <p className="mt-2 text-xs text-danger">{slotsError}</p>
@@ -1679,10 +1837,9 @@ export function PlanifierAgentForm() {
                     </div>
                     {planningStatut === "absent" ? (
                       <Alert tone="warning" className="mt-3">
-                        Aucun planning pour la semaine S{week.semaine_iso}.
-                        Saisissez les titulaires ou utilisez « Dupliquer semaine
-                        précédente » — les ajouts 1 jour depuis la grille ne
-                        remplissent pas ce modèle.
+                        {slots.some((s) => s.agent_id)
+                          ? `Des vacations existent déjà pour S${week.semaine_iso} : le formulaire a été prérempli. Vérifiez les titulaires puis Enregistrer / Publier pour créer le modèle semaine (sinon la grille reste « non planifiée »).`
+                          : `Aucun modèle ni vacation pour S${week.semaine_iso}. Saisissez les titulaires ou utilisez « Dupliquer semaine précédente ».`}
                       </Alert>
                     ) : planningStatut === "brouillon" ? (
                       <Alert tone="info" className="mt-3">
@@ -1705,7 +1862,7 @@ export function PlanifierAgentForm() {
                       <SectionTitle
                         step="4"
                         title="Grille de la semaine"
-                        hint="Cliquez une case pour changer jour / nuit / repos. Publiez pour générer les vacations de cette semaine seule."
+                        hint="Programme réel : cliquez une case pour jour / nuit / repos. Enregistrer ou Publier envoie cette grille."
                       />
                       <PlanningPeriodeGrille
                         dates={datesPeriode}
@@ -1726,7 +1883,6 @@ export function PlanifierAgentForm() {
                           ];
                         })}
                         onCellule={setCellule}
-                        onCycle={appliquerCycle}
                       />
                     </CardBody>
                   </Card>

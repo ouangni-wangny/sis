@@ -55,10 +55,11 @@ final class AssertPosteEffectifDisponible
             return;
         }
 
+        $jour = Carbon::parse($dateDebut)->startOfDay();
         $windows = PosteEffectifRules::quartWindows($poste);
         $cap = $windows
-            ? PosteEffectifRules::capaciteParQuart($poste)
-            : PosteEffectifRules::capaciteSimple($poste);
+            ? PosteEffectifRules::capaciteParQuartPourJour($poste, $jour, 'jour')
+            : PosteEffectifRules::capaciteSimplePourJour($poste, $jour);
 
         $enPlace = $posteVacations->first(fn (Vacation $v) => substr((string) $v->date_debut, 0, 10) === substr($dateDebut, 0, 10)
             && substr((string) $v->heure_debut, 0, 5) === substr($heureDebut, 0, 5));
@@ -66,7 +67,7 @@ final class AssertPosteEffectifDisponible
         throw ValidationException::withMessages([
             'poste_id' => sprintf(
                 'Créneau du %s déjà couvert sur le poste « %s » (%s–%s)%s : capacité %d atteinte. Choisissez l’autre quart, un autre jour, ou remplacez l’agent déjà planifié.',
-                Carbon::parse($dateDebut)->format('d/m/Y'),
+                $jour->format('d/m/Y'),
                 $poste->nom,
                 substr($heureDebut, 0, 5),
                 substr($heureFin, 0, 5),

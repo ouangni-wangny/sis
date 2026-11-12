@@ -27,7 +27,10 @@ import type {
   PosteCoverage,
   Vacation,
 } from "@/domain/types/entities";
-import { isoWeekFromDate } from "@/domain/schemas/agent-planning";
+import {
+  isoJourFromDate,
+  isoWeekFromDate,
+} from "@/domain/schemas/agent-planning";
 import {
   hasDecoupageQuarts,
   isCycle24hInterval,
@@ -167,10 +170,23 @@ function isRemplacantPonctuel(
   return autresMax > 0 && agent.workDates.size < autresMax;
 }
 
+type TemplateReposInfo = {
+  /** Titulaires du modèle publié. */
+  agentIds: Set<string>;
+  /** agent_id → jours ISO (1–7) où il TRAVAILLE dans le modèle. */
+  workJoursByAgent: Map<string, Set<number>>;
+  /** Labels depuis le modèle (si pas dans weekAgents). */
+  labels: Map<string, string>;
+};
+
 /**
- * Agents de la rotation absents ce jour → repos inféré.
- * Si un template publié existe : uniquement ses titulaires.
- * Sinon : heuristique (exclut remplacants ponctuels).
+ * Agents en repos ce jour.
+ *
+ * Avec template publié : source de vérité = créneaux du modèle
+ * (titulaire sans créneau ce jour-là), pas l’heuristique sur les vacations
+ * (sinon les jours passés non republishés inventent de faux repos).
+ *
+ * Sans template : heuristique historique (exclut remplacants ponctuels).
  */
 function restingAgentsForDay(
   weekAgents: WeekPosteAgent[],
@@ -178,32 +194,51 @@ function restingAgentsForDay(
   dayVacations: Vacation[],
   allVacations: Vacation[],
   posteId: string,
-  templateAgentIds?: Set<string> | null,
+  template?: TemplateReposInfo | null,
 ): WeekPosteAgent[] {
-  if (dayVacations.length === 0) return [];
-
   const present = new Set(dayVacations.map((v) => v.agent_id).filter(Boolean));
 
-  // Titulaires prévus ce jour mais absents / remplacés (trou ou annulation).
-  const scheduledOff = new Set(
+  const shownAsHole = new Set(
     allVacations
       .filter(
         (v) =>
           v.poste_id === posteId &&
           Boolean(v.agent_id) &&
-          (v.statut === "annulee" || v.statut === "a_recouvrir") &&
+          v.statut === "a_recouvrir" &&
           vacationShowsOnDate(v, date),
       )
       .map((v) => v.agent_id as string),
   );
 
+  if (template && template.agentIds.size > 0) {
+    const jour = isoJourFromDate(date);
+    const byId = new Map(weekAgents.map((a) => [a.agentId, a]));
+    const resting: WeekPosteAgent[] = [];
+    for (const agentId of template.agentIds) {
+      if (present.has(agentId)) continue;
+      if (shownAsHole.has(agentId)) continue;
+      const workJours = template.workJoursByAgent.get(agentId);
+      // Prévu au travail ce jour dans le modèle → pas un repos (manque éventuel).
+      if (workJours?.has(jour)) continue;
+      const existing = byId.get(agentId);
+      resting.push(
+        existing ?? {
+          agentId,
+          label: template.labels.get(agentId) || "Agent",
+          workDates: new Set(),
+          rosterDates: new Set(),
+        },
+      );
+    }
+    return resting;
+  }
+
+  if (dayVacations.length === 0) return [];
+
   return weekAgents.filter((a) => {
     if (present.has(a.agentId)) return false;
     if (a.workDates.has(date)) return false;
-    if (scheduledOff.has(a.agentId)) return false;
-    if (templateAgentIds && templateAgentIds.size > 0) {
-      return templateAgentIds.has(a.agentId);
-    }
+    if (shownAsHole.has(a.agentId)) return false;
     if (isRemplacantPonctuel(a, allVacations, posteId, weekAgents)) return false;
     return a.rosterDates.size > 0;
   });
@@ -496,18 +531,31 @@ export function WeekGrid({
     return map;
   }, [postes, planningQueries]);
 
-  /** Titulaires du template publié (pour « Repos » — pas les remplacants 1 jour). */
-  const templateAgentsByPoste = useMemo(() => {
-    const map = new Map<string, Set<string>>();
+  /** Modèle publié par poste : qui travaille quels jours (source Repos). */
+  const templateByPoste = useMemo(() => {
+    const map = new Map<string, TemplateReposInfo>();
     postes.forEach((poste, i) => {
       const planning = planningQueries[i]?.data?.data;
       if (!planning || planning.statut !== "publiee") return;
-      const ids = new Set(
-        (planning.creneaux ?? [])
-          .map((c) => c.agent_id)
-          .filter(Boolean),
-      );
-      if (ids.size > 0) map.set(poste.id, ids);
+      const creneaux = planning.creneaux ?? [];
+      if (creneaux.length === 0) return;
+      const agentIds = new Set<string>();
+      const workJoursByAgent = new Map<string, Set<number>>();
+      const labels = new Map<string, string>();
+      for (const c of creneaux) {
+        if (!c.agent_id) continue;
+        agentIds.add(c.agent_id);
+        const jours = workJoursByAgent.get(c.agent_id) ?? new Set<number>();
+        jours.add(c.jour);
+        workJoursByAgent.set(c.agent_id, jours);
+        if (!labels.has(c.agent_id) && c.agent) {
+          labels.set(
+            c.agent_id,
+            `${c.agent.prenom ?? ""} ${c.agent.nom ?? ""}`.trim() || "Agent",
+          );
+        }
+      }
+      map.set(poste.id, { agentIds, workJoursByAgent, labels });
     });
     return map;
   }, [postes, planningQueries]);
@@ -778,12 +826,21 @@ export function WeekGrid({
                           <Badge tone="warning">
                             S{weekIso.semaine_iso} brouillon
                           </Badge>
+                        ) : weekAgents.length > 0 ? (
+                          <Badge tone="warning">
+                            S{weekIso.semaine_iso} à synchroniser
+                          </Badge>
                         ) : (
                           <Badge tone="danger">
                             S{weekIso.semaine_iso} non planifiée
                           </Badge>
                         )}
-                        {planStatus === "absent" ? (
+                        {planStatus === "absent" && weekAgents.length > 0 ? (
+                          <p className="text-[11px] leading-snug text-warning">
+                            Vacations déjà en place — modèle semaine manquant.
+                            Ouvrez Planifier pour préremplir puis publier.
+                          </p>
+                        ) : planStatus === "absent" ? (
                           <p className="text-[11px] leading-snug text-danger">
                             Aucun planning enregistré pour cette semaine.
                           </p>
@@ -810,11 +867,13 @@ export function WeekGrid({
                           href={planifierHref}
                           className="inline-flex text-[11px] font-medium text-teal hover:underline"
                         >
-                          {planStatus === "absent"
-                            ? `Créer le planning S${weekIso.semaine_iso}`
-                            : planStatus === "brouillon"
-                              ? `Publier la semaine S${weekIso.semaine_iso}`
-                              : `Modifier la semaine S${weekIso.semaine_iso}`}
+                          {planStatus === "absent" && weekAgents.length > 0
+                            ? `Synchroniser S${weekIso.semaine_iso}`
+                            : planStatus === "absent"
+                              ? `Créer le planning S${weekIso.semaine_iso}`
+                              : planStatus === "brouillon"
+                                ? `Publier la semaine S${weekIso.semaine_iso}`
+                                : `Modifier la semaine S${weekIso.semaine_iso}`}
                         </Link>
                       </div>
                     </td>
@@ -836,7 +895,7 @@ export function WeekGrid({
                         dayVacations,
                         vacations,
                         poste.id,
-                        templateAgentsByPoste.get(poste.id),
+                        templateByPoste.get(poste.id),
                       );
                       const cov = coverageByDate
                         .get(date)
@@ -846,9 +905,11 @@ export function WeekGrid({
                         dayVacations.length === 0 &&
                         dayHoles.length === 0 &&
                         resting.length === 0;
+                      const capaciteJour =
+                        cov?.capacite_jour ?? meta.capaciteJour;
                       const allowAdd = canAddAgentToCell(
                         cov,
-                        meta.capaciteJour,
+                        capaciteJour,
                         dayVacations.length,
                       );
 
@@ -877,7 +938,7 @@ export function WeekGrid({
                                   coverageChipClass(cov?.statut),
                                 )}
                               >
-                                {dayVacations.length}/{meta.capaciteJour}
+                                {dayVacations.length}/{capaciteJour}
                               </span>
                               {allowAdd ? (
                                 <button

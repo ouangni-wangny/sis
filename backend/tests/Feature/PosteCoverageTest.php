@@ -212,6 +212,60 @@ it('reports ok for a 24h poste once both day and night shifts are covered', func
     expect($poste['nuit']['planifies'])->toBe(1);
 });
 
+it('uses the published weekly template as daily capacity (intentional rest days)', function () {
+    $this->poste->update(['agents_requis' => 3]);
+
+    $autres = collect([2, 3])->map(fn (int $i) => \App\Models\Agent::query()->create([
+        'grade_id' => $this->agent->grade_id,
+        'type' => TypeAgent::Agent,
+        'nom' => "Cov{$i}",
+        'prenom' => 'Agent',
+        'matricule' => "AG-COV-T{$i}",
+        'statut' => 'disponible',
+    ]));
+
+    // Template publié : 2 agents travaillent le lundi (1 repos volontaire sur 3).
+    $planning = app(\App\Application\Operation\UpsertPlanningSemaineAction::class)->execute([
+        'poste_id' => $this->poste->id,
+        'annee_iso' => 2026,
+        'semaine_iso' => 30,
+        'creneaux' => [
+            [
+                'agent_id' => $this->agent->id,
+                'jour' => 1,
+                'heure_debut' => '08:00',
+                'heure_fin' => '16:00',
+                'quart' => 'jour',
+            ],
+            [
+                'agent_id' => $autres[0]->id,
+                'jour' => 1,
+                'heure_debut' => '08:00',
+                'heure_fin' => '16:00',
+                'quart' => 'jour',
+            ],
+            [
+                'agent_id' => $autres[1]->id,
+                'jour' => 2,
+                'heure_debut' => '08:00',
+                'heure_fin' => '16:00',
+                'quart' => 'jour',
+            ],
+        ],
+    ]);
+    app(\App\Application\Operation\PublierPlanningSemaineAction::class)->execute($planning);
+
+    // Publication génère les vacations : 2 le lundi pour agents_requis=3 → complet.
+    $this->actingAs($this->admin)
+        ->getJson('/api/v1/postes/coverage?date=2026-07-20&site_id='.$this->site->id)
+        ->assertOk()
+        ->assertJsonPath('data.0.agents_requis', 3)
+        ->assertJsonPath('data.0.capacite_jour', 2)
+        ->assertJsonPath('data.0.planifies', 2)
+        ->assertJsonPath('data.0.manquant', 0)
+        ->assertJsonPath('data.0.statut', 'ok');
+});
+
 it('counts an open-ended vacation (no date_fin) as covering dates well beyond its start day', function () {
     Vacation::query()->create([
         'agent_id' => $this->agent->id,

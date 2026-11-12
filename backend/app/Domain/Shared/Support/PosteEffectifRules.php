@@ -2,6 +2,8 @@
 
 namespace App\Domain\Shared\Support;
 
+use App\Domain\Shared\Enums\StatutPlanningSemaine;
+use App\Models\PlanningSemaine;
 use App\Models\Poste;
 use App\Models\Vacation;
 use Carbon\Carbon;
@@ -60,6 +62,77 @@ final class PosteEffectifRules
         }
 
         return max(1, (int) $poste->agents_requis);
+    }
+
+    /**
+     * Template publié de la semaine ISO du jour, ou null.
+     *
+     * @param  array<string, PlanningSemaine>|Collection<string, PlanningSemaine>|null  $templatesByPoste
+     */
+    public static function templatePubliePourJour(
+        Poste $poste,
+        Carbon $day,
+        array|Collection|null $templatesByPoste = null,
+    ): ?PlanningSemaine {
+        if ($templatesByPoste !== null) {
+            $t = $templatesByPoste[$poste->id] ?? null;
+
+            return $t instanceof PlanningSemaine ? $t : null;
+        }
+
+        $iso = PlanningSemaine::isoFromDate($day);
+
+        return PlanningSemaine::query()
+            ->where('poste_id', $poste->id)
+            ->where('annee_iso', $iso['annee_iso'])
+            ->where('semaine_iso', $iso['semaine_iso'])
+            ->where('statut', StatutPlanningSemaine::Publiee)
+            ->with('creneaux')
+            ->first();
+    }
+
+    /**
+     * Capacité attendue ce jour : créneaux du template publié si présent,
+     * sinon règles agents_requis / alternance.
+     * Un jour entièrement en repos dans le modèle → 0 (complet si personne planifié).
+     *
+     * @param  array<string, PlanningSemaine>|Collection<string, PlanningSemaine>|null  $templatesByPoste
+     */
+    public static function capaciteSimplePourJour(
+        Poste $poste,
+        Carbon $day,
+        array|Collection|null $templatesByPoste = null,
+    ): int {
+        $template = self::templatePubliePourJour($poste, $day, $templatesByPoste);
+        if ($template !== null) {
+            $jourIso = (int) $day->dayOfWeekIso;
+
+            return $template->creneaux->where('jour', $jourIso)->count();
+        }
+
+        return self::capaciteSimple($poste);
+    }
+
+    /**
+     * @param  array<string, PlanningSemaine>|Collection<string, PlanningSemaine>|null  $templatesByPoste
+     */
+    public static function capaciteParQuartPourJour(
+        Poste $poste,
+        Carbon $day,
+        string $quart,
+        array|Collection|null $templatesByPoste = null,
+    ): int {
+        $template = self::templatePubliePourJour($poste, $day, $templatesByPoste);
+        if ($template !== null) {
+            $jourIso = (int) $day->dayOfWeekIso;
+
+            return $template->creneaux
+                ->where('jour', $jourIso)
+                ->where('quart', $quart)
+                ->count();
+        }
+
+        return self::capaciteParQuart($poste);
     }
 
     /**
@@ -166,33 +239,40 @@ final class PosteEffectifRules
         ?string $agentId = null,
     ): int {
         $days = self::planningDaysForShift($dateDebut, $heureDebut, $heureFin, $dateFin);
-        $capQuart = self::capaciteParQuart($poste);
-        $capSimple = self::capaciteSimple($poste);
+        $capSimpleDefaut = self::capaciteSimple($poste);
         $reste = PHP_INT_MAX;
 
         foreach ($days as $dayIso) {
             $day = Carbon::parse($dayIso)->startOfDay();
             $quarts = self::quartsTouched($poste, $day, $heureDebut, $heureFin);
+            $capSimple = self::capaciteSimplePourJour($poste, $day);
 
             // Effectif impair : 2 + 2 tiendrait par quart mais dépasserait 3 sur la journée.
             // L’effectif compte des personnes : qui enchaîne jour et nuit ne compte qu’une fois.
+            // Avec template : plafond = créneaux jour+nuit du modèle ce jour-là.
             if (self::quartWindows($poste) !== null) {
                 $surLaJournee = $posteVacations->filter(
                     fn (Vacation $v) => (string) $v->id !== (string) $excludeId
                         && (string) $v->agent_id !== (string) $agentId
                         && self::vacationCoversPlanningDay($v, $day)
                 )->pluck('agent_id')->unique()->count();
-                $reste = min($reste, max(1, (int) $poste->agents_requis) - $surLaJournee);
+                $plafondJournee = self::capaciteSimplePourJour($poste, $day);
+                if (self::templatePubliePourJour($poste, $day) === null) {
+                    $plafondJournee = max(1, (int) $poste->agents_requis);
+                }
+                $reste = min($reste, $plafondJournee - $surLaJournee);
             }
 
             foreach ($quarts as $quart) {
-                $cap = $quart === '_simple' ? $capSimple : $capQuart;
+                $cap = $quart === '_simple'
+                    ? $capSimple
+                    : self::capaciteParQuartPourJour($poste, $day, $quart);
                 $deja = self::countOnQuart($posteVacations, $poste, $day, $quart, $excludeId);
                 $reste = min($reste, $cap - $deja);
             }
         }
 
-        return $reste === PHP_INT_MAX ? $capSimple : $reste;
+        return $reste === PHP_INT_MAX ? $capSimpleDefaut : $reste;
     }
 
     /** @return array{0: Carbon, 1: Carbon} */
