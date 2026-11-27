@@ -14,9 +14,12 @@ import { Badge } from "@/presentation/components/ui/Badge";
 import { Button } from "@/presentation/components/ui/Button";
 import { PageHeader } from "@/presentation/components/ui/PageHeader";
 import { Select } from "@/presentation/components/ui/Select";
+import { TabPanel, Tabs } from "@/presentation/components/ui/Tabs";
 import { useAuth } from "@/presentation/providers/AuthProvider";
 import { can, hasRole } from "@/shared/lib/can";
 import { formatDateTime } from "@/shared/lib/format";
+import { ControlesParSiteView } from "./ControlesParSiteView";
+import { PhotoPreuve } from "./PhotoPreuve";
 
 function resultatLabel(resultat?: ControleResultat) {
   if (resultat === "present") return "Présent";
@@ -38,6 +41,7 @@ export default function ControlesPage() {
     (hasRole(user, "operation") ||
       hasRole(user, "super-admin") ||
       hasRole(user, "developpeur"));
+  const [vue, setVue] = useState<"site" | "liste">("site");
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(15);
   const [q, setQ] = useState("");
@@ -72,15 +76,18 @@ export default function ControlesPage() {
     [sitesData],
   );
 
-  const { data, isLoading } = useControles({
-    page,
-    per_page: perPage,
-    q: search || undefined,
-    site_id: siteFilter || undefined,
-    resultat: resultatFilter || undefined,
-    aujourd_hui: aujourdhuiOnly || undefined,
-    recent_30j: recent30jOnly || undefined,
-  });
+  const { data, isLoading } = useControles(
+    {
+      page,
+      per_page: perPage,
+      q: search || undefined,
+      site_id: siteFilter || undefined,
+      resultat: resultatFilter || undefined,
+      aujourd_hui: aujourdhuiOnly || undefined,
+      recent_30j: recent30jOnly || undefined,
+    },
+    { enabled: vue === "liste" },
+  );
 
   const columns = useMemo<ColumnDef<Controle>[]>(
     () => [
@@ -165,30 +172,7 @@ export default function ControlesPage() {
       {
         id: "preuve",
         header: "Preuve",
-        cell: ({ row }) => {
-          const photo = row.original.photos?.[0];
-          if (!photo?.url) {
-            return <span className="text-ink-muted">—</span>;
-          }
-          return (
-            <a
-              href={photo.url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 text-sm font-semibold text-teal hover:underline"
-            >
-              {photo.thumb ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={photo.thumb}
-                  alt="Preuve contrôle"
-                  className="h-8 w-8 rounded border border-border object-cover"
-                />
-              ) : null}
-              Voir photo
-            </a>
-          );
-        },
+        cell: ({ row }) => <PhotoPreuve photo={row.original.photos?.[0]} />,
       },
       {
         accessorKey: "commentaire",
@@ -208,7 +192,11 @@ export default function ControlesPage() {
       <div>
         <PageHeader
           title="Contrôles de présence"
-          description="Chaque ligne = un agent vérifié au poste (contrôleur terrain ou Opération siège)."
+          description={
+            vue === "site"
+              ? "Par jour et par site : agents à contrôler, agents contrôlés, et le détail au clic sur un site."
+              : "Chaque ligne = un agent vérifié au poste (contrôleur terrain ou Opération siège)."
+          }
           actions={
             canSiege ? (
               <Link href="/controles/siege">
@@ -220,77 +208,99 @@ export default function ControlesPage() {
             ) : undefined
           }
         />
-        <DataTable
-          data={data?.data ?? []}
-          columns={columns}
-          isLoading={isLoading}
-          search={{
-            value: q,
-            onChange: (value) => {
-              setQ(value);
-              setPage(1);
-            },
-            placeholder: "Rechercher agent, contrôleur, site, matricule…",
-          }}
-          toolbar={
-            <div className="flex flex-wrap items-center gap-2">
-              <Select
-                className="min-w-[12rem]"
-                value={siteFilter}
-                options={siteFilterOptions}
-                onChange={(event) => {
-                  setSiteFilter(event.target.value);
-                  resetPage();
-                }}
-              />
-              <Select
-                className="min-w-[11rem]"
-                value={resultatFilter}
-                options={RESULTAT_CONTROLE_FILTER_OPTIONS.map((o) => ({
-                  value: o.value,
-                  label: o.label,
-                }))}
-                onChange={(event) => {
-                  setResultatFilter(event.target.value);
-                  resetPage();
-                }}
-              />
-              <Button
-                type="button"
-                variant={aujourdhuiOnly ? "primary" : "secondary"}
-                size="sm"
-                aria-pressed={aujourdhuiOnly}
-                onClick={toggleAujourdhui}
-              >
-                <CalendarCheck className="size-4" />
-                Aujourd&apos;hui
-                {aujourdhuiOnly ? " (actif)" : ""}
-              </Button>
-              <Button
-                type="button"
-                variant={recent30jOnly ? "primary" : "secondary"}
-                size="sm"
-                aria-pressed={recent30jOnly}
-                onClick={toggleRecent30j}
-              >
-                <CalendarRange className="size-4" />
-                30 derniers jours
-                {recent30jOnly ? " (actif)" : ""}
-              </Button>
-            </div>
-          }
-          pagination={{
-            page,
-            perPage: data?.meta.per_page ?? perPage,
-            total: data?.meta.total ?? 0,
-            onPageChange: setPage,
-            onPerPageChange: (n) => {
-              setPerPage(n);
-              setPage(1);
-            },
-          }}
-          emptyTitle="Aucun contrôle"
+        <Tabs
+          items={[
+            { id: "site", label: "Par site" },
+            { id: "liste", label: "Tous les contrôles" },
+          ]}
+          value={vue}
+          onChange={(next) => setVue(next as "site" | "liste")}
         />
+        <TabPanel when="site" active={vue}>
+          <ControlesParSiteView
+            onVoirListe={(siteId) => {
+              setSiteFilter(siteId);
+              setAujourdhuiOnly(false);
+              setRecent30jOnly(false);
+              setQ("");
+              setPage(1);
+              setVue("liste");
+            }}
+          />
+        </TabPanel>
+        <TabPanel when="liste" active={vue}>
+          <DataTable
+            data={data?.data ?? []}
+            columns={columns}
+            isLoading={isLoading}
+            search={{
+              value: q,
+              onChange: (value) => {
+                setQ(value);
+                setPage(1);
+              },
+              placeholder: "Rechercher agent, contrôleur, site, matricule…",
+            }}
+            toolbar={
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  className="min-w-[12rem]"
+                  value={siteFilter}
+                  options={siteFilterOptions}
+                  onChange={(event) => {
+                    setSiteFilter(event.target.value);
+                    resetPage();
+                  }}
+                />
+                <Select
+                  className="min-w-[11rem]"
+                  value={resultatFilter}
+                  options={RESULTAT_CONTROLE_FILTER_OPTIONS.map((o) => ({
+                    value: o.value,
+                    label: o.label,
+                  }))}
+                  onChange={(event) => {
+                    setResultatFilter(event.target.value);
+                    resetPage();
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant={aujourdhuiOnly ? "primary" : "secondary"}
+                  size="sm"
+                  aria-pressed={aujourdhuiOnly}
+                  onClick={toggleAujourdhui}
+                >
+                  <CalendarCheck className="size-4" />
+                  Aujourd&apos;hui
+                  {aujourdhuiOnly ? " (actif)" : ""}
+                </Button>
+                <Button
+                  type="button"
+                  variant={recent30jOnly ? "primary" : "secondary"}
+                  size="sm"
+                  aria-pressed={recent30jOnly}
+                  onClick={toggleRecent30j}
+                >
+                  <CalendarRange className="size-4" />
+                  30 derniers jours
+                  {recent30jOnly ? " (actif)" : ""}
+                </Button>
+              </div>
+            }
+            pagination={{
+              page,
+              perPage: data?.meta.per_page ?? perPage,
+              total: data?.meta.total ?? 0,
+              onPageChange: setPage,
+              onPerPageChange: (n) => {
+                setPerPage(n);
+                setPage(1);
+              },
+            }}
+            emptyTitle="Aucun contrôle"
+          />
+        </TabPanel>
       </div>
     </PermissionGate>
   );

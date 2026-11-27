@@ -6,6 +6,7 @@ use App\Domain\Shared\Enums\StatutPlanningSemaine;
 use App\Models\PlanningSemaine;
 use App\Models\PlanningSemaineCreneau;
 use App\Models\Poste;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -26,9 +27,10 @@ final class UpsertPlanningSemaineAction
             $annee = (int) $data['annee_iso'];
             $semaine = (int) $data['semaine_iso'];
 
-            if ($semaine < 1 || $semaine > 53) {
+            $semainesDansAnnee = (int) Carbon::create($annee, 12, 28)->isoWeek();
+            if ($semaine < 1 || $semaine > $semainesDansAnnee) {
                 throw ValidationException::withMessages([
-                    'semaine_iso' => 'Numéro de semaine ISO invalide (1–53).',
+                    'semaine_iso' => "Numéro de semaine invalide : l’année {$annee} compte {$semainesDansAnnee} semaines.",
                 ]);
             }
 
@@ -43,7 +45,7 @@ final class UpsertPlanningSemaineAction
             }
 
             $planning->save();
-            $planning->load('creneaux');
+            $planning->load('creneaux.agent.grade');
 
             // Jours déjà passés : ne les reconstituer que pour les agents
             // absents du payload (évite d’effacer lun/mar par oubli UI).
@@ -67,7 +69,10 @@ final class UpsertPlanningSemaineAction
             $aConserver = [];
             foreach ($planning->creneaux as $existant) {
                 $date = $existant->datePourSemaine($planning);
-                if ($date >= $aujourdHui) {
+                // Les créneaux des rondiers se gèrent depuis le planning des
+                // rondiers : conservés tant qu’ils ne sont pas dans le payload.
+                $rondier = (bool) $existant->agent?->grade?->est_rondier;
+                if ($date >= $aujourdHui && ! $rondier) {
                     continue;
                 }
                 if (isset($agentsPayload[$existant->agent_id])) {
@@ -116,7 +121,7 @@ final class UpsertPlanningSemaineAction
                 $planning->update(['statut' => StatutPlanningSemaine::Brouillon]);
             }
 
-            return $planning->fresh(['creneaux.agent', 'poste.site']);
+            return $planning->fresh(['creneaux.agent.grade', 'poste.site']);
         });
     }
 

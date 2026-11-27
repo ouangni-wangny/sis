@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { type ColumnDef } from "@tanstack/react-table";
 import { Plus } from "lucide-react";
@@ -55,10 +55,12 @@ import { useToast } from "@/presentation/providers/ToastProvider";
 import { getApiErrorMessage } from "@/shared/lib/api-error";
 import { can } from "@/shared/lib/can";
 import { formatFcfa, labelTypeAgent, labelize } from "@/shared/lib/format";
+import { QualificationsTab } from "./QualificationsTab";
 
 const emptyGradeDefaults: GradeFormValues = {
   libelle: "",
   type_agent: "agent",
+  est_rondier: false,
   description: "",
 };
 
@@ -90,6 +92,7 @@ function GradesTab({ canManage }: { canManage: boolean }) {
     register,
     handleSubmit,
     reset,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<GradeFormValues>({
     resolver: zodResolver(gradeSchema),
@@ -97,6 +100,7 @@ function GradesTab({ canManage }: { canManage: boolean }) {
     reValidateMode: "onChange",
     defaultValues: emptyGradeDefaults,
   });
+  const typeAgentGrade = useWatch({ control, name: "type_agent" });
 
   const busy = isSubmitting || createGrade.isPending || updateGrade.isPending;
 
@@ -129,6 +133,7 @@ function GradesTab({ canManage }: { canManage: boolean }) {
       reset({
         libelle: grade.libelle,
         type_agent: grade.type_agent,
+        est_rondier: !!grade.est_rondier,
         description: grade.description ?? "",
       });
       setFormError(null);
@@ -149,7 +154,16 @@ function GradesTab({ canManage }: { canManage: boolean }) {
       {
         accessorKey: "type_agent",
         header: "Type",
-        cell: ({ getValue }) => labelTypeAgent(String(getValue())),
+        cell: ({ getValue, row }) => (
+          <span className="inline-flex flex-wrap items-center gap-1.5">
+            {labelTypeAgent(String(getValue()))}
+            {row.original.est_rondier ? (
+              <span className="rounded bg-teal/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-teal">
+                Rondier
+              </span>
+            ) : null}
+          </span>
+        ),
       },
       {
         accessorKey: "description",
@@ -243,6 +257,8 @@ function GradesTab({ canManage }: { canManage: boolean }) {
               const payload = {
                 libelle: values.libelle,
                 type_agent: values.type_agent,
+                est_rondier:
+                  values.type_agent === "agent" && values.est_rondier,
                 description: values.description || null,
               };
               if (editing) {
@@ -282,6 +298,23 @@ function GradesTab({ canManage }: { canManage: boolean }) {
             ]}
             {...register("type_agent")}
           />
+          {typeAgentGrade === "agent" ? (
+            <label className="flex items-start gap-2 rounded-md border border-border bg-paper-muted/40 p-3 text-sm text-ink">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                {...register("est_rondier")}
+              />
+              <span>
+                <span className="font-medium">Agent de relève (rondier)</span>
+                <span className="block text-xs text-ink-muted">
+                  Remplace les titulaires pendant leurs repos et absences, sur
+                  plusieurs sites. Les agents de ce grade apparaissent dans
+                  « Planning des rondiers ».
+                </span>
+              </span>
+            </label>
+          ) : null}
           <Textarea
             label="Description"
             optionalMark
@@ -1285,6 +1318,7 @@ export default function ParametresPage() {
         ? [
             { id: "grades", label: "Grades" },
             { id: "villes", label: "Villes" },
+            { id: "qualifications", label: "Qualifications" },
           ]
         : []),
       ...(canTreso
@@ -1312,10 +1346,10 @@ export default function ParametresPage() {
           title="Paramètres"
           description={
             canManageGrades && canTreso
-              ? "Grades, villes, catégories, comptes et modes de paiement."
+              ? "Grades, villes, qualifications, catégories, comptes et modes de paiement."
               : canTreso
                 ? "Catégories, comptes et modes de paiement."
-                : "Grades, villes et modes de paiement."
+                : "Grades, villes, qualifications et modes de paiement."
           }
         />
         <Tabs items={tabItems} value={tab} onChange={setTab} />
@@ -1326,6 +1360,9 @@ export default function ParametresPage() {
             </TabPanel>
             <TabPanel when="villes" active={tab}>
               <VillesTab canManage={canManageGrades} />
+            </TabPanel>
+            <TabPanel when="qualifications" active={tab}>
+              <QualificationsTab canManage={canManageGrades} />
             </TabPanel>
           </>
         ) : null}

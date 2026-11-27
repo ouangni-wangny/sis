@@ -11,6 +11,7 @@ import type {
   AgentDescendant,
   AvanceSalaire,
   PointageSyntheseAgent,
+  FeuillePointage,
   SituationSalaireMois,
   Anomalie,
   BulletinPaie,
@@ -50,10 +51,14 @@ import type {
   SystemSetting,
   TresorerieStats,
   User,
+  PlanningRondiers,
+  ControlesParSite,
   PlanningSemaine,
   Vacation,
   Ville,
   Zone,
+  Qualification,
+  PrimeQualification,
 } from "@/domain/types/entities";
 
 function toQuery(params?: ListParams) {
@@ -138,6 +143,35 @@ export const sitesApi = {
   show: (id: string) => api.get<DataResponse<Site>>(`/sites/${id}`),
 };
 
+/** Planning des rondiers (agents de relève). */
+export const planningRondiersApi = {
+  semaine: (params: { lundi: string; site_id?: string; zone_id?: string }) =>
+    api.get<DataResponse<PlanningRondiers>>("/planning-rondiers", {
+      params: toQuery(params),
+    }),
+  affecter: (payload: {
+    agent_id: string;
+    poste_id: string;
+    date: string;
+    quart?: "jour" | "nuit" | null;
+  }) =>
+    api.post<DataResponse<Vacation>>("/planning-rondiers/affecter", payload),
+  retirer: (vacationId: string) =>
+    api.delete<void>(`/planning-rondiers/vacations/${vacationId}`),
+  /** Semaine d’un rondier en une fois : un poste ou « libre » (null) par jour. */
+  planifier: (payload: {
+    agent_id: string;
+    jours: Array<{
+      date: string;
+      poste_id: string | null;
+      quart?: "jour" | "nuit" | null;
+    }>;
+  }) =>
+    api.post<{
+      data: { creees: number; retirees: number; conservees: number };
+    }>("/planning-rondiers/planifier", payload),
+};
+
 export const agentsApi = {
   list: (
     params?: ListParams & {
@@ -184,6 +218,7 @@ export const agentsApi = {
     payload: Partial<Agent> & {
       pin?: string;
       email?: string;
+      qualification_ids?: string[];
       contrat?: {
         type: string;
         reference?: string | null;
@@ -202,6 +237,7 @@ export const agentsApi = {
     payload: Partial<Agent> & {
       pin?: string;
       email?: string;
+      qualification_ids?: string[];
       contrat?: {
         type: string;
         reference?: string | null;
@@ -325,6 +361,29 @@ export const vacationsApi = {
       "/vacations/pointage/synthese",
       { params: toQuery(params) },
     ),
+  /** Feuille de pointage : grille agent × jour (1 / 2 / A / NC), par catégorie. */
+  pointageFeuille: (params: {
+    date_debut: string;
+    date_fin: string;
+    agent_id?: string;
+    site_id?: string;
+    inclure_sans_vacation?: boolean;
+  }) =>
+    api.get<{ data: FeuillePointage }>("/vacations/pointage/feuille", {
+      params: toQuery(params),
+    }),
+  pointageFeuillePdf: (params: {
+    date_debut: string;
+    date_fin: string;
+    agent_id?: string;
+    site_id?: string;
+    inclure_sans_vacation?: boolean;
+  }) =>
+    api.get<Blob>("/vacations/pointage/feuille/export-pdf", {
+      params: toQuery(params),
+      responseType: "blob",
+      timeout: 300_000,
+    }),
   /** Pointage par créneau : présent / absent / non contrôlé (heures comptées si présent). */
   pointage: (params: {
     date_debut: string;
@@ -384,6 +443,20 @@ export const planningSemainesApi = {
       "/planning-semaines/publier",
       payload,
     ),
+  /** Annule le planning de la semaine à partir d’aujourd’hui (pour le refaire). */
+  annuler: (payload: {
+    poste_id: string;
+    annee_iso: number;
+    semaine_iso: number;
+  }) =>
+    api.post<{
+      data: {
+        vacations_supprimees: number;
+        creneaux_supprimes: number;
+        modele_supprime: boolean;
+        a_partir_du: string;
+      };
+    }>("/planning-semaines/annuler", payload),
   dupliquer: (payload: {
     poste_id: string;
     annee_iso: number;
@@ -440,6 +513,8 @@ export const controlesApi = {
       aujourd_hui?: number | boolean;
       mes_controles?: number | boolean;
       recent_30j?: boolean;
+      /** AAAA-MM-JJ : contrôles effectués depuis cette date. */
+      effectue_depuis?: string;
     },
   ) =>
     api.get<PaginatedResponse<Controle>>("/controles", {
@@ -457,6 +532,10 @@ export const controlesApi = {
     client_uuid?: string;
     photo_base64?: string;
   }) => api.post<DataResponse<Controle>>("/controles", payload),
+  parSite: (params: { date: string; site_id?: string }) =>
+    api.get<DataResponse<ControlesParSite>>("/controles/par-site", {
+      params: toQuery(params),
+    }),
 };
 
 export const facturesApi = {
@@ -745,6 +824,7 @@ export const gradesApi = {
   create: (payload: {
     libelle: string;
     type_agent: string;
+    est_rondier?: boolean;
     description?: string | null;
   }) => api.post<DataResponse<Grade>>("/grades", payload),
   update: (
@@ -752,6 +832,7 @@ export const gradesApi = {
     payload: Partial<{
       libelle: string;
       type_agent: string;
+      est_rondier: boolean;
       description: string | null;
     }>,
   ) => api.put<DataResponse<Grade>>(`/grades/${id}`, payload),
@@ -766,6 +847,54 @@ export const villesApi = {
   update: (id: string, payload: Partial<{ libelle: string }>) =>
     api.put<DataResponse<Ville>>(`/villes/${id}`, payload),
   destroy: (id: string) => api.delete<void>(`/villes/${id}`),
+};
+
+export type QualificationPayload = {
+  libelle: string;
+  abreviation: string;
+  description?: string | null;
+  actif?: boolean;
+};
+
+export const qualificationsApi = {
+  list: (params?: ListParams & { actif_only?: boolean }) =>
+    api.get<PaginatedResponse<Qualification>>("/qualifications", {
+      params: toQuery(params),
+    }),
+  create: (payload: QualificationPayload) =>
+    api.post<DataResponse<Qualification>>("/qualifications", payload),
+  update: (id: string, payload: Partial<QualificationPayload>) =>
+    api.put<DataResponse<Qualification>>(`/qualifications/${id}`, payload),
+  destroy: (id: string) => api.delete<void>(`/qualifications/${id}`),
+};
+
+/** Qualifications d’un agent (fiche agent). */
+export const agentQualificationsApi = {
+  list: (agentId: string) =>
+    api.get<{ data: Qualification[] }>(`/agents/${agentId}/qualifications`),
+  sync: (agentId: string, typePrimeIds: string[]) =>
+    api.put<{ data: Qualification[] }>(`/agents/${agentId}/qualifications`, {
+      qualification_ids: typePrimeIds,
+    }),
+};
+
+export type PrimeQualificationPayload = {
+  qualification_id: string;
+  montant: number;
+  unite: PrimeQualification["unite"];
+  actif?: boolean;
+};
+
+export const primesQualificationApi = {
+  list: (params?: ListParams & { qualification_id?: string }) =>
+    api.get<PaginatedResponse<PrimeQualification>>("/primes-qualification", {
+      params: toQuery(params),
+    }),
+  create: (payload: PrimeQualificationPayload) =>
+    api.post<DataResponse<PrimeQualification>>("/primes-qualification", payload),
+  update: (id: string, payload: Partial<PrimeQualificationPayload>) =>
+    api.put<DataResponse<PrimeQualification>>(`/primes-qualification/${id}`, payload),
+  destroy: (id: string) => api.delete<void>(`/primes-qualification/${id}`),
 };
 
 export const categoriesDepenseApi = {
@@ -841,6 +970,7 @@ export const contratsApi = {
       type?: string;
       statut?: string;
       ville_id?: string;
+      qualification_id?: string;
       surveillance?: boolean;
       valide?: boolean;
     },
@@ -966,6 +1096,7 @@ export const periodesPaieApi = {
       mode?: string;
       grade_id?: string;
       ville_id?: string;
+      qualification_id?: string;
       non_payes?: boolean | number;
     },
   ) =>

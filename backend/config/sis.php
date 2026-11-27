@@ -44,7 +44,6 @@ return [
     */
     'vacation' => [
         'duree_max_heures' => (float) env('SIS_VACATION_DUREE_MAX_HEURES', 12),
-        'repos_min_heures' => (float) env('SIS_VACATION_REPOS_MIN_HEURES', 11),
         /** Jours de planning gardés à l’avance par la reconduction automatique. */
         'horizon_planning_jours' => (int) env('SIS_VACATION_HORIZON_PLANNING_JOURS', 42),
     ],

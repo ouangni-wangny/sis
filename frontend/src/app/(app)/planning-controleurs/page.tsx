@@ -178,7 +178,7 @@ export default function PlanningControleursPage() {
   return (
     <PermissionGate
       permission={["zones.view", "perimetres.view", "zones.manage"]}
-      title="Planning contrôleurs"
+      title="Planning des contrôleurs"
     >
       <div className="space-y-6">
         <PageHeader

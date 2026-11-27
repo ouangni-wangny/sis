@@ -28,7 +28,8 @@ final class UpdateAgentAction
             $pin = $data['pin'] ?? null;
             $hasEmail = array_key_exists('email', $data);
             $email = $hasEmail ? $data['email'] : null;
-            unset($data['contrat'], $data['pin'], $data['email'], $data['matricule']);
+            $qualifications = array_key_exists('qualification_ids', $data) ? (array) $data['qualification_ids'] : null;
+            unset($data['contrat'], $data['pin'], $data['email'], $data['matricule'], $data['qualification_ids']);
 
             // Le type (agent posté / controleur) doit toujours refléter le
             // grade actuel — sinon un changement de grade à l'édition ne
@@ -49,6 +50,10 @@ final class UpdateAgentAction
 
             if ($data !== []) {
                 $agent->update($data);
+            }
+
+            if ($qualifications !== null) {
+                $agent->qualifications()->sync(array_values(array_unique($qualifications)));
             }
 
             // Un agent qui devient indisponible (congé, maladie, suspension,
@@ -101,7 +106,7 @@ final class UpdateAgentAction
                 }
             }
 
-            $fresh = $agent->fresh()->load(['grade', 'villeRef', 'media', 'user', 'perimetres.zone', 'contratActif', 'posteSiege.site']);
+            $fresh = $agent->fresh()->load(['grade', 'villeRef', 'media', 'user', 'perimetres.zone', 'contratActif', 'posteSiege.site', 'qualifications']);
 
             if (isset($agent->plain_pin)) {
                 $fresh->setAttribute('plain_pin', $agent->plain_pin);

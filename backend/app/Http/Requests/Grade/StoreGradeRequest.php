@@ -15,6 +15,7 @@ class StoreGradeRequest extends FormRequest
         return [
             'libelle' => ['required', 'string', 'max:255'],
             'type_agent' => ['required', Rule::enum(TypeAgent::class)],
+            'est_rondier' => ['sometimes', 'boolean'],
             'description' => ['nullable', 'string'],
         ];
     }

@@ -145,7 +145,8 @@ class RolePermissionSeeder extends Seeder
 
             // Pas de tresorerie.* : soldes / journal réservés comptable (ADR-0001)
 
-            // Consultation ops
+            // Consultation ops (vacations : fiche agent + feuille de pointage)
+            'vacations.view',
             'controles.view',
             'anomalies.view',
             'rapports.generate',

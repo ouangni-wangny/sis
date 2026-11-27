@@ -30,7 +30,7 @@ final class PreparerProchainesSemainesAction
 
         return DB::transaction(function () use ($posteId, $nombreSemaines) {
             $source = PlanningSemaine::query()
-                ->with('creneaux')
+                ->with('creneaux.agent.grade')
                 ->where('poste_id', $posteId)
                 ->where('statut', StatutPlanningSemaine::Publiee)
                 ->orderByDesc('annee_iso')
@@ -43,13 +43,15 @@ final class PreparerProchainesSemainesAction
                 ]);
             }
 
-            $creneaux = $source->creneaux->map(fn ($c) => [
-                'agent_id' => $c->agent_id,
-                'jour' => $c->jour,
-                'heure_debut' => $c->heureDebutHm(),
-                'heure_fin' => $c->heureFinHm(),
-                'quart' => $c->quart,
-            ])->all();
+            $creneaux = $source->creneaux
+                ->reject(fn ($c) => (bool) $c->agent?->grade?->est_rondier) // relève : se replanifie chaque semaine
+                ->map(fn ($c) => [
+                    'agent_id' => $c->agent_id,
+                    'jour' => $c->jour,
+                    'heure_debut' => $c->heureDebutHm(),
+                    'heure_fin' => $c->heureFinHm(),
+                    'quart' => $c->quart,
+                ])->values()->all();
 
             $cursor = $source->lundi()->copy()->addWeek();
             $prepared = [];

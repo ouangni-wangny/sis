@@ -257,7 +257,7 @@ it('découpe le recouvrement d’un trou sur période en vacations journalières
 
 // ── 3. Reconduction le jour où le collègue est absent ───────────────────
 
-it('bloque l’enchaînement sans repos hors remplacement', function () {
+it('autorise l’enchaînement sans repos sur un autre site (plus de repos minimum)', function () {
     $this->actingAs($this->admin)->postJson('/api/v1/vacations', [
         'agent_id' => $this->remplacant->id,
         'site_id' => $this->siteA->id,
@@ -268,7 +268,7 @@ it('bloque l’enchaînement sans repos hors remplacement', function () {
         'heure_fin' => '19:00',
     ])->assertCreated();
 
-    // Même soir sur un autre site : 1h de repos seulement → refus.
+    // Même soir sur un autre site, 1h après : accepté (plus de repos minimum).
     $this->actingAs($this->admin)->postJson('/api/v1/vacations', [
         'agent_id' => $this->remplacant->id,
         'site_id' => $this->siteB->id,
@@ -276,7 +276,7 @@ it('bloque l’enchaînement sans repos hors remplacement', function () {
         'date_fin' => '2026-11-10',
         'heure_debut' => '20:00',
         'heure_fin' => '23:00',
-    ])->assertUnprocessable();
+    ])->assertCreated();
 });
 
 it('reconduit un agent de jour sur la nuit du collègue absent (remplacement)', function () {

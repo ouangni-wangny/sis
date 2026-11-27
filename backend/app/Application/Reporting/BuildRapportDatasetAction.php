@@ -2,9 +2,9 @@
 
 namespace App\Application\Reporting;
 
+use App\Models\Absence;
 use App\Models\Agent;
 use App\Models\Anomalie;
-use App\Models\Absence;
 use App\Models\BulletinPaie;
 use App\Models\Contrat;
 use App\Models\Controle;

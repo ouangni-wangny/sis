@@ -2,6 +2,7 @@
 
 namespace App\Application\Reporting;
 
+use App\Application\Rh\GetContratsAlertsAction;
 use App\Domain\Shared\Enums\PeriodiciteFacturation;
 use App\Domain\Shared\Enums\StatutAbonnement;
 use App\Domain\Shared\Enums\StatutAgent;
@@ -9,10 +10,9 @@ use App\Domain\Shared\Enums\StatutAnomalie;
 use App\Domain\Shared\Enums\StatutFacture;
 use App\Domain\Shared\Enums\StatutVacation;
 use App\Models\Abonnement;
+use App\Models\Absence;
 use App\Models\Agent;
 use App\Models\Anomalie;
-use App\Models\Absence;
-use App\Models\BulletinPaie;
 use App\Models\Contrat;
 use App\Models\Controle;
 use App\Models\Facture;
@@ -153,7 +153,7 @@ final class GetDashboardStatsAction
         $absencesEnAttente = Absence::query()
             ->where('statut', 'en_attente')
             ->count();
-        $contratsAlertes = app(\App\Application\Rh\GetContratsAlertsAction::class)->execute();
+        $contratsAlertes = app(GetContratsAlertsAction::class)->execute();
 
         return [
             'agents_disponibles' => Agent::query()->where('statut', StatutAgent::Disponible)->count(),

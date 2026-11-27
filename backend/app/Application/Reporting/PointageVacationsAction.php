@@ -6,6 +6,7 @@ use App\Domain\Shared\Enums\ResultatControle;
 use App\Domain\Shared\Enums\StatutAbsence;
 use App\Domain\Shared\Enums\StatutVacation;
 use App\Domain\Shared\Support\ShiftSchedule;
+use App\Models\Agent;
 use App\Models\Controle;
 use App\Models\Vacation;
 use Illuminate\Support\Collection;
@@ -85,7 +86,12 @@ final class PointageVacationsAction
         foreach ($controlesParAgent as $agentId => $controles) {
             $indices = $parAgent[$agentId] ?? [];
             foreach ($controles->sortBy('minute') as $controle) {
-                $i = $this->creneauDuControle($creneaux, $indices, $controle['minute'], $tolerance);
+                // Un contrôle ne vaut que pour un créneau du site où il a été fait.
+                $memeSite = array_values(array_filter(
+                    $indices,
+                    fn (int $i) => (string) $creneaux[$i]['vacation']->site_id === $controle['site_id'],
+                ));
+                $i = $this->creneauDuControle($creneaux, $memeSite, $controle['minute'], $tolerance);
                 if ($i !== null) {
                     // Contrôles triés : le plus récent l’emporte.
                     $creneaux[$i]['controle'] = $controle['resultat'];
@@ -175,7 +181,7 @@ final class PointageVacationsAction
      * Les agents fournis sans créneau sur la période apparaissent à zéro.
      *
      * @param  list<array{vacation: Vacation, date: string, controle: string, heures_comptees: float, heures_supplementaires: float}>  $lignes
-     * @param  iterable<\App\Models\Agent>  $agents
+     * @param  iterable<Agent>  $agents
      * @return list<array{agent_id: string, agent: string, matricule: string|null, presences: int, absences: int, non_controles: int, jours_supplementaires: int, heures_comptees: float, heures_supplementaires: float}>
      */
     public static function synthese(array $lignes, iterable $agents = []): array
@@ -223,7 +229,7 @@ final class PointageVacationsAction
 
     /**
      * @param  Collection<int, Vacation>  $vacations
-     * @return Collection<string, Collection<int, array{minute: int, resultat: string}>>
+     * @return Collection<string, Collection<int, array{site_id: string, minute: int, resultat: string}>>
      */
     private function controlesParAgent(Collection $vacations, ?int $fromDay, int $toDay): Collection
     {
@@ -234,9 +240,10 @@ final class PointageVacationsAction
             ->whereIn('controle_agent_id', $vacations->pluck('agent_id')->unique()->values())
             ->where('effectue_at', '>=', ShiftSchedule::isoFromDayNumber($minDay - 1))
             ->where('effectue_at', '<', ShiftSchedule::isoFromDayNumber($toDay + 3))
-            ->get(['controle_agent_id', 'effectue_at', 'resultat'])
+            ->get(['controle_agent_id', 'site_id', 'effectue_at', 'resultat'])
             ->map(fn (Controle $c) => [
                 'agent_id' => (string) $c->controle_agent_id,
+                'site_id' => (string) $c->site_id,
                 'minute' => intdiv($c->effectue_at->getTimestamp(), 60),
                 // Contrôle historique sans résultat = présence constatée.
                 'resultat' => $c->resultat === ResultatControle::Absent ? self::ABSENT : self::PRESENT,

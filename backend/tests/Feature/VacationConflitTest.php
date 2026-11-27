@@ -409,7 +409,7 @@ it('rejects a day shift when an open-ended same-half vacation already covers tha
         ->assertJsonValidationErrors(['poste_id']);
 });
 
-it('rejects a vacation with insufficient rest before another vacation of the same agent', function () {
+it('accepts a vacation shortly after another one of the same agent (no minimum rest)', function () {
     // Explicit same-day date_fin: a single-day shift, not an open-ended
     // one (a null date_fin would make it "ongoing" and conflict outright).
     $this->actingAs($this->admin)->postJson('/api/v1/vacations', [
@@ -421,8 +421,8 @@ it('rejects a vacation with insufficient rest before another vacation of the sam
         'heure_fin' => '16:00',
     ])->assertCreated();
 
-    // Only 1h gap after the first shift ends (16:00 -> 17:00): below the
-    // 11h default minimum rest.
+    // Only 1h gap after the first shift ends (16:00 -> 17:00): allowed,
+    // there is no minimum rest any more (only overlaps are refused).
     $this->actingAs($this->admin)->postJson('/api/v1/vacations', [
         'agent_id' => $this->agent->id,
         'site_id' => $this->site->id,
@@ -430,11 +430,10 @@ it('rejects a vacation with insufficient rest before another vacation of the sam
         'date_fin' => '2026-07-20',
         'heure_debut' => '17:00',
         'heure_fin' => '20:00',
-    ])->assertStatus(422)
-        ->assertJsonValidationErrors(['heure_debut']);
+    ])->assertCreated();
 });
 
-it('rejects night then day with 0h rest even on the same poste', function () {
+it('accepts night then day with 0h rest (no minimum rest)', function () {
     $poste = \App\Models\Poste::query()->create([
         'site_id' => $this->site->id,
         'nom' => 'Entrée quarts',
@@ -455,7 +454,7 @@ it('rejects night then day with 0h rest even on the same poste', function () {
         'heure_fin' => '06:30',
     ])->assertCreated();
 
-    // Fin de nuit 03/08 06:30 → jour 03/08 06:30 = 0h de repos → refusé.
+    // Fin de nuit 03/08 06:30 → jour 03/08 06:30 : accepté (pas de chevauchement).
     $this->actingAs($this->admin)->postJson('/api/v1/vacations', [
         'agent_id' => $this->agent->id,
         'site_id' => $this->site->id,
@@ -464,8 +463,7 @@ it('rejects night then day with 0h rest even on the same poste', function () {
         'date_fin' => '2026-08-03',
         'heure_debut' => '06:30',
         'heure_fin' => '18:30',
-    ])->assertStatus(422)
-        ->assertJsonValidationErrors(['heure_debut']);
+    ])->assertCreated();
 });
 
 it('allows consecutive cycle-24h days on the same poste (relève continue)', function () {

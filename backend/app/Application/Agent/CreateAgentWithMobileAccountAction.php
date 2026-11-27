@@ -22,7 +22,8 @@ final class CreateAgentWithMobileAccountAction
             $grade = Grade::query()->findOrFail($data['grade_id']);
             $pin = $data['pin'] ?? (string) random_int(1000, 9999);
             $email = $data['email'] ?? null;
-            unset($data['pin'], $data['email'], $data['contrat'], $data['matricule']);
+            $qualifications = $data['qualification_ids'] ?? null;
+            unset($data['pin'], $data['email'], $data['contrat'], $data['matricule'], $data['qualification_ids']);
 
             $matricule = $this->generateMatricule->execute();
 
@@ -49,8 +50,12 @@ final class CreateAgentWithMobileAccountAction
                 'statut' => $data['statut'] ?? 'disponible',
             ]);
 
+            if (is_array($qualifications)) {
+                $agent->qualifications()->sync(array_values(array_unique($qualifications)));
+            }
+
             $agent->setAttribute('plain_pin', $pin);
-            $agent->load(['grade', 'villeRef', 'user', 'media', 'contratActif', 'posteSiege.site']);
+            $agent->load(['grade', 'villeRef', 'user', 'media', 'contratActif', 'posteSiege.site', 'qualifications']);
 
             return $agent;
         });

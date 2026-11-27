@@ -31,7 +31,7 @@ export function PlanningWorkspaceShell({
           className="mb-6 inline-flex items-center gap-1.5 text-sm text-ink-muted transition hover:text-teal"
         >
           <ArrowLeft className="size-4" />
-          Planning postes
+          Planning des agents
         </Link>
 
         <header className="mb-6 flex flex-col gap-4 border-b border-border/80 pb-6 sm:flex-row sm:items-end sm:justify-between">

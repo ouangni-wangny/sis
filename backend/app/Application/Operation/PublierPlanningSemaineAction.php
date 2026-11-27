@@ -41,6 +41,9 @@ final class PublierPlanningSemaineAction
                 ->where('poste_id', $poste->id)
                 ->where('est_remplacement', false)
                 ->where('heures_supplementaires', false)
+            // Absence déjà recouverte : sa trace reste (sinon la republication
+            // la recréerait « à recouvrir » à côté du remplaçant).
+                ->where('remplacee', false)
                 ->where(fn ($q) => $q
                     ->where('statut', StatutVacation::Planifiee->value)
                     ->orWhere('statut', StatutVacation::Annulee->value)
@@ -123,7 +126,7 @@ final class PublierPlanningSemaineAction
                 'planning_date_fin' => $dimanche,
             ]);
 
-            return $planning->fresh(['creneaux.agent', 'poste.site']);
+            return $planning->fresh(['creneaux.agent.grade', 'poste.site']);
         });
     }
 

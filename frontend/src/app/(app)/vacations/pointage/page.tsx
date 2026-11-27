@@ -13,20 +13,19 @@ import {
 } from "lucide-react";
 import {
   useAgents,
-  usePointageSynthese,
   usePointageVacations,
   useSites,
 } from "@/application/hooks/useResources";
 import type {
   PointageControle,
   PointageLigne,
-  PointageSyntheseAgent,
 } from "@/domain/types/entities";
 import { PermissionGate } from "@/presentation/components/auth/PermissionGate";
 import { DataTable } from "@/presentation/components/tables/DataTable";
 import { Alert } from "@/presentation/components/ui/Alert";
 import { Badge } from "@/presentation/components/ui/Badge";
 import { Card, CardBody } from "@/presentation/components/ui/Card";
+
 import { DatePicker } from "@/presentation/components/ui/DatePicker";
 import { PageHeader } from "@/presentation/components/ui/PageHeader";
 import { Select } from "@/presentation/components/ui/Select";
@@ -34,6 +33,7 @@ import { StatCard } from "@/presentation/components/ui/StatCard";
 import { TabPanel, Tabs } from "@/presentation/components/ui/Tabs";
 import { getApiErrorMessage } from "@/shared/lib/api-error";
 import { formatDate } from "@/shared/lib/format";
+import { FeuillePointagePanel } from "./FeuillePointagePanel";
 
 const CONTROLE: Record<
   PointageControle,
@@ -50,23 +50,60 @@ function isoLocal(d: Date): string {
   return `${d.getFullYear()}-${m}-${j}`;
 }
 
+const MOIS = [
+  "janvier", "février", "mars", "avril", "mai", "juin",
+  "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+];
+
+/** Mois de pointage : du 26 du mois précédent au 25 du mois (index 0–11). */
+function periodeDuMois(annee: number, mois: number): [string, string] {
+  return [
+    isoLocal(new Date(annee, mois - 1, 26)),
+    isoLocal(new Date(annee, mois, 25)),
+  ];
+}
+
+/** Mois de pointage en cours : à partir du 26, on est déjà sur le mois suivant. */
+function moisCourant(d: Date): { annee: number; mois: number } {
+  const suivant = d.getDate() >= 26;
+  const ref = new Date(d.getFullYear(), d.getMonth() + (suivant ? 1 : 0), 1);
+  return { annee: ref.getFullYear(), mois: ref.getMonth() };
+}
+
+/** Les 12 derniers mois de pointage, le plus récent en premier. */
+function moisProposes(d: Date) {
+  const { annee, mois } = moisCourant(d);
+  return Array.from({ length: 12 }, (_, i) => {
+    const ref = new Date(annee, mois - i, 1);
+    const [debut, fin] = periodeDuMois(ref.getFullYear(), ref.getMonth());
+    return {
+      value: `${debut}|${fin}`,
+      label: `${MOIS[ref.getMonth()]} ${ref.getFullYear()} (26/${String(
+        ((ref.getMonth() + 11) % 12) + 1,
+      ).padStart(2, "0")} → 25/${String(ref.getMonth() + 1).padStart(2, "0")})`,
+    };
+  });
+}
+
 function heures(value: number): string {
   return `${value.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} h`;
 }
 
 export default function PointagePage() {
   const today = new Date();
-  const [dateDebut, setDateDebut] = useState(
-    isoLocal(new Date(today.getFullYear(), today.getMonth(), 1)),
+  const courant = moisCourant(today);
+  const [periodeInitiale] = useState(() =>
+    periodeDuMois(courant.annee, courant.mois),
   );
-  const [dateFin, setDateFin] = useState(isoLocal(today));
+  const [dateDebut, setDateDebut] = useState(periodeInitiale[0]);
+  const [dateFin, setDateFin] = useState(periodeInitiale[1]);
+  const mois = useMemo(() => moisProposes(new Date()), []);
+  const moisChoisi = mois.find((m) => m.value === `${dateDebut}|${dateFin}`);
+
   const [agentId, setAgentId] = useState("");
   const [siteId, setSiteId] = useState("");
   const [controle, setControle] = useState<"" | PointageControle>("");
-  const [vue, setVue] = useState<"synthese" | "detail">("synthese");
-  const [synthesePage, setSynthesePage] = useState(1);
-  const [synthesePerPage, setSynthesePerPage] = useState(15);
-  const [syntheseQ, setSyntheseQ] = useState("");
+  const [vue, setVue] = useState<"feuille" | "detail">("feuille");
 
   const periodeValide = !!dateDebut && !!dateFin && dateDebut <= dateFin;
   const { data, isLoading, error } = usePointageVacations(
@@ -79,23 +116,6 @@ export default function PointagePage() {
         }
       : undefined,
   );
-  const synthese = usePointageSynthese(
-    periodeValide && vue === "synthese"
-      ? {
-          date_debut: dateDebut,
-          date_fin: dateFin,
-          agent_id: agentId || undefined,
-          site_id: siteId || undefined,
-        }
-      : undefined,
-  );
-  const syntheseLignes = useMemo(() => {
-    const mots = syntheseQ.toLowerCase().split(/\s+/).filter(Boolean);
-    return (synthese.data?.data ?? []).filter((l) => {
-      const texte = `${l.agent} ${l.matricule ?? ""}`.toLowerCase();
-      return mots.every((m) => texte.includes(m));
-    });
-  }, [synthese.data, syntheseQ]);
   const { data: agentsData } = useAgents({ type: "agent", all: true });
   const { data: sitesData } = useSites({ all: true });
 
@@ -105,40 +125,6 @@ export default function PointagePage() {
     [data, controle],
   );
   const totaux = data?.meta;
-
-  const syntheseColumns = useMemo<ColumnDef<PointageSyntheseAgent>[]>(
-    () => [
-      {
-        accessorKey: "agent",
-        header: "Agent",
-        cell: ({ row }) => (
-          <span>
-            {row.original.agent}
-            {row.original.matricule ? (
-              <span className="ml-1 text-xs text-ink-faint">
-                {row.original.matricule}
-              </span>
-            ) : null}
-          </span>
-        ),
-      },
-      { accessorKey: "presences", header: "Présences" },
-      { accessorKey: "absences", header: "Absences" },
-      { accessorKey: "jours_supplementaires", header: "Jours supp." },
-      {
-        accessorKey: "heures_supplementaires",
-        header: "Heures supp.",
-        cell: ({ getValue }) => heures(getValue() as number),
-      },
-      { accessorKey: "non_controles", header: "Non contrôlés" },
-      {
-        accessorKey: "heures_comptees",
-        header: "Heures comptées",
-        cell: ({ getValue }) => heures(getValue() as number),
-      },
-    ],
-    [],
-  );
 
   const columns = useMemo<ColumnDef<PointageLigne>[]>(
     () => [
@@ -263,6 +249,25 @@ export default function PointagePage() {
         <Card>
           <CardBody>
             <div className="flex flex-wrap items-end gap-3">
+              <div className="w-72">
+                <Select
+                  label="Mois de pointage"
+                  options={[
+                    ...(moisChoisi
+                      ? []
+                      : [{ value: "", label: "Période personnalisée" }]),
+                    ...mois,
+                  ]}
+                  value={moisChoisi?.value ?? ""}
+                  onChange={(e) => {
+                    const [debut, fin] = e.target.value.split("|");
+                    if (debut && fin) {
+                      setDateDebut(debut);
+                      setDateFin(fin);
+                    }
+                  }}
+                />
+              </div>
               <div className="w-44">
                 <DatePicker
                   label="Du"
@@ -341,43 +346,20 @@ export default function PointagePage() {
 
         <Tabs
           items={[
-            { id: "synthese", label: "Synthèse par agent" },
+            { id: "feuille", label: "Feuille de pointage" },
             { id: "detail", label: "Détail des créneaux" },
           ]}
           value={vue}
-          onChange={(id) => setVue(id as "synthese" | "detail")}
+          onChange={(id) => setVue(id as "feuille" | "detail")}
         />
 
-        <TabPanel when="synthese" active={vue}>
-          <DataTable
-            data={syntheseLignes.slice(
-              (synthesePage - 1) * synthesePerPage,
-              synthesePage * synthesePerPage,
-            )}
-            columns={syntheseColumns}
-            isLoading={synthese.isLoading}
-            selectable={false}
-            getRowId={(l) => l.agent_id}
-            search={{
-              value: syntheseQ,
-              onChange: (value) => {
-                setSyntheseQ(value);
-                setSynthesePage(1);
-              },
-              placeholder: "Nom ou matricule…",
-            }}
-            pagination={{
-              page: synthesePage,
-              perPage: synthesePerPage,
-              total: syntheseLignes.length,
-              onPageChange: setSynthesePage,
-              onPerPageChange: (n) => {
-                setSynthesePerPage(n);
-                setSynthesePage(1);
-              },
-            }}
-            emptyTitle="Aucun agent sur la période"
-            emptyDescription="Modifiez la période ou les filtres."
+        <TabPanel when="feuille" active={vue}>
+          <FeuillePointagePanel
+            dateDebut={dateDebut}
+            dateFin={dateFin}
+            agentId={agentId}
+            siteId={siteId}
+            enabled={vue === "feuille"}
           />
         </TabPanel>
 

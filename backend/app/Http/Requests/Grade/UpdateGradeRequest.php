@@ -15,6 +15,7 @@ class UpdateGradeRequest extends FormRequest
         return [
             'libelle' => ['sometimes', 'string', 'max:255'],
             'type_agent' => ['sometimes', Rule::enum(TypeAgent::class)],
+            'est_rondier' => ['sometimes', 'boolean'],
             'description' => ['nullable', 'string'],
         ];
     }

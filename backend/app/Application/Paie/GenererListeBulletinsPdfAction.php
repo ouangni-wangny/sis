@@ -2,9 +2,13 @@
 
 namespace App\Application\Paie;
 
+use App\Models\Agent;
 use App\Models\AvanceSalaire;
 use App\Models\BulletinPaie;
+use App\Models\Grade;
 use App\Models\PeriodePaie;
+use App\Models\Qualification;
+use App\Models\Ville;
 use App\Support\ModePaiementRules;
 use App\Support\PdfBrand;
 use App\Support\PdfListExport;
@@ -22,13 +26,13 @@ final class GenererListeBulletinsPdfAction
         $query = self::filteredQuery($request, $periode)
             ->with(['agent.grade'])
             ->orderBy(
-                \App\Models\Agent::query()
+                Agent::query()
                     ->select('nom')
                     ->whereColumn('agents.id', 'bulletins_paie.agent_id')
                     ->limit(1)
             )
             ->orderBy(
-                \App\Models\Agent::query()
+                Agent::query()
                     ->select('prenom')
                     ->whereColumn('agents.id', 'bulletins_paie.agent_id')
                     ->limit(1)
@@ -50,13 +54,19 @@ final class GenererListeBulletinsPdfAction
 
         $filtreParts = [];
         if ($request->filled('grade_id')) {
-            $grade = \App\Models\Grade::query()->find($request->string('grade_id'));
+            $grade = Grade::query()->find($request->string('grade_id'));
             if ($grade) {
                 $filtreParts[] = 'Grade : '.$grade->libelle;
             }
         }
+        if ($request->filled('qualification_id')) {
+            $qualification = Qualification::query()->find($request->string('qualification_id'));
+            if ($qualification) {
+                $filtreParts[] = 'Qualification : '.$qualification->libelle;
+            }
+        }
         if ($request->filled('ville_id')) {
-            $ville = \App\Models\Ville::query()->find($request->string('ville_id'));
+            $ville = Ville::query()->find($request->string('ville_id'));
             if ($ville) {
                 $filtreParts[] = 'Ville : '.$ville->libelle;
             }
@@ -108,6 +118,9 @@ final class GenererListeBulletinsPdfAction
             })
             ->when($request->filled('ville_id'), function ($q) use ($request) {
                 $q->whereHas('agent', fn ($a) => $a->where('ville_id', $request->string('ville_id')));
+            })
+            ->when($request->filled('qualification_id'), function ($q) use ($request) {
+                $q->whereHas('agent.qualifications', fn ($t) => $t->whereKey((string) $request->string('qualification_id')));
             })
             ->when($request->filled('q'), function ($q) use ($request) {
                 $term = '%'.$request->string('q').'%';

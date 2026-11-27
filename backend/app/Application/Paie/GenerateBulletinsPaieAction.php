@@ -12,6 +12,8 @@ use Illuminate\Validation\ValidationException;
 
 final class GenerateBulletinsPaieAction
 {
+    public function __construct(private readonly PrimesAgentsPeriode $primes) {}
+
     /** Contrats payables : un contrat terminé ou résilié reste dû pour ses jours travaillés. */
     private const STATUTS_PAYABLES = ['actif', 'termine', 'resilie'];
 
@@ -48,7 +50,13 @@ final class GenerateBulletinsPaieAction
                 ->get()
                 ->keyBy('agent_id');
 
-            foreach ($this->contratsAPayer($periode) as [$contrat, $motif]) {
+            $contrats = $this->contratsAPayer($periode);
+            $primes = $this->primes->charger(
+                $periode,
+                array_map(fn (array $c) => (string) $c[0]->agent_id, $contrats),
+            );
+
+            foreach ($contrats as [$contrat, $motif]) {
                 $agent = $contrat->agent;
                 $existant = $existants->get($agent->id);
                 if ($existant && ! $this->recalculable($existant)) {
@@ -65,6 +73,7 @@ final class GenerateBulletinsPaieAction
                     'prime_transport' => $contrat->prime_transport,
                     'prime_entretien_tenue' => $contrat->prime_entretien_tenue,
                     'sursalaire' => $contrat->sursalaire,
+                    'autres_primes' => $primes->total((string) $agent->id),
                     'situation_matrimoniale' => $agent->situation_matrimoniale?->value,
                     'nombre_enfants' => $agent->nombre_enfants,
                     'parts_igr' => $contrat->parts_igr,
@@ -109,7 +118,10 @@ final class GenerateBulletinsPaieAction
                                 'prime_transport' => CalculRemunerationCi::money($contrat->prime_transport),
                                 'prime_entretien_tenue' => CalculRemunerationCi::money($contrat->prime_entretien_tenue),
                                 'sursalaire' => CalculRemunerationCi::money($contrat->sursalaire),
+                                // Primes de l’agent : une ligne par prime (CP, GA…).
+                                'primes' => $primes->lignes((string) $agent->id),
                             ],
+                            'jours_pointes' => $primes->jours((string) $agent->id),
                         ],
                     ],
                 );

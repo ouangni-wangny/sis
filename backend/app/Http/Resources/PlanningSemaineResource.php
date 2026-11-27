@@ -31,6 +31,7 @@ class PlanningSemaineResource extends JsonResource
                     'nom' => $c->agent->nom,
                     'prenom' => $c->agent->prenom,
                     'matricule' => $c->agent->matricule,
+                    'est_rondier' => (bool) $c->agent->grade?->est_rondier,
                 ] : null,
             ])->values()),
             'poste' => $this->whenLoaded('poste', fn () => [

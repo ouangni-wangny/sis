@@ -10,10 +10,11 @@ class GradeResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-        'id' => $this->id,
-        'libelle' => $this->libelle,
-        'type_agent' => $this->type_agent,
-        'description' => $this->description,
+            'id' => $this->id,
+            'libelle' => $this->libelle,
+            'type_agent' => $this->type_agent,
+            'est_rondier' => (bool) $this->est_rondier,
+            'description' => $this->description,
         ];
     }
 }

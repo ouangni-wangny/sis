@@ -1,5 +1,6 @@
 <?php
 
+use App\Application\Operation\CreateVacationAction;
 use App\Application\Operation\DupliquerPlanningSemaineAction;
 use App\Application\Operation\PublierPlanningSemaineAction;
 use App\Application\Operation\UpsertPlanningSemaineAction;
@@ -416,7 +417,7 @@ it('marque est_remplacement sur création avec remplacement et ne touche pas le 
         ->creneaux()
         ->count();
 
-    $vacation = app(\App\Application\Operation\CreateVacationAction::class)->execute([
+    $vacation = app(CreateVacationAction::class)->execute([
         'agent_id' => $remplacant->id,
         'site_id' => $this->site->id,
         'poste_id' => $this->poste->id,
@@ -557,4 +558,124 @@ it('expose l’API planning-semaines', function () {
         ->assertOk()
         ->assertJsonPath('data.semaine_iso', 47)
         ->assertJsonPath('data.statut', 'brouillon');
+});
+
+it('annule le planning d’une semaine : modèle et vacations prévues supprimés, autres semaines intactes', function () {
+    $creneau = fn (int $jour) => [
+        'agent_id' => $this->jour->id,
+        'jour' => $jour,
+        'heure_debut' => '06:30',
+        'heure_fin' => '18:30',
+        'quart' => 'jour',
+    ];
+    foreach ([46, 47] as $semaine) {
+        $planning = app(UpsertPlanningSemaineAction::class)->execute([
+            'poste_id' => $this->poste->id,
+            'annee_iso' => 2026,
+            'semaine_iso' => $semaine,
+            'creneaux' => [$creneau(1), $creneau(3)],
+        ]);
+        app(PublierPlanningSemaineAction::class)->execute($planning);
+    }
+    $remplacement = Vacation::query()->create([
+        'agent_id' => ($this->creerAgent)('Remplacant')->id,
+        'site_id' => $this->site->id,
+        'poste_id' => $this->poste->id,
+        'date_debut' => '2026-11-10',
+        'date_fin' => '2026-11-10',
+        'heure_debut' => '06:30',
+        'heure_fin' => '18:30',
+        'statut' => 'planifiee',
+        'est_remplacement' => true,
+    ]);
+
+    $this->actingAs($this->admin)
+        ->postJson('/api/v1/planning-semaines/annuler', [
+            'poste_id' => $this->poste->id,
+            'annee_iso' => 2026,
+            'semaine_iso' => 46,
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.vacations_supprimees', 2)
+        ->assertJsonPath('data.modele_supprime', true);
+
+    expect(PlanningSemaine::query()->where('semaine_iso', 46)->exists())->toBeFalse()
+        ->and(PlanningSemaine::query()->where('semaine_iso', 47)->exists())->toBeTrue()
+        ->and(Vacation::query()->where('poste_id', $this->poste->id)->whereDate('date_debut', '<=', '2026-11-15')->pluck('id')->all())
+        ->toBe([$remplacement->id])
+        ->and(Vacation::query()->where('poste_id', $this->poste->id)->whereDate('date_debut', '>=', '2026-11-16')->count())->toBe(2);
+
+    // Le poste peut être replanifié aussitôt.
+    $planning = app(UpsertPlanningSemaineAction::class)->execute([
+        'poste_id' => $this->poste->id,
+        'annee_iso' => 2026,
+        'semaine_iso' => 46,
+        'creneaux' => [$creneau(4)],
+    ]);
+    app(PublierPlanningSemaineAction::class)->execute($planning);
+    expect(Vacation::query()->where('poste_id', $this->poste->id)->where('est_remplacement', false)
+        ->whereDate('date_debut', '<=', '2026-11-15')->count())->toBe(1);
+});
+
+it('refuse l’annulation du planning sans le droit de supprimer des vacations', function () {
+    $user = User::factory()->create();
+    $user->givePermissionTo('vacations.view', 'vacations.create');
+
+    $this->actingAs($user)
+        ->postJson('/api/v1/planning-semaines/annuler', [
+            'poste_id' => $this->poste->id,
+            'annee_iso' => 2026,
+            'semaine_iso' => 46,
+        ])
+        ->assertForbidden();
+});
+
+it('annule en milieu de semaine seulement les jours à venir et garde les jours passés', function () {
+    $creneau = fn (int $jour) => [
+        'agent_id' => $this->jour->id,
+        'jour' => $jour,
+        'heure_debut' => '06:30',
+        'heure_fin' => '18:30',
+        'quart' => 'jour',
+    ];
+    $planning = app(UpsertPlanningSemaineAction::class)->execute([
+        'poste_id' => $this->poste->id,
+        'annee_iso' => 2026,
+        'semaine_iso' => 46,
+        'creneaux' => [$creneau(1), $creneau(3), $creneau(4)],
+    ]);
+    app(PublierPlanningSemaineAction::class)->execute($planning);
+
+    Carbon::setTestNow('2026-11-11 08:00:00'); // Mercredi : lundi passé, mercredi et jeudi à venir.
+
+    $this->actingAs($this->admin)
+        ->postJson('/api/v1/planning-semaines/annuler', [
+            'poste_id' => $this->poste->id,
+            'annee_iso' => 2026,
+            'semaine_iso' => 46,
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.vacations_supprimees', 2)
+        ->assertJsonPath('data.creneaux_supprimes', 2)
+        ->assertJsonPath('data.modele_supprime', false)
+        ->assertJsonPath('data.a_partir_du', '2026-11-11');
+
+    $dates = Vacation::query()->where('poste_id', $this->poste->id)->pluck('date_debut')
+        ->map(fn ($d) => $d->toDateString())->all();
+    $modele = PlanningSemaine::query()->where('semaine_iso', 46)->firstOrFail();
+
+    expect($dates)->toBe(['2026-11-09'])
+        ->and($modele->creneaux()->pluck('jour')->all())->toBe([1])
+        ->and($modele->statut)->toBe(StatutPlanningSemaine::Brouillon);
+});
+
+it('refuse d’annuler une semaine déjà passée', function () {
+    $this->actingAs($this->admin)
+        ->postJson('/api/v1/planning-semaines/annuler', [
+            'poste_id' => $this->poste->id,
+            'annee_iso' => 2026,
+            'semaine_iso' => 45,
+        ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('planning');
 });

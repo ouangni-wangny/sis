@@ -8,10 +8,10 @@ use App\Domain\Shared\Enums\StatutRonde;
 use App\Domain\Shared\Enums\StatutVacation;
 use App\Domain\Shared\Exceptions\VacationConflitException;
 use App\Models\Agent;
-use Carbon\Carbon;
 use App\Models\Poste;
 use App\Models\Ronde;
 use App\Models\Vacation;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -139,8 +139,7 @@ final class UpdateVacationAction
                     $heureFin,
                     $dateFin,
                     $vacation->id,
-                    // Un remplacement enchaîne volontairement sans repos légal.
-                    ['poste_id' => $posteId, 'ignore_repos' => $vacation->est_remplacement || $remplacement],
+                    ['poste_id' => $posteId],
                 );
 
                 AssertPosteEffectifDisponible::execute(

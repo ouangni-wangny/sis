@@ -58,6 +58,7 @@ class AgentResource extends JsonResource
             ),
             'plain_pin' => $this->when(isset($this->plain_pin), $this->plain_pin),
             'grade' => new GradeResource($this->whenLoaded('grade')),
+            'qualifications' => QualificationResource::collection($this->whenLoaded('qualifications')),
             'ville_ref' => new VilleResource($this->whenLoaded('villeRef')),
             'perimetres' => RondierPerimetreResource::collection($this->whenLoaded('perimetres')),
             'perimetre_sites_count' => $this->when(

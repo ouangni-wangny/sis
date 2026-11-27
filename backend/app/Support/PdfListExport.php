@@ -3,6 +3,8 @@
 namespace App\Support;
 
 use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -36,7 +38,7 @@ final class PdfListExport
     }
 
     /**
-     * @param  \Illuminate\Database\Eloquent\Builder<\Illuminate\Database\Eloquent\Model>|\Illuminate\Database\Query\Builder  $query
+     * @param  Builder<Model>|\Illuminate\Database\Query\Builder  $query
      */
     public static function assertQueryCountWithinLimit($query, string $label = 'lignes'): int
     {

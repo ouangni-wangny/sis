@@ -15,6 +15,8 @@ import {
   labelBadgeControle,
   labelHorairesVacation,
   statusControleVacation,
+  vacationDuJour,
+  hierIso,
   type PassageStatus,
 } from "@/domain/controle-passages";
 import type { Vacation } from "@/domain/types/entities";
@@ -35,25 +37,29 @@ export default function TerrainHomePage() {
   const chargerMission = useCallback(
     () =>
       Promise.all([
-        vacationsApi.list({ en_poste: 1, per_page: 50 }),
-        controlesApi.list({ aujourd_hui: 1, mes_controles: 1, per_page: 100 }),
+        vacationsApi.list({ en_poste: 1, all: 1 }),
+        // Depuis hier : une nuit encore en cours a pu être contrôlée avant minuit.
+        controlesApi.list({ effectue_depuis: hierIso(), mes_controles: 1, per_page: 500 }),
       ]),
     [],
   );
   const appliquerMission = useCallback(
     ([vacRes, ctrlRes]: Awaited<ReturnType<typeof chargerMission>>) => {
-      setVacations(vacRes.data);
+      // Seulement les agents à contrôler aujourd’hui (pas la nuit d’hier terminée).
+      const duJour = vacRes.data.filter((v) => vacationDuJour(v));
+      setVacations(duJour);
       const byAgent = indexControlesParPassage(
         ctrlRes.data
           .filter((c) => c.controle_agent_id)
           .map((c) => ({
             controle_agent_id: c.controle_agent_id!,
+            site_id: c.site_id,
             resultat: c.resultat,
             effectue_at: c.effectue_at,
           })),
       );
       const map = new Map<string, PassageStatus>();
-      for (const v of vacRes.data) {
+      for (const v of duJour) {
         map.set(v.id, statusControleVacation(v, byAgent));
       }
       setStatusByVacation(map);

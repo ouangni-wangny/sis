@@ -4,6 +4,7 @@ import {
   CalendarDays,
   Camera,
   ClipboardCheck,
+  ClipboardList,
   Code2,
   FileBarChart,
   FileText,
@@ -16,6 +17,7 @@ import {
   ShieldCheck,
   ScrollText,
   Tags,
+  UserCheck,
   UserCog,
   UserRound,
   Users,
@@ -44,7 +46,7 @@ export type NavGroup = {
 
 /**
  * Structure métier back-office alignée sur les rôles :
- * Opération · RH · Commercial · Admin
+ * Pilotage · Opérations · Planning · Terrain · RH · Commercial · Admin
  */
 export const navigation: NavGroup[] = [
   {
@@ -103,30 +105,56 @@ export const navigation: NavGroup[] = [
         permissions: ["agents.view"],
         feature: "module.agents",
       },
-      {
-        key: "ops.perimetres",
-        href: "/perimetres",
-        label: "Périmètre contrôleurs",
-        icon: Route,
-        permissions: ["perimetres.view"],
-        feature: "module.planning_controleurs",
-      },
+    ],
+  },
+  {
+    label: "Planning",
+    items: [
       {
         key: "ops.vacations",
         href: "/vacations",
-        label: "Planning postes",
+        label: "Planning des agents",
         icon: CalendarDays,
+        permissions: ["vacations.view"],
+        feature: "module.vacations",
+      },
+      {
+        key: "planning.rondiers",
+        href: "/planning-rondiers",
+        label: "Planning des rondiers",
+        icon: UserCheck,
         permissions: ["vacations.view"],
         feature: "module.vacations",
       },
       {
         key: "ops.planning_controleurs",
         href: "/planning-controleurs",
-        label: "Planning contrôleurs",
+        label: "Planning des contrôleurs",
         icon: Repeat,
         permissions: ["zones.view", "perimetres.view", "zones.manage"],
         feature: "module.planning_controleurs",
       },
+      {
+        key: "ops.perimetres",
+        href: "/perimetres",
+        label: "Périmètre des contrôleurs",
+        icon: Route,
+        permissions: ["perimetres.view"],
+        feature: "module.planning_controleurs",
+      },
+      {
+        key: "planning.pointage",
+        href: "/vacations/pointage",
+        label: "Pointage",
+        icon: ClipboardList,
+        permissions: ["vacations.view"],
+        feature: "module.vacations",
+      },
+    ],
+  },
+  {
+    label: "Terrain",
+    items: [
       {
         key: "ops.controles",
         href: "/controles",

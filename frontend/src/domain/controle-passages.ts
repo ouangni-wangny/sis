@@ -18,6 +18,8 @@ export type PosteControleHours = {
 
 export type VacationControleInput = {
   agent_id: string;
+  /** Site de la vacation : un contrôle ne vaut que pour le site où il a été fait. */
+  site_id?: string | null;
   heure_debut: string;
   heure_fin: string;
   poste?: (PosteControleHours & { id?: string; nom?: string }) | null;
@@ -99,70 +101,136 @@ export type PassageStatus = {
 
 export type ControlePassageInput = {
   controle_agent_id: string;
+  site_id?: string | null;
   resultat: "present" | "absent" | "enregistre";
   effectue_at?: string | null;
 };
 
-/** Index agent → contrôles du jour classés matin / soir. */
+/**
+ * Clé agent + site : un agent posté de jour sur le site A et de nuit sur le
+ * site B a deux contrôles distincts — celui fait en A ne compte pas pour B.
+ */
+function cleAgentSite(agentId: string, siteId?: string | null) {
+  return `${agentId}|${siteId ?? ""}`;
+}
+
+type ControleIndexe = {
+  resultat: ControlePassageInput["resultat"];
+  effectue_at?: string | null;
+  ms: number;
+};
+
+/** Index (agent, site) → contrôles, du plus récent au plus ancien. */
 export function indexControlesParPassage(controles: ControlePassageInput[]) {
-  const byAgent = new Map<
-    string,
-    {
-      passages: Partial<
-        Record<
-          PassageControle,
-          { resultat: ControlePassageInput["resultat"]; effectue_at?: string | null }
-        >
-      >;
-      dernier?: {
-        resultat: ControlePassageInput["resultat"];
-        effectue_at?: string | null;
-      };
-    }
-  >();
-
-  // Plus récent d’abord si la liste est déjà triée desc ; sinon on écrase
-  // seulement si le passage n’est pas encore pris (premier = plus récent).
+  const byAgent = new Map<string, ControleIndexe[]>();
   for (const c of controles) {
-    if (!c.controle_agent_id) continue;
-    const entry = byAgent.get(c.controle_agent_id) ?? { passages: {} };
-    if (!entry.dernier) {
-      entry.dernier = {
-        resultat: c.resultat,
-        effectue_at: c.effectue_at,
-      };
-    }
-    const passage = passageDepuisHeure(c.effectue_at ?? new Date());
-    if (!entry.passages[passage]) {
-      entry.passages[passage] = {
-        resultat: c.resultat,
-        effectue_at: c.effectue_at,
-      };
-    }
-    byAgent.set(c.controle_agent_id, entry);
+    if (!c.controle_agent_id || !c.effectue_at) continue;
+    const ms = new Date(c.effectue_at).getTime();
+    if (Number.isNaN(ms)) continue;
+    const cle = cleAgentSite(c.controle_agent_id, c.site_id);
+    const liste = byAgent.get(cle) ?? [];
+    liste.push({ resultat: c.resultat, effectue_at: c.effectue_at, ms });
+    byAgent.set(cle, liste);
   }
-
+  for (const liste of byAgent.values()) liste.sort((a, b) => b.ms - a.ms);
   return byAgent;
 }
 
+/** Date (AAAA-MM-JJ) de la veille, heure locale de l’appareil. */
+export function hierIso(now: Date = new Date()) {
+  return plusJoursIso(jourIso(now), -1);
+}
+
+/** Tolérance autour du créneau (alignée sur sis.controle.heure_tolerance_minutes). */
+export const CONTROLE_TOLERANCE_MINUTES = 60;
+
+function jourIso(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function plusJoursIso(iso: string, n: number) {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setDate(d.getDate() + n);
+  return jourIso(d);
+}
+
+/** Jours de prise de poste couverts (même règle que le serveur). */
+function couvreJour(
+  vacation: VacationControleInput & { date_debut?: string; date_fin?: string | null },
+  jour: string,
+  traverseMinuit: boolean,
+) {
+  if (!vacation.date_debut) return false;
+  const premier = vacation.date_debut.slice(0, 10);
+  let dernier = vacation.date_fin ? vacation.date_fin.slice(0, 10) : null;
+  if (dernier && traverseMinuit) {
+    dernier = plusJoursIso(dernier, -1);
+    if (dernier < premier) dernier = premier;
+  }
+  return jour >= premier && (dernier === null || jour <= dernier);
+}
+
+/**
+ * Créneau « en cours » de la vacation pour le contrôleur, en ms :
+ * la nuit d’hier si elle n’est pas encore finie, sinon le créneau d’aujourd’hui.
+ * null si la vacation n’a pas de date (ancien appelant) ou ne concerne pas ce jour.
+ */
+export function creneauCourantMs(
+  vacation: VacationControleInput & { date_debut?: string; date_fin?: string | null },
+  now: Date = new Date(),
+  toleranceMinutes = CONTROLE_TOLERANCE_MINUTES,
+): [number, number] | null {
+  if (!vacation.date_debut) return null;
+  const debut = normalizeHm(vacation.heure_debut) || vacation.heure_debut.slice(0, 5);
+  const fin = normalizeHm(vacation.heure_fin) || vacation.heure_fin.slice(0, 5);
+  const traverseMinuit = isOvernight(debut, fin) || isCycle24h(debut, fin);
+  const fenetre = (jour: string): [number, number] => {
+    const start = new Date(`${jour}T${debut}:00`).getTime();
+    let end = new Date(`${jour}T${fin}:00`).getTime();
+    if (end <= start) end += 24 * 60 * 60 * 1000;
+    return [start, end];
+  };
+  const aujourdhui = jourIso(now);
+  const hier = plusJoursIso(aujourdhui, -1);
+  if (traverseMinuit && couvreJour(vacation, hier, true)) {
+    const w = fenetre(hier);
+    if (now.getTime() < w[1] + toleranceMinutes * 60_000) return w;
+  }
+  if (couvreJour(vacation, aujourdhui, traverseMinuit)) return fenetre(aujourdhui);
+  return null;
+}
+
 export function statusControleVacation(
-  vacation: VacationControleInput,
+  vacation: VacationControleInput & { date_debut?: string; date_fin?: string | null },
   byAgent: ReturnType<typeof indexControlesParPassage>,
+  now: Date = new Date(),
 ): PassageStatus {
   const requis = passagesRequisPourVacation(vacation);
-  const entry = byAgent.get(vacation.agent_id);
+  const tous = byAgent.get(cleAgentSite(vacation.agent_id, vacation.site_id)) ?? [];
+  // Seuls comptent les contrôles du créneau en cours (± tolérance) : le
+  // contrôle de la nuit précédente ne vaut pas pour la nuit de ce soir.
+  const creneau = creneauCourantMs(vacation, now);
+  const tol = CONTROLE_TOLERANCE_MINUTES * 60_000;
+  const controles = creneau
+    ? tous.filter((c) => c.ms >= creneau[0] - tol && c.ms <= creneau[1] + tol)
+    : tous;
+
   const faits: Partial<Record<PassageControle, true>> = {};
-  for (const p of requis) {
-    if (entry?.passages[p]) faits[p] = true;
+  if (requis.length === 1) {
+    // Un seul passage : tout contrôle du créneau le valide (02:00 vaut pour la nuit).
+    if (controles.length > 0) faits[requis[0]] = true;
+  } else {
+    for (const c of controles) faits[passageDepuisHeure(new Date(c.ms))] = true;
   }
   const manquants = requis.filter((p) => !faits[p]);
+  const dernier = controles[0];
   return {
     requis,
     faits,
     manquants,
     complet: manquants.length === 0,
-    dernierResultat: entry?.dernier?.resultat,
-    dernierEffectueAt: entry?.dernier?.effectue_at,
+    dernierResultat: dernier?.resultat,
+    dernierEffectueAt: dernier?.effectue_at,
   };
 }
 
@@ -341,4 +409,17 @@ export function labelHorairesVacation(vacation: VacationControleInput): string {
   const f =
     normalizeHm(vacation.heure_fin) || vacation.heure_fin.slice(0, 5);
   return `${d}–${f}`;
+}
+
+/**
+ * La vacation concerne-t-elle la journée du contrôleur ? Oui si l’agent prend
+ * son poste aujourd’hui, ou si c’est la nuit d’hier encore en cours (jusqu’à sa
+ * fin + tolérance). La nuit d’hier terminée à 06:30 ne reste pas « à contrôler ».
+ */
+export function vacationDuJour(
+  vacation: VacationControleInput & { date_debut: string; date_fin?: string | null },
+  now: Date = new Date(),
+  toleranceMinutes = CONTROLE_TOLERANCE_MINUTES,
+): boolean {
+  return creneauCourantMs(vacation, now, toleranceMinutes) !== null;
 }

@@ -13,11 +13,11 @@ class Grade extends Model
 {
     use Auditable, HasUuids, SoftDeletes;
 
-    protected $fillable = ['libelle', 'type_agent', 'description'];
+    protected $fillable = ['libelle', 'type_agent', 'est_rondier', 'description'];
 
     protected function casts(): array
     {
-        return ['type_agent' => TypeAgent::class];
+        return ['type_agent' => TypeAgent::class, 'est_rondier' => 'boolean'];
     }
 
     public function agents(): HasMany

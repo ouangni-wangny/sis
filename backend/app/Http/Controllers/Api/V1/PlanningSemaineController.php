@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Application\Operation\AnnulerPlanningSemaineAction;
 use App\Application\Operation\DupliquerPlanningSemaineAction;
 use App\Application\Operation\PreparerProchainesSemainesAction;
 use App\Application\Operation\PublierPlanningSemaineAction;
@@ -12,6 +13,7 @@ use App\Http\Requests\PlanningSemaine\PreparerProchainesSemainesRequest;
 use App\Http\Requests\PlanningSemaine\UpsertPlanningSemaineRequest;
 use App\Http\Resources\PlanningSemaineResource;
 use App\Models\PlanningSemaine;
+use App\Models\Poste;
 use App\Models\Vacation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -30,7 +32,7 @@ class PlanningSemaineController extends Controller
         ]);
 
         $planning = PlanningSemaine::query()
-            ->with(['creneaux.agent', 'poste.site'])
+            ->with(['creneaux.agent.grade', 'poste.site'])
             ->where('poste_id', $data['poste_id'])
             ->where('annee_iso', $data['annee_iso'])
             ->where('semaine_iso', $data['semaine_iso'])
@@ -72,7 +74,7 @@ class PlanningSemaineController extends Controller
         ]);
 
         $items = PlanningSemaine::query()
-            ->with(['creneaux.agent', 'poste.site'])
+            ->with(['creneaux.agent.grade', 'poste.site'])
             ->where('poste_id', $data['poste_id'])
             ->when($request->filled('annee_iso'), fn ($q) => $q->where('annee_iso', (int) $request->annee_iso))
             ->orderByDesc('annee_iso')
@@ -119,6 +121,34 @@ class PlanningSemaineController extends Controller
         return response()->json([
             'data' => (new PlanningSemaineResource($planning))->resolve(),
         ]);
+    }
+
+    /**
+     * Annule le planning d’un poste pour la semaine (modèle + vacations prévues)
+     * afin de le refaire.
+     */
+    public function annuler(Request $request, AnnulerPlanningSemaineAction $action): JsonResponse
+    {
+        $this->authorize('create', Vacation::class);
+        abort_unless(
+            $request->user()?->can('vacations.delete') || $request->user()?->hasRole('super-admin'),
+            403,
+            'Vous n’avez pas le droit de supprimer des vacations.',
+        );
+
+        $data = $request->validate([
+            'poste_id' => ['required', 'uuid', 'exists:postes,id'],
+            'annee_iso' => ['required', 'integer', 'min:2020', 'max:2100'],
+            'semaine_iso' => ['required', 'integer', 'min:1', 'max:53'],
+        ]);
+
+        $result = $action->execute(
+            Poste::query()->findOrFail($data['poste_id']),
+            (int) $data['annee_iso'],
+            (int) $data['semaine_iso'],
+        );
+
+        return response()->json(['data' => $result]);
     }
 
     public function dupliquer(

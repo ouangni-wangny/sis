@@ -7,6 +7,7 @@ export const ROUTE_FEATURES: Array<{ prefix: string; feature: string }> = [
   { prefix: "/planning-controleurs", feature: "module.planning_controleurs" },
   { prefix: "/perimetres", feature: "module.planning_controleurs" },
   { prefix: "/vacations", feature: "module.vacations" },
+  { prefix: "/planning-rondiers", feature: "module.vacations" },
   { prefix: "/anomalies", feature: "module.anomalies" },
   { prefix: "/zones", feature: "module.zones" },
   { prefix: "/sites", feature: "module.sites" },

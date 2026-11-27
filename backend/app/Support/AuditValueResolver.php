@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Models\Ville;
 use App\Models\Zone;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 
 final class AuditValueResolver
@@ -90,7 +91,7 @@ final class AuditValueResolver
         }
 
         $query = $modelClass::query();
-        if (in_array(\Illuminate\Database\Eloquent\SoftDeletes::class, class_uses_recursive($modelClass), true)) {
+        if (in_array(SoftDeletes::class, class_uses_recursive($modelClass), true)) {
             $query = $modelClass::withTrashed();
         }
 

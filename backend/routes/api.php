@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\AbonnementController;
 use App\Http\Controllers\Api\V1\AbsenceController;
 use App\Http\Controllers\Api\V1\AgentController;
+use App\Http\Controllers\Api\V1\AgentQualificationController;
 use App\Http\Controllers\Api\V1\AnomalieController;
 use App\Http\Controllers\Api\V1\AuditController;
 use App\Http\Controllers\Api\V1\AuthController;
@@ -11,8 +12,8 @@ use App\Http\Controllers\Api\V1\BulletinPaieController;
 use App\Http\Controllers\Api\V1\CategorieDepenseController;
 use App\Http\Controllers\Api\V1\CheckpointController;
 use App\Http\Controllers\Api\V1\ClientController;
-use App\Http\Controllers\Api\V1\ContratController;
 use App\Http\Controllers\Api\V1\CompteTresorerieController;
+use App\Http\Controllers\Api\V1\ContratController;
 use App\Http\Controllers\Api\V1\ControleController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\DepenseController;
@@ -23,10 +24,13 @@ use App\Http\Controllers\Api\V1\MobileSyncController;
 use App\Http\Controllers\Api\V1\ModePaiementParamController;
 use App\Http\Controllers\Api\V1\OffreController;
 use App\Http\Controllers\Api\V1\PaiementController;
-use App\Http\Controllers\Api\V1\PlanningSemaineController;
 use App\Http\Controllers\Api\V1\PerimetreController;
 use App\Http\Controllers\Api\V1\PeriodePaieController;
+use App\Http\Controllers\Api\V1\PlanningRondierController;
+use App\Http\Controllers\Api\V1\PlanningSemaineController;
 use App\Http\Controllers\Api\V1\PosteController;
+use App\Http\Controllers\Api\V1\PrimeQualificationController;
+use App\Http\Controllers\Api\V1\QualificationController;
 use App\Http\Controllers\Api\V1\RapportController;
 use App\Http\Controllers\Api\V1\RondeController;
 use App\Http\Controllers\Api\V1\SisNotificationController;
@@ -74,6 +78,12 @@ Route::prefix('v1')->group(function () {
         // Référentiels partagés (utilisés par agents, sites, etc.)
         Route::apiResource('grades', GradeController::class);
         Route::apiResource('villes', VilleController::class);
+        Route::apiResource('qualifications', QualificationController::class)->except('show')
+            ->parameters(['qualifications' => 'qualification']);
+        Route::apiResource('primes-qualification', PrimeQualificationController::class)->except('show')
+            ->parameters(['primes-qualification' => 'primeQualification']);
+        Route::get('agents/{agent}/qualifications', [AgentQualificationController::class, 'index']);
+        Route::put('agents/{agent}/qualifications', [AgentQualificationController::class, 'update']);
         Route::get('modes-paiement', [ModePaiementParamController::class, 'index']);
         Route::post('modes-paiement', [ModePaiementParamController::class, 'store']);
         Route::put('modes-paiement/{modePaiementParam}', [ModePaiementParamController::class, 'update']);
@@ -137,14 +147,21 @@ Route::prefix('v1')->group(function () {
             Route::get('vacations/conflits', [VacationController::class, 'conflits']);
             Route::get('vacations/pointage', [VacationController::class, 'pointage']);
             Route::get('vacations/pointage/synthese', [VacationController::class, 'pointageSynthese']);
+            Route::get('vacations/pointage/feuille', [VacationController::class, 'pointageFeuille']);
+            Route::get('vacations/pointage/feuille/export-pdf', [VacationController::class, 'pointageFeuillePdf']);
             Route::post('vacations/bulk', [VacationController::class, 'storeBulk']);
             Route::post('vacations/{vacation}/recouvrir', [VacationController::class, 'recouvrir']);
             Route::get('vacations/{vacation}/remplacants', [VacationController::class, 'remplacants']);
             Route::get('vacations/{vacation}/agents-descendants', [VacationController::class, 'agentsDescendants']);
+            Route::get('planning-rondiers', [PlanningRondierController::class, 'index']);
+            Route::post('planning-rondiers/affecter', [PlanningRondierController::class, 'affecter']);
+            Route::post('planning-rondiers/planifier', [PlanningRondierController::class, 'planifier']);
+            Route::delete('planning-rondiers/vacations/{vacation}', [PlanningRondierController::class, 'retirer']);
             Route::get('planning-semaines', [PlanningSemaineController::class, 'index']);
             Route::get('planning-semaines/show', [PlanningSemaineController::class, 'show']);
             Route::put('planning-semaines', [PlanningSemaineController::class, 'upsert']);
             Route::post('planning-semaines/publier', [PlanningSemaineController::class, 'publier']);
+            Route::post('planning-semaines/annuler', [PlanningSemaineController::class, 'annuler']);
             Route::post('planning-semaines/dupliquer', [PlanningSemaineController::class, 'dupliquer']);
             Route::post('planning-semaines/preparer', [PlanningSemaineController::class, 'preparer']);
             Route::apiResource('vacations', VacationController::class);
@@ -155,6 +172,7 @@ Route::prefix('v1')->group(function () {
         });
 
         Route::middleware('feature:module.controles')->group(function () {
+            Route::get('controles/par-site', [ControleController::class, 'parSite']);
             Route::apiResource('controles', ControleController::class)->only(['index', 'store', 'show']);
         });
 

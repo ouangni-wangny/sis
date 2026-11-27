@@ -347,7 +347,7 @@ it('allows adjacent non-overlapping shifts after sufficient rest on update', fun
         ->assertOk();
 });
 
-it('rejects update with insufficient rest after another vacation', function () {
+it('accepts an update placing the vacation shortly after another one (no minimum rest)', function () {
     createVac($this, [
         'date_debut' => '2026-09-01',
         'date_fin' => '2026-09-01',
@@ -363,7 +363,7 @@ it('rejects update with insufficient rest after another vacation', function () {
         'heure_fin' => '12:00',
     ]);
 
-    // 17:00 le même jour = 1h de repos seulement
+    // 17:00 le même jour = 1h après : accepté (plus de repos minimum)
     $this->actingAs($this->admin)
         ->putJson("/api/v1/vacations/{$id2}", [
             'date_debut' => '2026-09-01',
@@ -371,8 +371,7 @@ it('rejects update with insufficient rest after another vacation', function () {
             'heure_debut' => '17:00',
             'heure_fin' => '20:00',
         ])
-        ->assertStatus(422)
-        ->assertJsonValidationErrors(['heure_debut']);
+        ->assertOk();
 });
 
 // ─── Capacité poste / statut agent ───

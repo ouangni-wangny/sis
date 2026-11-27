@@ -124,3 +124,88 @@ it('expose le pointage et les totaux via l’API', function () {
         ->assertJsonPath('data.0.agent', 'Yao Kouassi (AG-PT1)')
         ->assertJsonPath('data.0.statut', 'planifiee');
 });
+
+it('construit la feuille de pointage agent × jour (1 / A / NC, total des présences)', function () {
+    // Double vacation le 02/11 : nuit 19:00 → 07:00 contrôlée présente.
+    Vacation::query()->create([
+        'agent_id' => $this->agent->id,
+        'site_id' => $this->site->id,
+        'date_debut' => '2026-11-02',
+        'date_fin' => '2026-11-02',
+        'heure_debut' => '19:00',
+        'heure_fin' => '07:00',
+        'statut' => StatutVacation::Planifiee->value,
+    ]);
+    Controle::query()->create([
+        'site_id' => $this->site->id,
+        'controle_agent_id' => $this->agent->id,
+        'effectue_at' => '2026-11-02 23:00:00',
+        'resultat' => 'present',
+    ]);
+
+    $response = $this->actingAs($this->admin)
+        ->getJson("/api/v1/vacations/pointage/feuille?agent_id={$this->agent->id}&date_debut=2026-10-26&date_fin=2026-11-25")
+        ->assertOk();
+
+    $feuille = $response->json('data');
+    expect($feuille['jours'])->toHaveCount(31)
+        ->and($feuille['jours'][0])->toBe(['date' => '2026-10-26', 'jour' => 'L'])
+        ->and($feuille['categories'])->toHaveCount(1)
+        ->and($feuille['categories'][0]['libelle'])->toBe('Agents postés');
+
+    $ligne = $feuille['categories'][0]['agents'][0];
+    expect($ligne['nom'])->toBe('KOUASSI YAO')
+        ->and($ligne['jours']['2026-11-01'])->toBeNull()
+        ->and($ligne['jours']['2026-11-02'])->toBe('2')
+        ->and($ligne['jours']['2026-11-03'])->toBe('A')
+        ->and($ligne['jours']['2026-11-04'])->toBe('NC')
+        ->and($ligne['total'])->toBe(2);
+});
+
+it('exporte la feuille de pointage en PDF', function () {
+    $this->actingAs($this->admin)
+        ->get('/api/v1/vacations/pointage/feuille/export-pdf?date_debut=2026-10-26&date_fin=2026-11-25')
+        ->assertOk()
+        ->assertHeader('content-type', 'application/pdf');
+});
+
+it('refuse une feuille de pointage de plus de deux mois', function () {
+    $this->actingAs($this->admin)
+        ->getJson('/api/v1/vacations/pointage/feuille?date_debut=2026-01-01&date_fin=2026-06-30')
+        ->assertStatus(422);
+});
+
+it('donne accès à la feuille de pointage à la RH', function () {
+    $rh = User::factory()->create(['email' => 'rh-pointage@sis.ci']);
+    $rh->assignRole('rh');
+
+    $this->actingAs($rh)
+        ->getJson('/api/v1/vacations/pointage/feuille?date_debut=2026-10-26&date_fin=2026-11-25')
+        ->assertOk();
+});
+
+it('n’ajoute les agents sans vacation que sur demande', function () {
+    $grade = Grade::query()->first();
+    $sansVacation = Agent::query()->create([
+        'grade_id' => $grade->id,
+        'type' => TypeAgent::Agent,
+        'nom' => 'Sans',
+        'prenom' => 'Vacation',
+        'matricule' => 'AG-PT2',
+        'statut' => 'en_activite',
+    ]);
+    $sansVacation->contrats()->create([
+        'type' => 'cdi',
+        'date_debut' => '2026-01-01',
+        'statut' => 'actif',
+        'salaire' => 100000,
+    ]);
+
+    $noms = fn (string $url) => collect($this->actingAs($this->admin)->getJson($url)->assertOk()->json('data.categories'))
+        ->flatMap(fn ($c) => collect($c['agents'])->pluck('nom'))
+        ->all();
+
+    $base = '/api/v1/vacations/pointage/feuille?date_debut=2026-10-26&date_fin=2026-11-25';
+    expect($noms($base))->toBe(['KOUASSI YAO'])
+        ->and($noms($base.'&inclure_sans_vacation=1'))->toContain('SANS VACATION');
+});

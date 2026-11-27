@@ -45,6 +45,7 @@ final class AnnulerVacationsBloquantes
 
             if ($hasOpenRonde) {
                 $skipped++;
+
                 continue;
             }
 

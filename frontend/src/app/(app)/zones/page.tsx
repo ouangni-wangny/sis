@@ -403,7 +403,7 @@ export default function ZonesPage() {
                 href="/planning-controleurs"
                 className="text-teal hover:underline"
               >
-                Planning contrôleurs
+                Planning des contrôleurs
               </Link>
               .
             </p>
