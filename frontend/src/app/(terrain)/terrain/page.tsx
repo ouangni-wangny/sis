@@ -21,6 +21,12 @@ import {
 } from "@/domain/controle-passages";
 import type { Vacation } from "@/domain/types/entities";
 import { cn } from "@/shared/lib/cn";
+import { can } from "@/shared/lib/can";
+
+function jourIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 function initials(prenom?: string, nom?: string) {
   return `${(prenom ?? "").charAt(0)}${(nom ?? "").charAt(0)}`.toUpperCase() || "?";
@@ -30,6 +36,8 @@ export default function TerrainHomePage() {
   const { user } = useAuth();
   const router = useRouter();
   const [vacations, setVacations] = useState<Vacation[]>([]);
+  const peutRecouvrir = can(user, "vacations.recouvrir") || can(user, "vacations.update");
+  const [nbARecouvrir, setNbARecouvrir] = useState(0);
   const [statusByVacation, setStatusByVacation] = useState(
     () => new Map<string, PassageStatus>(),
   );
@@ -40,11 +48,21 @@ export default function TerrainHomePage() {
         vacationsApi.list({ en_poste: 1, all: 1 }),
         // Depuis hier : une nuit encore en cours a pu être contrôlée avant minuit.
         controlesApi.list({ effectue_depuis: hierIso(), mes_controles: 1, per_page: 500 }),
+        // Absences du jour à recouvrir sur le périmètre (si le contrôleur en a le droit).
+        peutRecouvrir
+          ? vacationsApi.list({
+              statut: "a_recouvrir",
+              date_from: jourIso(),
+              date_to: jourIso(),
+              per_page: 1,
+            })
+          : Promise.resolve(null),
       ]),
-    [],
+    [peutRecouvrir],
   );
   const appliquerMission = useCallback(
-    ([vacRes, ctrlRes]: Awaited<ReturnType<typeof chargerMission>>) => {
+    ([vacRes, ctrlRes, trousRes]: Awaited<ReturnType<typeof chargerMission>>) => {
+      setNbARecouvrir(trousRes?.meta?.total ?? trousRes?.data.length ?? 0);
       // Seulement les agents à contrôler aujourd’hui (pas la nuit d’hier terminée).
       const duJour = vacRes.data.filter((v) => vacationDuJour(v));
       setVacations(duJour);
@@ -154,6 +172,24 @@ export default function TerrainHomePage() {
           {remaining > 0 ? "Lancer les contrôles" : "Voir les contrôles"}
         </Button>
       </section>
+
+      {peutRecouvrir && nbARecouvrir > 0 ? (
+        <Link
+          href="/terrain/recouvrir"
+          className="flex items-center gap-3 border border-red-300 bg-red-50 px-4 py-3 text-danger"
+        >
+          <AlertCircle className="size-5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">
+              {nbARecouvrir} poste{nbARecouvrir > 1 ? "s" : ""} à recouvrir
+            </p>
+            <p className="text-xs text-danger/80">
+              Agent absent : désignez un remplaçant (l’agent qui descend enchaîne en heures sup.).
+            </p>
+          </div>
+          <ChevronRight className="size-4 shrink-0" />
+        </Link>
+      ) : null}
 
       <section className="space-y-2">
         <div className="flex items-center justify-between">

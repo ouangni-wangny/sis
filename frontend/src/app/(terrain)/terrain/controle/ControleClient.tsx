@@ -27,6 +27,7 @@ import {
 import type { Controle, ControleResultat, Vacation } from "@/domain/types/entities";
 import { formatDateTime } from "@/shared/lib/format";
 import { cn } from "@/shared/lib/cn";
+import { can } from "@/shared/lib/can";
 
 type Step = "list" | "presence" | "photo" | "confirm" | "done";
 type Presence = "present" | "absent" | null;
@@ -780,6 +781,17 @@ export default function ControleClient() {
           <p className="text-lg font-bold text-ink">Contrôle enregistré</p>
           <p className="mt-2 text-sm text-ink-muted">{okMessage}</p>
           <div className="mt-6 flex flex-col gap-2">
+            {doneResultat === "absent" &&
+            (can(user, "vacations.recouvrir") || can(user, "vacations.update")) ? (
+              <Button
+                type="button"
+                variant="danger"
+                className="!rounded-none"
+                onClick={() => router.push("/terrain/recouvrir")}
+              >
+                Trouver un remplaçant
+              </Button>
+            ) : null}
             <Button type="button" className="!rounded-none" onClick={backToList}>
               Contrôler un autre agent
             </Button>

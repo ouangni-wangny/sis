@@ -53,6 +53,7 @@ import type {
   User,
   PlanningRondiers,
   ControlesParSite,
+  Remplacant,
   PlanningSemaine,
   Vacation,
   Ville,
@@ -346,6 +347,9 @@ export const vacationsApi = {
     id: string,
     payload: { agent_id: string; heures_supplementaires?: boolean },
   ) => api.post<DataResponse<Vacation>>(`/vacations/${id}/recouvrir`, payload),
+  /** Agents libres pour reprendre la case (l’agent qui descend en premier). */
+  remplacants: (id: string) =>
+    api.get<{ data: Remplacant[] }>(`/vacations/${id}/remplacants`),
   /** Agents qui finissent sur le site quand le créneau à recouvrir commence. */
   agentsDescendants: (id: string) =>
     api.get<{ data: AgentDescendant[] }>(
