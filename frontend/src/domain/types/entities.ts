@@ -1089,6 +1089,17 @@ export type FeuillePointage = {
   }[];
 };
 
+/** Agent libre pour reprendre une case « à recouvrir » (GET /vacations/{id}/remplacants). */
+export type Remplacant = {
+  agent_id: string;
+  agent: string;
+  matricule: string | null;
+  /** Finit sur ce site quand le créneau commence : enchaîne en heures sup. */
+  descend: boolean;
+  meme_poste: boolean;
+  pool_siege: boolean;
+};
+
 export type AgentDescendant = {
   agent_id: string;
   agent: string | null;
