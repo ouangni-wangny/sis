@@ -3,11 +3,12 @@
 namespace App\Support;
 
 use App\Models\ModePaiementParam;
+use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Validation\Rule;
 
 final class ModePaiementRules
 {
-    /** @return list<\Illuminate\Contracts\Validation\ValidationRule|string> */
+    /** @return list<ValidationRule|string> */
     public static function required(): array
     {
         return [
@@ -18,7 +19,7 @@ final class ModePaiementRules
         ];
     }
 
-    /** @return list<\Illuminate\Contracts\Validation\ValidationRule|string> */
+    /** @return list<ValidationRule|string> */
     public static function sometimes(): array
     {
         return [

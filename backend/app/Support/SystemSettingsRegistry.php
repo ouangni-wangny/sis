@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\SystemSetting;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Surcharges DB des réglages config/sis.php.
@@ -51,14 +52,6 @@ final class SystemSettingsRegistry
                 'description' => 'Durée maximale autorisée pour une vacation.',
                 'type' => 'float',
                 'config' => 'sis.vacation.duree_max_heures',
-                'group' => 'Vacations',
-            ],
-            [
-                'key' => 'vacation.repos_min_heures',
-                'label' => 'Repos mini entre vacations (h)',
-                'description' => 'Repos minimum entre deux vacations d’un même agent.',
-                'type' => 'float',
-                'config' => 'sis.vacation.repos_min_heures',
                 'group' => 'Vacations',
             ],
             [
@@ -122,7 +115,7 @@ final class SystemSettingsRegistry
     /** Applique les surcharges DB sur config('sis.*'). */
     public static function applyToConfig(): void
     {
-        if (! \Illuminate\Support\Facades\Schema::hasTable('system_settings')) {
+        if (! Schema::hasTable('system_settings')) {
             return;
         }
 

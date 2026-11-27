@@ -276,61 +276,6 @@ export function rangesOverlapMs(
   return a[0] < b[1] && a[1] > b[0];
 }
 
-/** Repos minimum entre deux vacations (aligné config sis.vacation.repos_min_heures). */
-export const REPOS_MIN_HEURES = 11;
-
-/**
- * true si le gap entre deux plages est < repos min.
- * Exemptions (même poste) : cycle→cycle, ou jour→nuit uniquement — jamais nuit→jour.
- */
-export function hasInsufficientReposMs(
-  proposed: [number, number],
-  other: [number, number],
-  opts: {
-    samePoste?: boolean;
-    proposedOvernight?: boolean;
-    otherOvernight?: boolean;
-    proposedCycle?: boolean;
-    otherCycle?: boolean;
-    reposMinHeures?: number;
-  } = {},
-): boolean {
-  const reposMin = (opts.reposMinHeures ?? REPOS_MIN_HEURES) * 60 * 60 * 1000;
-  let gapMs: number;
-  if (proposed[1] <= other[0]) {
-    gapMs = other[0] - proposed[1];
-  } else if (other[1] <= proposed[0]) {
-    gapMs = proposed[0] - other[1];
-  } else {
-    // Chevauchement : traité à part (conflit).
-    return false;
-  }
-
-  if (opts.samePoste && gapMs <= 60_000) {
-    if (opts.proposedCycle && opts.otherCycle) return false;
-    // other puis proposed : jour → nuit
-    if (
-      other[1] === proposed[0] &&
-      !opts.otherOvernight &&
-      !opts.otherCycle &&
-      opts.proposedOvernight
-    ) {
-      return false;
-    }
-    // proposed puis other : jour → nuit
-    if (
-      proposed[1] === other[0] &&
-      !opts.proposedOvernight &&
-      !opts.proposedCycle &&
-      opts.otherOvernight
-    ) {
-      return false;
-    }
-  }
-
-  return gapMs < reposMin;
-}
-
 /** Plage [start, end] ms pour détection de conflits (alignée API). */
 export function vacationRangeMs(
   dateDebut: string,

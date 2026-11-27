@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Application\Operation\EnregistrerControleAction;
+use App\Application\Reporting\ControlesParSiteQuery;
 use App\Application\Shared\RondierPerimetreGuard;
 use App\Domain\Shared\Enums\TypeAgent;
 use App\Http\Controllers\Controller;
@@ -10,6 +11,7 @@ use App\Http\Requests\Controle\StoreControleRequest;
 use App\Http\Resources\ControleResource;
 use App\Models\Controle;
 use App\Support\RechercheNom;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
@@ -48,6 +50,8 @@ class ControleController extends Controller
                     $q->where('resultat', $resultat);
                 }
             })
+            // Contrôles depuis une date (PWA : depuis la veille, pour les nuits en cours).
+            ->when($request->date('effectue_depuis'), fn ($q, $d) => $q->whereDate('effectue_at', '>=', $d->format('Y-m-d')))
             ->when($request->boolean('recent_30j'), fn ($q) => $q->whereDate('effectue_at', '>=', now()->subDays(30)->toDateString()))
             ->when($request->filled('q'), function ($q) use ($request) {
                 $term = '%'.$request->string('q')->toString().'%';
@@ -80,7 +84,7 @@ class ControleController extends Controller
                 });
             })
             ->latest('effectue_at')
-            ->paginate($request->integer('per_page', 15));
+            ->paginate(min(500, max(1, $request->integer('per_page', 15))));
 
         return ControleResource::collection($items);
     }
@@ -132,6 +136,30 @@ class ControleController extends Controller
                 base64Photos: $base64Photos,
             )
         );
+    }
+
+    /**
+     * Contrôles d’une journée regroupés par site : à contrôler, contrôlés,
+     * non contrôlés, avec le détail par agent.
+     */
+    public function parSite(Request $request, ControlesParSiteQuery $query): JsonResponse
+    {
+        abort_unless($request->user()?->can('controles.view'), 403);
+
+        $data = $request->validate([
+            'date' => ['required', 'date_format:Y-m-d'],
+            'site_id' => ['nullable', 'uuid'],
+        ]);
+
+        $controleurAgent = $request->user()?->agent?->type === TypeAgent::Controleur
+            ? $request->user()->agent
+            : null;
+
+        return response()->json(['data' => $query->jour(
+            $data['date'],
+            $controleurAgent ? RondierPerimetreGuard::authorizedSiteIds($controleurAgent) : null,
+            $data['site_id'] ?? null,
+        )]);
     }
 
     public function show(Request $request, Controle $controle): ControleResource

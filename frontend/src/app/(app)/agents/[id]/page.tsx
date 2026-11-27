@@ -56,6 +56,8 @@ import { Button } from "@/presentation/components/ui/Button";
 import { Spinner } from "@/presentation/components/ui/Spinner";
 import { TabPanel, Tabs } from "@/presentation/components/ui/Tabs";
 import { AgentMonthCalendar } from "../../vacations/planifier/AgentMonthCalendar";
+import { AgentQualificationsCard } from "./AgentQualificationsCard";
+import { AgentSemainePlanning } from "./AgentSemainePlanning";
 import { useAuth } from "@/presentation/providers/AuthProvider";
 import { useToast } from "@/presentation/providers/ToastProvider";
 import { apiClient } from "@/infrastructure/http/apiClient";
@@ -85,7 +87,7 @@ type AgentTab =
   | "documents"
   | "conges";
 
-type VacationsSubTab = "calendrier" | "liste";
+type VacationsSubTab = "semaine" | "calendrier" | "liste";
 
 const VACATION_STATUT_LABEL: Record<string, string> = {
   planifiee: "Planifiée",
@@ -199,7 +201,7 @@ export default function AgentDetailPage() {
   const { toast } = useToast();
   const [tab, setTab] = useState<AgentTab>("overview");
   const [vacationsSubTab, setVacationsSubTab] =
-    useState<VacationsSubTab>("calendrier");
+    useState<VacationsSubTab>("semaine");
   const cniInputRef = useRef<HTMLInputElement>(null);
   const permisInputRef = useRef<HTMLInputElement>(null);
 
@@ -220,6 +222,11 @@ export default function AgentDetailPage() {
   const { data, isLoading, isError } = useAgent(id);
   const agent = data?.data;
   const isControleur = agent?.type === "controleur";
+  const estRondier = Boolean(agent?.grade?.est_rondier);
+  // Un rondier se planifie à la semaine (Planning des rondiers), pas sur un poste fixe.
+  const planifierHref = estRondier
+    ? `/planning-rondiers/planifier?agent_id=${id}`
+    : `/vacations/planifier?agent_id=${id}`;
   const zoneId = agent?.perimetres?.[0]?.zone_id ?? undefined;
   const zone = agent?.perimetres?.[0]?.zone?.nom;
   const contrat = agent?.contrat_actif;
@@ -638,7 +645,7 @@ export default function AgentDetailPage() {
     () =>
       [
         { id: "overview", label: "Vue d’ensemble" },
-        canVacations ? { id: "vacations", label: "Vacations" } : null,
+        canVacations ? { id: "vacations", label: "Planning" } : null,
         canViewRh ? { id: "contrats", label: "Contrats" } : null,
         canViewRh ? { id: "absences", label: "Absences" } : null,
         canPaie ? { id: "paie", label: "Paie" } : null,
@@ -713,7 +720,7 @@ export default function AgentDetailPage() {
                         </Link>
                       ) : null}
                       {canPlanifier && !isControleur ? (
-                        <Link href={`/vacations/planifier?agent_id=${id}`}>
+                        <Link href={planifierHref}>
                           <Button size="sm">Planifier</Button>
                         </Link>
                       ) : null}
@@ -778,6 +785,12 @@ export default function AgentDetailPage() {
                     hint="Indépendant du contrat en cours"
                   />
                 </section>
+
+                <AgentQualificationsCard
+                  agentId={id}
+                  canEdit={canUpdateAgent}
+                  canVoirMontants={canPaie || can(user, "grades.manage")}
+                />
 
                 <div className="grid gap-6 lg:grid-cols-2">
                   <section className="rounded-2xl border border-border bg-white p-6 shadow-[0_1px_0_rgba(20,26,16,0.04)]">
@@ -963,10 +976,14 @@ export default function AgentDetailPage() {
                       <div className="mt-4 flex flex-wrap gap-2 border-t border-border/70 pt-4">
                         {canVacations ? (
                           <Link
-                            href={`/vacations?agent_id=${id}`}
+                            href={
+                              estRondier
+                                ? "/planning-rondiers"
+                                : `/vacations?agent_id=${id}`
+                            }
                             className="text-xs font-medium text-teal hover:underline"
                           >
-                            Planning vacations
+                            {estRondier ? "Planning des rondiers" : "Planning vacations"}
                           </Link>
                         ) : null}
                         {canPaie ? (
@@ -1046,7 +1063,9 @@ export default function AgentDetailPage() {
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm text-ink-muted">
-                    Planning de l’agent — édition depuis Vacations.
+                    {estRondier
+                      ? "Planning du rondier — édition depuis Planning des rondiers."
+                      : "Planning de l’agent — édition depuis Planning des agents."}
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <Link href={`/vacations?agent_id=${id}`}>
@@ -1055,7 +1074,7 @@ export default function AgentDetailPage() {
                       </Button>
                     </Link>
                     {canPlanifier ? (
-                      <Link href={`/vacations/planifier?agent_id=${id}`}>
+                      <Link href={planifierHref}>
                         <Button size="sm">Planifier</Button>
                       </Link>
                     ) : null}
@@ -1064,7 +1083,8 @@ export default function AgentDetailPage() {
 
                 <Tabs
                   items={[
-                    { id: "calendrier", label: "Calendrier" },
+                    { id: "semaine", label: "Semaine" },
+                    { id: "calendrier", label: "Mois" },
                     { id: "liste", label: "Liste" },
                   ]}
                   value={vacationsSubTab}
@@ -1073,6 +1093,15 @@ export default function AgentDetailPage() {
                   }
                   className="border-border/80"
                 />
+
+                <TabPanel when="semaine" active={vacationsSubTab}>
+                  <AgentSemainePlanning
+                    agentId={id}
+                    reposDayIndex={reposDayIndex}
+                    estRondier={estRondier}
+                    canViewAbsences={canViewRh}
+                  />
+                </TabPanel>
 
                 <TabPanel when="calendrier" active={vacationsSubTab}>
                   <div className="space-y-3">
@@ -1116,7 +1145,7 @@ export default function AgentDetailPage() {
                     emptyTitle="Aucune vacation pour cet agent"
                     emptyAction={
                       canPlanifier ? (
-                        <Link href={`/vacations/planifier?agent_id=${id}`}>
+                        <Link href={planifierHref}>
                           <Button size="sm">Planifier cet agent</Button>
                         </Link>
                       ) : undefined

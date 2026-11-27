@@ -12,6 +12,7 @@ use App\Application\Operation\RattacherRondesApresDecoupage;
 use App\Application\Operation\RecouvrirVacationAction;
 use App\Application\Operation\RemplacantsDisponiblesQuery;
 use App\Application\Operation\UpdateVacationAction;
+use App\Application\Reporting\FeuillePointage;
 use App\Application\Reporting\PointageVacationsAction;
 use App\Application\Shared\RondierPerimetreGuard;
 use App\Domain\Shared\Enums\StatutRonde;
@@ -28,7 +29,10 @@ use App\Models\Agent;
 use App\Models\Ronde;
 use App\Models\Vacation;
 use App\Support\ListQuery;
+use App\Support\PdfBrand;
+use App\Support\PdfListExport;
 use App\Support\RechercheNom;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -340,6 +344,75 @@ class VacationController extends Controller
         ]);
     }
 
+    /** Feuille de pointage : grille agent × jour, regroupée par catégorie. */
+    public function pointageFeuille(Request $request, PointageVacationsAction $action): JsonResponse
+    {
+        $this->authorize('viewAny', Vacation::class);
+
+        return response()->json(['data' => $this->feuilleDuPointage($request, $action)]);
+    }
+
+    public function pointageFeuillePdf(Request $request, PointageVacationsAction $action): \Symfony\Component\HttpFoundation\Response
+    {
+        $this->authorize('viewAny', Vacation::class);
+
+        $feuille = $this->feuilleDuPointage($request, $action);
+        PdfListExport::prepareRuntime(array_sum(array_map(fn ($c) => count($c['agents']), $feuille['categories'])));
+
+        $html = view('pdf.pointage-feuille', [
+            'brand' => PdfBrand::data(),
+            'feuille' => $feuille,
+            'generatedAt' => now()->format('d/m/Y H:i'),
+        ])->render();
+
+        return PdfListExport::download(
+            $html,
+            'pointage-'.$feuille['date_debut'].'-au-'.$feuille['date_fin'].'.pdf',
+        );
+    }
+
+    /**
+     * @return array{date_debut: string, date_fin: string, jours: list<array{date: string, jour: string}>, categories: list<array<string, mixed>>}
+     */
+    private function feuilleDuPointage(Request $request, PointageVacationsAction $action): array
+    {
+        [$data, $vacations] = $this->vacationsDuPointage($request);
+
+        // Grille d’un mois de paie (26 → 25) : au plus 62 colonnes.
+        if (ShiftSchedule::dayNumber($data['date_fin']) - ShiftSchedule::dayNumber($data['date_debut']) > 61) {
+            throw ValidationException::withMessages([
+                'date_fin' => 'La feuille de pointage couvre au plus deux mois.',
+            ]);
+        }
+
+        $lignes = $action->execute($vacations, $data['date_debut'], $data['date_fin']);
+
+        // Par défaut, seuls les agents ayant au moins une vacation sur la période ;
+        // sur demande, tous les agents postés et rondiers sous contrat.
+        $restreinte = ($data['agent_id'] ?? null) || ($data['site_id'] ?? null)
+            || ! $request->boolean('inclure_sans_vacation')
+            || $request->user()?->agent?->type === TypeAgent::Controleur;
+        $ids = collect($lignes)->map(fn (array $l) => (string) $l['vacation']->agent_id)->unique();
+        $agents = Agent::query()
+            ->with(['contratActif', 'grade:id,est_rondier'])
+            ->where(function ($q) use ($ids, $restreinte, $data) {
+                $q->whereIn('id', $ids->values()->all());
+                if (! $restreinte) {
+                    $q->orWhere(function ($sous) use ($data) {
+                        $sous->whereIn('type', [TypeAgent::Agent->value, TypeAgent::Controleur->value])
+                            ->avecContratValide($data['date_fin']);
+                    });
+                }
+            })
+            ->get(['id', 'nom', 'prenom', 'matricule', 'type', 'grade_id']);
+
+        return [
+            'date_debut' => $data['date_debut'],
+            'date_fin' => $data['date_fin'],
+            ...FeuillePointage::construire($lignes, $agents, $data['date_debut'], $data['date_fin']),
+        ];
+    }
+
     public function agentsDescendants(Vacation $vacation): JsonResponse
     {
         $this->authorize('update', $vacation);
@@ -364,7 +437,7 @@ class VacationController extends Controller
     }
 
     /**
-     * @return array{0: array<string, mixed>, 1: \Illuminate\Database\Eloquent\Collection<int, Vacation>}
+     * @return array{0: array<string, mixed>, 1: Collection<int, Vacation>}
      */
     private function vacationsDuPointage(Request $request): array
     {
@@ -381,7 +454,7 @@ class VacationController extends Controller
             : null;
 
         $vacations = Vacation::query()
-            ->with(['agent:id,nom,prenom,matricule', 'site:id,nom', 'poste:id,nom'])
+            ->with(['agent:id,nom,prenom,matricule,type', 'site:id,nom', 'poste:id,nom'])
             ->when($controleurAgent, function ($q) use ($controleurAgent) {
                 $q->whereIn('site_id', RondierPerimetreGuard::authorizedSiteIds($controleurAgent));
             })

@@ -42,7 +42,31 @@ export type Grade = {
   id: string;
   libelle: string;
   type_agent: TypeAgent;
+  /** Grade de rondier (agent de relève, type agent). */
+  est_rondier?: boolean;
   description?: string | null;
+};
+
+/** Qualification d’un agent : Chef de poste (CP), Garde armée (GA), Maître-chien (MC)… */
+export type Qualification = {
+  id: string;
+  libelle: string;
+  abreviation: string;
+  description: string | null;
+  actif: boolean;
+  primes_count?: number;
+};
+
+export type UnitePrime = "mois" | "jour";
+
+/** Prime d’une qualification : ex. CP = 1 000 FCFA par mois. */
+export type PrimeQualification = {
+  id: string;
+  qualification_id: string;
+  qualification?: { id: string; libelle: string; abreviation: string };
+  montant: number;
+  unite: UnitePrime;
+  actif: boolean;
 };
 
 export type Ville = {
@@ -73,6 +97,8 @@ export type JourSemaine =
 
 export type Agent = {
   id: string;
+  /** Qualifications (Chef de poste, Garde armée, Maître-chien…). */
+  qualifications?: Qualification[];
   user_id: string | null;
   grade_id: string | null;
   type: TypeAgent;
@@ -520,6 +546,55 @@ export type StatutVacation =
 
 export type StatutPlanningSemaine = "brouillon" | "publiee";
 
+/** Vacation d’un rondier dans « Planning des rondiers ». */
+export type RondierVacation = {
+  id: string;
+  date_debut: string;
+  date_fin: string | null;
+  heure_debut: string;
+  heure_fin: string;
+  statut: string;
+  est_remplacement: boolean;
+  site: { id: string; nom: string } | null;
+  poste: { id: string; nom: string } | null;
+};
+
+export type RondierSemaine = {
+  id: string;
+  nom: string;
+  prenom: string;
+  matricule: string | null;
+  telephone: string | null;
+  statut: string;
+  vacations: RondierVacation[];
+};
+
+/**
+ * Place à combler sur un poste : repos d’un titulaire, place vide, ou
+ * absence (« à recouvrir », vacation_id renseigné).
+ */
+export type TrouRondier = {
+  date: string;
+  poste_id: string;
+  poste: string;
+  site_id: string;
+  site: string | null;
+  zone_id: string | null;
+  quart: "jour" | "nuit" | null;
+  heure_debut: string;
+  heure_fin: string;
+  motif: "absence" | "repos" | "vide";
+  vacation_id: string | null;
+  titulaire: string | null;
+};
+
+export type PlanningRondiers = {
+  lundi: string;
+  dimanche: string;
+  rondiers: RondierSemaine[];
+  trous: TrouRondier[];
+};
+
 export type PlanningSemaineCreneau = {
   id?: string;
   agent_id: string;
@@ -527,7 +602,12 @@ export type PlanningSemaineCreneau = {
   heure_debut: string;
   heure_fin: string;
   quart?: "jour" | "nuit";
-  agent?: Pick<Agent, "id" | "nom" | "prenom" | "matricule"> | null;
+  agent?:
+    | (Pick<Agent, "id" | "nom" | "prenom" | "matricule"> & {
+        /** Rondier (relève) : géré depuis « Planning des rondiers ». */
+        est_rondier?: boolean;
+      })
+    | null;
 };
 
 export type PlanningSemaine = {
@@ -985,6 +1065,30 @@ export type PointageSyntheseAgent = {
   heures_supplementaires: number;
 };
 
+/** Case d’un jour sur la feuille de pointage : "1", "2", "A", "NC" ou vide. */
+export type FeuillePointageCase = string | null;
+
+export type FeuillePointageAgent = {
+  agent_id: string;
+  nom: string;
+  matricule: string | null;
+  contrat: "cdi" | "cdd" | "stage" | "prestation" | null;
+  jours: Record<string, FeuillePointageCase>;
+  total: number;
+  absences: number;
+};
+
+export type FeuillePointage = {
+  date_debut: string;
+  date_fin: string;
+  jours: { date: string; jour: string }[];
+  categories: {
+    type: string;
+    libelle: string;
+    agents: FeuillePointageAgent[];
+  }[];
+};
+
 export type AgentDescendant = {
   agent_id: string;
   agent: string | null;
@@ -1001,4 +1105,57 @@ export type PointageTotaux = {
   heures_comptees: number;
   jours_supplementaires: number;
   heures_supplementaires: number;
+};
+
+/** Contrôles d’une journée regroupés par site (GET /controles/par-site). */
+export type ControleSiteEtat =
+  | "present"
+  | "absent"
+  | "non_controle"
+  | "absence_declaree"
+  | "hors_planning";
+
+export type ControleSiteLigne = {
+  vacation_id: string | null;
+  agent: { id: string; nom: string; prenom: string; matricule: string | null } | null;
+  poste: string | null;
+  heure_debut: string | null;
+  heure_fin: string | null;
+  est_remplacement: boolean;
+  etat: ControleSiteEtat;
+  controle: {
+    id: string;
+    effectue_at: string;
+    resultat: "present" | "absent";
+    controleur: string | null;
+    controleur_matricule: string | null;
+    siege: boolean;
+    commentaire: string | null;
+    photo: { url: string; thumb: string } | null;
+  } | null;
+  nb_controles: number;
+};
+
+export type ControleSiteTotaux = {
+  a_controler: number;
+  controles: number;
+  presents: number;
+  absents: number;
+  non_controles: number;
+  absences_declarees: number;
+  hors_planning: number;
+};
+
+export type ControleSite = ControleSiteTotaux & {
+  site_id: string;
+  site: string;
+  zone: string | null;
+  dernier_controle_at: string | null;
+  lignes: ControleSiteLigne[];
+};
+
+export type ControlesParSite = {
+  date: string;
+  totaux: ControleSiteTotaux & { sites: number; sites_complets: number };
+  sites: ControleSite[];
 };

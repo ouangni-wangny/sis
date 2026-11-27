@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Moon,
+  Pencil,
   Plus,
   Sun,
   AlertTriangle,
@@ -543,7 +544,8 @@ export function WeekGrid({
       const workJoursByAgent = new Map<string, Set<number>>();
       const labels = new Map<string, string>();
       for (const c of creneaux) {
-        if (!c.agent_id) continue;
+        // Rondiers : relève ponctuelle, pas des titulaires (pas de « repos »).
+        if (!c.agent_id || c.agent?.est_rondier) continue;
         agentIds.add(c.agent_id);
         const jours = workJoursByAgent.get(c.agent_id) ?? new Set<number>();
         jours.add(c.jour);
@@ -758,7 +760,7 @@ export function WeekGrid({
           <table className="w-full min-w-[920px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-border bg-teal/[0.06]">
-                <th className="sticky left-0 z-10 w-44 bg-teal/[0.06] px-3 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-teal">
+                <th className="sticky left-0 z-20 w-44 bg-white bg-[linear-gradient(rgba(47,58,36,0.06),rgba(47,58,36,0.06))] shadow-[2px_0_6px_-4px_rgba(0,0,0,0.12)] px-3 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-teal">
                   Poste
                 </th>
                 {dates.map((date, i) => {
@@ -824,7 +826,7 @@ export function WeekGrid({
                           <Badge tone="success">S{weekIso.semaine_iso} publiée</Badge>
                         ) : planStatus === "brouillon" ? (
                           <Badge tone="warning">
-                            S{weekIso.semaine_iso} brouillon
+                            S{weekIso.semaine_iso} à publier
                           </Badge>
                         ) : weekAgents.length > 0 ? (
                           <Badge tone="warning">
@@ -846,8 +848,9 @@ export function WeekGrid({
                           </p>
                         ) : planStatus === "brouillon" ? (
                           <p className="text-[11px] leading-snug text-warning">
-                            Brouillon non publié — les vacations ne sont pas
-                            encore générées.
+                            Semaine non publiée — les vacations ne sont pas
+                            encore créées. Ouvrez « Modifier la semaine » puis
+                            publiez.
                           </p>
                         ) : null}
                         {meta.horaires ? (
@@ -865,8 +868,10 @@ export function WeekGrid({
                         ) : null}
                         <Link
                           href={planifierHref}
-                          className="inline-flex text-[11px] font-medium text-teal hover:underline"
+                          title="Modifier, publier ou annuler le planning de ce poste pour la semaine"
+                          className="mt-1 inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-teal bg-white px-2 py-1.5 text-center text-[11px] font-semibold leading-tight text-teal shadow-sm transition-colors hover:bg-teal hover:text-white"
                         >
+                          <Pencil className="size-3.5 shrink-0" />
                           {planStatus === "absent" && weekAgents.length > 0
                             ? `Synchroniser S${weekIso.semaine_iso}`
                             : planStatus === "absent"
@@ -1056,7 +1061,7 @@ export function WeekGrid({
                                     <Plus className="size-4 text-rose-500" />
                                     <span className="mt-1 text-[10px] font-medium leading-tight text-rose-700">
                                       {planStatus === "brouillon"
-                                        ? "Brouillon non publié"
+                                        ? "Non publiée"
                                         : "Planning non créé"}
                                     </span>
                                     <span className="mt-0.5 text-[9px] leading-tight text-ink-faint">

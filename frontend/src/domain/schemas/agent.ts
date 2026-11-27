@@ -51,6 +51,8 @@ export const agentSchema = z.object({
   poste_siege_id: z.string().uuid().optional().or(z.literal("")),
   pin: z.string().min(4).max(8).optional().or(z.literal("")),
   email: z.string().email("Email invalide").optional().or(z.literal("")),
+  /** Qualifications (CP, GA, MC…) — facultatives. */
+  qualification_ids: z.array(z.string()).optional(),
 });
 
 export type AgentFormValues = z.infer<typeof agentSchema>;

@@ -10,10 +10,11 @@ use App\Domain\Shared\Enums\SituationMatrimoniale;
 use App\Domain\Shared\Enums\StatutAgent;
 use App\Domain\Shared\Enums\TypeAgent;
 use App\Domain\Shared\Traits\Auditable;
-use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -156,6 +157,12 @@ class Agent extends Model implements HasMedia
         return $this->hasMany(RondierPerimetre::class);
     }
 
+    /** Qualifications de l’agent (Chef de poste, Garde armée…) : leurs primes vont sur ses bulletins. */
+    public function qualifications(): BelongsToMany
+    {
+        return $this->belongsToMany(Qualification::class, 'agent_qualifications')->withTimestamps();
+    }
+
     public function contrats(): HasMany
     {
         return $this->hasMany(Contrat::class);
@@ -172,6 +179,22 @@ class Agent extends Model implements HasMedia
     public function scopeAvecContratValide(Builder $query, ?string $date = null): void
     {
         $query->whereHas('contrats', fn ($q) => ContratValideQuery::apply($q, $date));
+    }
+
+    /**
+     * Rondiers : agents de relève (grade « rondier »), qui tiennent les postes
+     * des titulaires pendant leurs repos et absences.
+     *
+     * @param  Builder<Agent>  $query
+     */
+    public function scopeRondiers(Builder $query): void
+    {
+        $query->whereHas('grade', fn ($g) => $g->where('est_rondier', true));
+    }
+
+    public function estRondier(): bool
+    {
+        return (bool) $this->grade?->est_rondier;
     }
 
     /** @param  Builder<Agent>  $query */

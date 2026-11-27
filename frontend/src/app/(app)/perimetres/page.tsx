@@ -129,12 +129,12 @@ export default function PerimetresPage() {
   return (
     <PermissionGate
       permission={["perimetres.view", "agents.view"]}
-      title="Périmètre contrôleurs"
+      title="Périmètre des contrôleurs"
     >
       <div>
         <PageHeader
-          title="Périmètre contrôleurs"
-          description="Vue des affectations par zone. Assignation : Zones. Planning : Planning contrôleurs."
+          title="Périmètre des contrôleurs"
+          description="Vue des affectations par zone. Assignation : Zones. Planning : Planning des contrôleurs."
         />
         <DataTable
           data={paginated}

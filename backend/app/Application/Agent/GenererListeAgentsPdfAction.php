@@ -52,6 +52,12 @@ final class GenererListeAgentsPdfAction
             ->when($request->type, fn ($q, $v) => $q->where('type', $v))
             ->when($request->statut, fn ($q, $v) => $q->where('statut', $v))
             ->when($request->grade_id, fn ($q, $v) => $q->where('grade_id', $v))
+            // rondier=1 : agents de relève seulement ; rondier=0 : les exclure.
+            ->when($request->has('rondier') && $request->input('rondier') !== '', function ($q) use ($request) {
+                $request->boolean('rondier')
+                    ? $q->whereHas('grade', fn ($g) => $g->where('est_rondier', true))
+                    : $q->whereDoesntHave('grade', fn ($g) => $g->where('est_rondier', true));
+            })
             ->when($request->ville_id, fn ($q, $v) => $q->where('ville_id', $v))
             ->when($request->genre, fn ($q, $v) => $q->genre((string) $v))
             ->when($request->has('pool_siege'), fn ($q) => $q->where('pool_siege', $request->boolean('pool_siege')))

@@ -29,7 +29,6 @@ import {
 import type { Vacation } from "@/domain/types/entities";
 import {
   dayNightHalvesFromPoste,
-  hasInsufficientReposMs,
   inferQuartFromHours,
   isCycle24h,
   addOneDayIso,
@@ -317,7 +316,7 @@ function VacationsPageContent() {
     defaultValues: emptyDefaults,
   });
 
-  /** Remplacement d’un collègue absent : autorise la reconduction sans repos minimum. */
+  /** Remplacement d’un collègue absent : vacation marquée remplacement. */
   const [remplacement, setRemplacement] = useState(false);
   const agentId = watch("agent_id");
   const siteId = watch("site_id");
@@ -416,7 +415,6 @@ function VacationsPageContent() {
       (agentsData?.data ?? []).map((a) => [a.id, a.jour_repos ?? null]),
     );
     const busyAgentIds = new Set<string>();
-    const reposBlockedIds = new Set<string>();
     if (creating && joursSaisis.length > 0 && heureDebut && heureFin) {
       const proposedNight = isOvernight(heureDebut, heureFin);
       const proposedCycle = isCycle24h(heureDebut, heureFin);
@@ -425,8 +423,6 @@ function VacationsPageContent() {
       for (const v of busyDayVacations?.data ?? []) {
         if (!v.agent_id || busyAgentIds.has(v.agent_id)) continue;
         if (v.statut === "annulee" || v.statut === "a_recouvrir") continue;
-        const otherNight = isOvernight(v.heure_debut, v.heure_fin);
-        const otherCycle = isCycle24h(v.heure_debut, v.heure_fin);
         const repos = periode ? reposParAgent.get(v.agent_id) : null;
         for (const jour of joursSaisis) {
           if (repos && frenchWeekday(jour) === repos) continue;
@@ -436,19 +432,6 @@ function VacationsPageContent() {
           if (windows.some((w) => rangesOverlapMs(proposed, w))) {
             busyAgentIds.add(v.agent_id);
             break;
-          }
-          if (
-            windows.some((w) =>
-              hasInsufficientReposMs(proposed, w, {
-                samePoste: !!posteId && v.poste_id === posteId,
-                proposedOvernight: proposedNight,
-                otherOvernight: otherNight,
-                proposedCycle,
-                otherCycle,
-              }),
-            )
-          ) {
-            reposBlockedIds.add(v.agent_id);
           }
         }
       }
@@ -474,8 +457,6 @@ function VacationsPageContent() {
         // Un seul jour : jour de repos exclu. Période : repos sauté à l’enregistrement.
         if (!periode && weekday && a.jour_repos === weekday) return false;
         if (busyAgentIds.has(a.id)) return false;
-        // Remplacement : l’agent qui sort d’un jour / quart peut être reconduit.
-        if (reposBlockedIds.has(a.id) && !remplacement) return false;
         return true;
       })
       .map((a) => ({
@@ -488,8 +469,6 @@ function VacationsPageContent() {
               ? ` · repos ${a.jour_repos} exclu`
               : ` · repos ${a.jour_repos}`
             : ""
-        }${
-          creating && reposBlockedIds.has(a.id) ? " · reconduction" : ""
         }`,
       }));
 
@@ -511,8 +490,6 @@ function VacationsPageContent() {
     heureFin,
     busyDayVacations,
     absencesApprouvees,
-    posteId,
-    remplacement,
   ]);
 
   // Si l’horaire change (quart), retirer un agent devenu indisponible.
@@ -781,10 +758,10 @@ function VacationsPageContent() {
   );
 
   return (
-    <PermissionGate permission="vacations.view" title="Planning postes">
+    <PermissionGate permission="vacations.view" title="Planning des agents">
       <div className="space-y-6">
         <PageHeader
-          title="Planning des postes"
+          title="Planning des agents"
           description="Affectez les agents aux postes selon l’effectif et les horaires définis."
           actions={
             <div className="flex flex-col items-stretch gap-2 sm:items-end">
@@ -1389,7 +1366,7 @@ function VacationsPageContent() {
                       <span className="block text-xs text-ink-faint">
                         {createContext
                           ? "Ne modifie pas l’emploi du temps de la semaine — vacation marquée remplacement."
-                          : "Permet de reconduire un agent qui vient de faire son jour ou son quart (repos minimum levé, chevauchement toujours interdit)."}
+                          : "Vacation marquée remplacement (conservée si la semaine est republiée)."}
                       </span>
                     </span>
                   </label>

@@ -482,6 +482,25 @@
                 </tr>
             @endif
         @endforeach
+        {{-- Primes de l’agent (Paramètres → Primes) --}}
+        @foreach((is_array($rubriques['primes'] ?? null) ? $rubriques['primes'] : []) as $i => $prime)
+            @if((float) ($prime['montant'] ?? 0) > 0)
+                @php $hasGain = true; @endphp
+                <tr>
+                    <td><span class="code">{{ 160 + $i }}</span></td>
+                    <td>Prime {{ $prime['libelle'] ?? '' }} ({{ $prime['abreviation'] ?? '' }})</td>
+                    <td class="center faint">
+                        @if(($prime['unite'] ?? '') === 'jour')
+                            {{ $fmtNum((float) $prime['montant_unitaire']) }} × {{ (int) $prime['quantite'] }} j
+                        @else
+                            par mois
+                        @endif
+                    </td>
+                    <td class="right">{{ $fmtNum((float) $prime['montant']) }}</td>
+                    <td class="right faint">—</td>
+                </tr>
+            @endif
+        @endforeach
         @unless($hasGain)
             <tr>
                 <td><span class="code">100</span></td>

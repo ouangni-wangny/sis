@@ -3,6 +3,7 @@
 namespace App\Application\Operation;
 
 use App\Domain\Shared\Support\ShiftInterval;
+use Carbon\Carbon;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -22,9 +23,9 @@ final class NormalizeVacationSchedule
     ): array {
         $heureDebut = ShiftInterval::hm($heureDebut);
         $heureFin = ShiftInterval::hm($heureFin);
-        $dateDebut = \Carbon\Carbon::parse($dateDebut)->toDateString();
+        $dateDebut = Carbon::parse($dateDebut)->toDateString();
         $dateFin = $dateFin !== null && $dateFin !== ''
-            ? \Carbon\Carbon::parse($dateFin)->toDateString()
+            ? Carbon::parse($dateFin)->toDateString()
             : null;
 
         $dateFin = ShiftInterval::dateFinForShift(

@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useForm, useWatch } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { type ColumnDef } from "@tanstack/react-table";
 import { differenceInCalendarDays, parseISO } from "date-fns";
@@ -19,6 +19,7 @@ import {
   useGrades,
   usePerimetres,
   usePostes,
+  useQualifications,
   useSyncPerimetre,
   useUpdateAgent,
   useVilles,
@@ -35,6 +36,7 @@ import { RequiredFieldsLegend } from "@/presentation/components/ui/FieldLabel";
 import { DatePicker } from "@/presentation/components/ui/DatePicker";
 import { Input } from "@/presentation/components/ui/Input";
 import { Modal } from "@/presentation/components/ui/Modal";
+import { MultiSelect } from "@/presentation/components/ui/MultiSelect";
 import { PageHeader } from "@/presentation/components/ui/PageHeader";
 import { Select } from "@/presentation/components/ui/Select";
 import { StatCard } from "@/presentation/components/ui/StatCard";
@@ -67,6 +69,7 @@ const emptyDefaults: AgentFormValues = {
   poste_siege_id: "",
   pin: "",
   email: "",
+  qualification_ids: [],
 };
 
 const statutOptions = [
@@ -217,6 +220,14 @@ export default function AgentsPage() {
   const isControleur = selectedGrade?.type_agent === "controleur";
   const isAgentPoste = selectedGrade?.type_agent === "agent";
   const poolSiege = useWatch({ control, name: "pool_siege" });
+  const { data: qualificationsData } = useQualifications({ all: true });
+  const qualificationOptions = useMemo(
+    () =>
+      (qualificationsData?.data ?? [])
+        .filter((q) => q.actif)
+        .map((q) => ({ value: q.id, label: `${q.abreviation} — ${q.libelle}` })),
+    [qualificationsData],
+  );
 
   const posteSiegeOptions = useMemo(
     () => [
@@ -375,6 +386,7 @@ export default function AgentsPage() {
         poste_siege_id: agent.poste_siege_id ?? "",
         pin: "",
         email: agent.email ?? "",
+        qualification_ids: (agent.qualifications ?? []).map((q) => q.id),
       });
       setOpen(true);
     },
@@ -416,6 +428,7 @@ export default function AgentsPage() {
       ...(editing ? {} : { statut: "disponible" as const }),
       ...(values.pin ? { pin: values.pin } : {}),
       ...(values.email ? { email: values.email } : {}),
+      qualification_ids: values.qualification_ids ?? [],
     };
 
     try {
@@ -783,6 +796,23 @@ export default function AgentsPage() {
                 error={errors.grade_id?.message}
                 {...register("grade_id")}
               />
+              <Controller
+                control={control}
+                name="qualification_ids"
+                render={({ field }) => (
+                  <MultiSelect
+                    label="Qualifications"
+                    optionalMark
+                    placeholder="Chef de poste, Garde armée, Maître-chien…"
+                    hint="Donne droit aux primes (Paramètres → Qualifications)."
+                    searchable
+                    options={qualificationOptions}
+                    value={field.value ?? []}
+                    onChange={field.onChange}
+                    error={errors.qualification_ids?.message}
+                  />
+                )}
+              />
 
               <DatePicker
                 label="Date de naissance"
@@ -917,7 +947,7 @@ export default function AgentsPage() {
                   href="/planning-controleurs"
                   className="text-teal hover:underline"
                 >
-                  Planning contrôleurs
+                  Planning des contrôleurs
                 </Link>
                 .
               </p>

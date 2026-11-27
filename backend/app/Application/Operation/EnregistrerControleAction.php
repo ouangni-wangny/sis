@@ -103,7 +103,7 @@ final class EnregistrerControleAction
                 $site->id,
                 $data['poste_id'] ?? null,
             );
-            $this->assertPasDeControleRecent((string) $data['controle_agent_id']);
+            $this->assertPasDeControleRecent((string) $data['controle_agent_id'], $site->id);
 
             $uploaded = array_values(array_filter($photos, fn ($p) => $p instanceof UploadedFile));
             $base64 = array_values(array_filter($base64Photos, fn ($p) => is_string($p) && $p !== ''));
@@ -266,18 +266,24 @@ final class EnregistrerControleAction
         return [$start, $end];
     }
 
-    private function assertPasDeControleRecent(string $controleAgentId): void
+    /**
+     * Délai minimum entre deux contrôles du même agent SUR LE MÊME SITE.
+     * Un agent posté de jour sur le site A puis de nuit sur le site B (relève,
+     * remplacement) doit pouvoir être contrôlé en B juste après l’avoir été en A.
+     */
+    private function assertPasDeControleRecent(string $controleAgentId, string $siteId): void
     {
         $minutes = (int) config('sis.controle.recheck_min_minutes', 30);
 
         $recent = Controle::query()
             ->where('controle_agent_id', $controleAgentId)
+            ->where('site_id', $siteId)
             ->where('effectue_at', '>=', now()->subMinutes($minutes))
             ->exists();
 
         if ($recent) {
             throw ValidationException::withMessages([
-                'controle_agent_id' => "Cet agent a déjà été contrôlé il y a moins de {$minutes} minutes.",
+                'controle_agent_id' => "Cet agent a déjà été contrôlé sur ce site il y a moins de {$minutes} minutes.",
             ]);
         }
     }

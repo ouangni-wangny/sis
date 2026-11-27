@@ -44,7 +44,7 @@ class AgentController extends Controller
         $this->authorize('viewAny', Agent::class);
 
         $agents = GenererListeAgentsPdfAction::filteredQuery($request)
-            ->with(['grade', 'villeRef', 'media', 'perimetres.zone', 'contratActif', 'user', 'posteSiege.site'])
+            ->with(['grade', 'villeRef', 'media', 'perimetres.zone', 'contratActif', 'user', 'posteSiege.site', 'qualifications'])
             ->latest();
 
         return AgentResource::collection(ListQuery::paginateOrAll($agents, $request));
@@ -91,7 +91,7 @@ class AgentController extends Controller
     {
         $this->authorize('view', $agent);
 
-        return new AgentResource($agent->load(['grade', 'villeRef', 'media', 'user', 'contratActif', 'perimetres.zone', 'posteSiege.site']));
+        return new AgentResource($agent->load(['grade', 'villeRef', 'media', 'user', 'contratActif', 'perimetres.zone', 'posteSiege.site', 'qualifications']));
     }
 
     public function update(UpdateAgentRequest $request, Agent $agent, UpdateAgentAction $action): AgentResource

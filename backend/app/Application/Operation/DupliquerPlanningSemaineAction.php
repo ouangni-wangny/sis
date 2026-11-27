@@ -3,6 +3,7 @@
 namespace App\Application\Operation;
 
 use App\Models\PlanningSemaine;
+use Carbon\Carbon;
 use Illuminate\Validation\ValidationException;
 
 final class DupliquerPlanningSemaineAction
@@ -27,16 +28,16 @@ final class DupliquerPlanningSemaineAction
             $srcAnnee = (int) $data['source_annee_iso'];
             $srcSemaine = (int) $data['source_semaine_iso'];
         } else {
-            $lundi = \Carbon\Carbon::now('Africa/Abidjan')
+            $lundi = Carbon::now('Africa/Abidjan')
                 ->setISODate($annee, $semaine)
-                ->startOfWeek(\Carbon\Carbon::MONDAY)
+                ->startOfWeek(Carbon::MONDAY)
                 ->subWeek();
             $srcAnnee = (int) $lundi->isoWeekYear();
             $srcSemaine = (int) $lundi->isoWeek();
         }
 
         $source = PlanningSemaine::query()
-            ->with('creneaux')
+            ->with('creneaux.agent.grade')
             ->where('poste_id', $posteId)
             ->where('annee_iso', $srcAnnee)
             ->where('semaine_iso', $srcSemaine)
@@ -52,13 +53,15 @@ final class DupliquerPlanningSemaineAction
             'poste_id' => $posteId,
             'annee_iso' => $annee,
             'semaine_iso' => $semaine,
-            'creneaux' => $source->creneaux->map(fn ($c) => [
-                'agent_id' => $c->agent_id,
-                'jour' => $c->jour,
-                'heure_debut' => $c->heureDebutHm(),
-                'heure_fin' => $c->heureFinHm(),
-                'quart' => $c->quart,
-            ])->all(),
+            'creneaux' => $source->creneaux
+                ->reject(fn ($c) => (bool) $c->agent?->grade?->est_rondier) // relève : se replanifie chaque semaine
+                ->map(fn ($c) => [
+                    'agent_id' => $c->agent_id,
+                    'jour' => $c->jour,
+                    'heure_debut' => $c->heureDebutHm(),
+                    'heure_fin' => $c->heureFinHm(),
+                    'quart' => $c->quart,
+                ])->values()->all(),
         ]);
     }
 }

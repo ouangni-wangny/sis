@@ -8,7 +8,8 @@ use App\Domain\Shared\Enums\SituationMatrimoniale;
  * Calculs de rémunération simplifiés — cadre RH Côte d'Ivoire.
  *
  * Règles retenues (Phase 1 SIS) :
- * - Salaire brut = base + indemnités/primes + sursalaire
+ * - Salaire brut = base + indemnités/primes + sursalaire + primes de l’agent
+ *   (Paramètres → Primes : CP, GA, MC…)
  * - Parts IGR (quotient familial) : 1 (célibataire/divorcé/veuf) ou 2 (marié)
  *   + 0,5 part par enfant à charge (plafond 5 parts)
  * - CNPS salarié : 6,3 % du brut (plafonné)
@@ -58,6 +59,7 @@ final class CalculRemunerationCi
         float|int|string|null $primeTransport = 0,
         float|int|string|null $primeEntretienTenue = 0,
         float|int|string|null $sursalaire = 0,
+        float|int|string|null $autresPrimes = 0,
     ): float {
         return round(
             self::money($salaireBase)
@@ -65,7 +67,8 @@ final class CalculRemunerationCi
             + self::money($primeResponsabilite)
             + self::money($primeTransport)
             + self::money($primeEntretienTenue)
-            + self::money($sursalaire),
+            + self::money($sursalaire)
+            + self::money($autresPrimes),
             2
         );
     }
@@ -139,6 +142,7 @@ final class CalculRemunerationCi
             $input['prime_transport'] ?? 0,
             $input['prime_entretien_tenue'] ?? 0,
             $input['sursalaire'] ?? 0,
+            $input['autres_primes'] ?? 0,
         );
 
         $parts = array_key_exists('parts_igr', $input) && $input['parts_igr'] !== null && $input['parts_igr'] !== ''

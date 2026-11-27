@@ -27,11 +27,19 @@ import {
   sitesApi,
   tresorerieApi,
   usersApi,
+  planningRondiersApi,
   planningSemainesApi,
   vacationsApi,
   villesApi,
+  qualificationsApi,
+  primesQualificationApi,
+  agentQualificationsApi,
 } from "@/infrastructure/http/resources";
-import type { SiteCreatePayload } from "@/infrastructure/http/resources";
+import type {
+  PrimeQualificationPayload,
+  SiteCreatePayload,
+  QualificationPayload,
+} from "@/infrastructure/http/resources";
 import type { ListParams } from "@/domain/types/api";
 import type {
   Agent,
@@ -100,8 +108,13 @@ function invalidateAgents(qc: ReturnType<typeof useQueryClient>) {
 export function useCreateAgent() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: Partial<Agent> & { pin?: string; email?: string }) =>
-      agentsApi.create(payload),
+    mutationFn: (
+      payload: Partial<Agent> & {
+        pin?: string;
+        email?: string;
+        qualification_ids?: string[];
+      },
+    ) => agentsApi.create(payload),
     onSuccess: () => invalidateAgents(qc),
   });
 }
@@ -114,7 +127,11 @@ export function useUpdateAgent() {
       payload,
     }: {
       id: string;
-      payload: Partial<Agent> & { pin?: string; email?: string };
+      payload: Partial<Agent> & {
+        pin?: string;
+        email?: string;
+        qualification_ids?: string[];
+      };
     }) => agentsApi.update(id, payload),
     onSuccess: () => invalidateAgents(qc),
   });
@@ -204,6 +221,7 @@ export function useVacations(
 
 function invalidateVacations(qc: ReturnType<typeof useQueryClient>) {
   void qc.invalidateQueries({ queryKey: ["vacations"] });
+  void qc.invalidateQueries({ queryKey: ["planning-rondiers"] });
   void qc.invalidateQueries({ queryKey: ["postes", "coverage"] });
   void qc.invalidateQueries({ queryKey: ["dashboard"] });
   void qc.invalidateQueries({ queryKey: ["agents"] });
@@ -288,6 +306,52 @@ export function usePublierPlanningSemaine() {
   });
 }
 
+export function usePlanningRondiers(
+  params: Parameters<typeof planningRondiersApi.semaine>[0] | undefined,
+) {
+  return useQuery({
+    queryKey: ["planning-rondiers", params],
+    queryFn: () => planningRondiersApi.semaine(params!),
+    enabled: !!params,
+    placeholderData: (prev) => prev,
+  });
+}
+
+export function useAffecterRondier() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Parameters<typeof planningRondiersApi.affecter>[0]) =>
+      planningRondiersApi.affecter(payload),
+    onSuccess: () => invalidatePlanningSemaines(qc),
+  });
+}
+
+export function usePlanifierSemaineRondier() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Parameters<typeof planningRondiersApi.planifier>[0]) =>
+      planningRondiersApi.planifier(payload),
+    onSuccess: () => invalidatePlanningSemaines(qc),
+  });
+}
+
+export function useRetirerRondier() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vacationId: string) => planningRondiersApi.retirer(vacationId),
+    onSuccess: () => invalidatePlanningSemaines(qc),
+  });
+}
+
+export function useAnnulerPlanningSemaine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Parameters<typeof planningSemainesApi.annuler>[0]) =>
+      planningSemainesApi.annuler(payload),
+    onSuccess: () => invalidatePlanningSemaines(qc),
+  });
+}
+
 export function useDupliquerPlanningSemaine() {
   const qc = useQueryClient();
   return useMutation({
@@ -338,6 +402,23 @@ export function useAgentsDescendants(vacationId: string | undefined) {
     queryKey: ["vacations", "agents-descendants", vacationId],
     queryFn: () => vacationsApi.agentsDescendants(vacationId as string),
     enabled: !!vacationId,
+  });
+}
+
+export function usePointageFeuille(
+  params: Parameters<typeof vacationsApi.pointageFeuille>[0] | undefined,
+) {
+  return useQuery({
+    queryKey: ["vacations", "pointage-feuille", params],
+    queryFn: () => vacationsApi.pointageFeuille(params!),
+    enabled: !!params,
+  });
+}
+
+export function useExportPointageFeuillePdf() {
+  return useMutation({
+    mutationFn: (params: Parameters<typeof vacationsApi.pointageFeuillePdf>[0]) =>
+      vacationsApi.pointageFeuillePdf(params),
   });
 }
 
@@ -435,6 +516,20 @@ export function useControles(
     queryKey: ["controles", params],
     queryFn: () => controlesApi.list(params),
     enabled: options?.enabled ?? true,
+  });
+}
+
+export function useControlesParSite(
+  params: { date: string; site_id?: string },
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: ["controles", "par-site", params],
+    queryFn: () => controlesApi.parSite(params),
+    enabled: options?.enabled ?? true,
+    placeholderData: (prev) => prev,
+    // Suivi de la journée en cours : rafraîchi toutes les 2 minutes.
+    refetchInterval: 120_000,
   });
 }
 
@@ -942,6 +1037,84 @@ export function useDeleteVille() {
   });
 }
 
+export function useQualifications(params?: ListParams & { actif_only?: boolean }) {
+  return useQuery({
+    queryKey: ["qualifications", params],
+    queryFn: () => qualificationsApi.list(params),
+  });
+}
+
+/** Les barèmes affichent le type : on rafraîchit les deux listes ensemble. */
+function invalidatePrimes(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ queryKey: ["qualifications"] });
+  void qc.invalidateQueries({ queryKey: ["primes-qualification"] });
+}
+
+export function useSaveQualification() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id?: string; payload: QualificationPayload }) =>
+      id ? qualificationsApi.update(id, payload) : qualificationsApi.create(payload),
+    onSuccess: () => invalidatePrimes(qc),
+  });
+}
+
+export function useDeleteQualification() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => qualificationsApi.destroy(id),
+    onSuccess: () => invalidatePrimes(qc),
+  });
+}
+
+export function useAgentQualifications(agentId: string | undefined) {
+  return useQuery({
+    queryKey: ["agents", agentId, "qualifications"],
+    queryFn: () => agentQualificationsApi.list(agentId as string),
+    enabled: !!agentId,
+  });
+}
+
+export function useSyncAgentQualifications(agentId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (typePrimeIds: string[]) =>
+      agentQualificationsApi.sync(agentId, typePrimeIds),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["agents", agentId, "qualifications"] });
+      void qc.invalidateQueries({ queryKey: ["qualifications"] });
+    },
+  });
+}
+
+export function usePrimesQualification(
+  params?: ListParams & { qualification_id?: string },
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ["primes-qualification", params],
+    queryFn: () => primesQualificationApi.list(params),
+    enabled,
+  });
+}
+
+export function useSavePrimeQualification() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id?: string; payload: PrimeQualificationPayload }) =>
+      id ? primesQualificationApi.update(id, payload) : primesQualificationApi.create(payload),
+    onSuccess: () => invalidatePrimes(qc),
+  });
+}
+
+export function useDeletePrimeQualification() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => primesQualificationApi.destroy(id),
+    onSuccess: () => invalidatePrimes(qc),
+  });
+}
+
 export function useCategoriesDepenseList(
   params?: ListParams & { actif_only?: boolean | number },
 ) {
@@ -1275,6 +1448,7 @@ export function useBulletinsPaie(
     mode?: string;
     grade_id?: string;
     ville_id?: string;
+    qualification_id?: string;
     non_payes?: boolean | number;
   },
 ) {
@@ -1297,6 +1471,7 @@ export function useExportBulletinsPdf() {
       mode?: string;
       grade_id?: string;
       ville_id?: string;
+      qualification_id?: string;
       non_payes?: boolean | number;
     }) => periodesPaieApi.exportBulletinsPdf(periodeId, params),
   });

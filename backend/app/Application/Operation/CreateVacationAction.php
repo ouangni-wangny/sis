@@ -9,6 +9,7 @@ use App\Domain\Shared\Exceptions\VacationConflitException;
 use App\Models\Agent;
 use App\Models\Poste;
 use App\Models\Vacation;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 final class CreateVacationAction
@@ -74,26 +75,10 @@ final class CreateVacationAction
             $data['date_fin'],
         );
 
-        // Remplacement / reconduction : un agent qui vient de faire un jour
-        // ou un quart peut enchaîner pour couvrir un collègue absent — le
-        // repos minimum ne bloque pas (le chevauchement reste interdit).
+        // Remplacement : vacation marquée comme telle (conservée à la republication).
         $remplacement = (bool) ($data['remplacement'] ?? false);
-        $reposOptions = [
-            'poste_id' => $data['poste_id'] ?? null,
-            'ignore_repos' => $remplacement,
-        ];
-
-        $reposBlockers = AssertVacationDureeLegale::findReposInsuffisant(
-            $data['agent_id'],
-            $data['date_debut'],
-            $data['heure_debut'],
-            $data['heure_fin'],
-            $data['date_fin'],
-            null,
-            $reposOptions,
-        );
-
-        $blockers = $conflits->concat($reposBlockers)->unique('id')->values();
+        $reposOptions = ['poste_id' => $data['poste_id'] ?? null];
+        $blockers = $conflits;
         $annulerConflits = (bool) ($data['annuler_conflits'] ?? false);
 
         if ($blockers->isNotEmpty()) {
@@ -108,29 +93,18 @@ final class CreateVacationAction
                         (string) $blockers->first()->id,
                     );
                 }
-            } elseif ($conflits->isNotEmpty()) {
+            } else {
                 $bloquante = $conflits->first();
                 throw new VacationConflitException(
                     sprintf(
                         '%s a déjà une vacation sur ce créneau le %s (%s–%s, %s).',
                         Agent::query()->find($data['agent_id'])?->libelle() ?? 'Cet agent',
-                        \Carbon\Carbon::parse($data['date_debut'])->format('d/m/Y'),
+                        Carbon::parse($data['date_debut'])->format('d/m/Y'),
                         substr((string) $bloquante->heure_debut, 0, 5),
                         substr((string) $bloquante->heure_fin, 0, 5),
                         $bloquante->site?->nom ?? 'autre site',
                     ),
                     (string) $bloquante->id,
-                );
-            } else {
-                // Repos insuffisant : message détaillé via assert.
-                AssertVacationDureeLegale::execute(
-                    $data['agent_id'],
-                    $data['date_debut'],
-                    $data['heure_debut'],
-                    $data['heure_fin'],
-                    $data['date_fin'],
-                    null,
-                    $reposOptions,
                 );
             }
         }

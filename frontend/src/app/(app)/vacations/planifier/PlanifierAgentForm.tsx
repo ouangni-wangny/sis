@@ -4,9 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import {
   useAgents,
+  useAnnulerPlanningSemaine,
   useDupliquerPlanningSemaine,
   usePlanningSemaine,
   usePostes,
@@ -45,6 +46,7 @@ import { Alert } from "@/presentation/components/ui/Alert";
 import { Badge } from "@/presentation/components/ui/Badge";
 import { Button } from "@/presentation/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/presentation/components/ui/Card";
+import { ConfirmDialog } from "@/presentation/components/ui/ConfirmDialog";
 import {
   FieldHint,
   FieldLabel,
@@ -54,6 +56,7 @@ import { useAuth } from "@/presentation/providers/AuthProvider";
 import { useToast } from "@/presentation/providers/ToastProvider";
 import { getApiErrorMessage } from "@/shared/lib/api-error";
 import { can } from "@/shared/lib/can";
+import { formatDate } from "@/shared/lib/format";
 import { cn } from "@/shared/lib/cn";
 import { PlanningPeriodeGrille } from "./PlanningPeriodeGrille";
 import {
@@ -160,9 +163,12 @@ export function PlanifierAgentForm() {
   const { toast } = useToast();
   const { user } = useAuth();
   const canCreate = can(user, "vacations.create");
+  const canAnnuler = canCreate && can(user, "vacations.delete");
   const upsertPlanning = useUpsertPlanningSemaine();
   const publierPlanning = usePublierPlanningSemaine();
   const dupliquerPlanning = useDupliquerPlanningSemaine();
+  const annulerPlanning = useAnnulerPlanningSemaine();
+  const [annulerOpen, setAnnulerOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [progress, setProgress] = useState(false);
   const [agentsVusParPoste, setAgentsVusParPoste] = useState<Record<string, string[]>>({});
@@ -297,6 +303,9 @@ export function PlanifierAgentForm() {
       urlAnnee && urlSemaine
         ? shiftIsoWeek(Number(urlAnnee), Number(urlSemaine), 0)
         : isoWeekFromDate(urlDate || todayIso());
+    // Synchronisation avec l’URL (système externe) : la semaine, le poste et le
+    // formulaire sont réinitialisés ensemble quand la navigation change l’URL.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setWeek(nextWeek);
     pendingPosteRef.current = urlPosteId;
     prefilledPosteRef.current = "";
@@ -597,7 +606,11 @@ export function PlanifierAgentForm() {
     const key = `${posteId}:${week.annee_iso}-${week.semaine_iso}`;
     if (prefilledPosteRef.current === key) return;
 
-    const creneaux = planningSemaineData.data.creneaux ?? [];
+    // Les créneaux des rondiers se gèrent depuis « Planning des rondiers »
+    // (le serveur les conserve) : on ne les reprend pas comme titulaires.
+    const creneaux = (planningSemaineData.data.creneaux ?? []).filter(
+      (c) => !c.agent?.est_rondier,
+    );
     if (creneaux.length === 0) return;
 
     const n = Math.max(1, selectedPoste.agents_requis ?? 1);
@@ -727,9 +740,10 @@ export function PlanifierAgentForm() {
     prefilledPosteRef.current = "";
   }, [posteId, week.annee_iso, week.semaine_iso]);
 
+  // « Horaires prêts » se lit comme hoursReadyPosteId === posteId : au
+  // changement de poste, c’est déjà faux ; seule la ref est à réarmer.
   useEffect(() => {
     hoursAppliedPosteRef.current = "";
-    setHoursReadyPosteId("");
   }, [posteId]);
 
   // Horaires depuis le poste — une seule fois par poste (ne pas écraser le planning).
@@ -1295,6 +1309,7 @@ export function PlanifierAgentForm() {
     upsertPlanning.isPending ||
     publierPlanning.isPending ||
     dupliquerPlanning.isPending ||
+    annulerPlanning.isPending ||
     progress;
 
   /**
@@ -1339,45 +1354,6 @@ export function PlanifierAgentForm() {
         ) ?? slot.quart ?? "jour") as "jour" | "nuit",
       }));
     });
-  };
-
-  const saveBrouillon = async (values: AgentPlanningFormValues) => {
-    if (!canCreate) {
-      toast("Vous n’avez pas le droit de planifier.", "danger");
-      return;
-    }
-    setFormError(null);
-    const filledSlots = values.slots.filter((s) => s.agent_id);
-    if (filledSlots.length === 0) {
-      setFormError("Sélectionnez les agents du poste.");
-      return;
-    }
-    const creneaux = buildCreneauxPayload(values);
-    if (creneaux.length === 0) {
-      setFormError(
-        "Aucun créneau — cochez des jours travaillés ou ajustez la grille.",
-      );
-      return;
-    }
-    setProgress(true);
-    try {
-      await upsertPlanning.mutateAsync({
-        poste_id: values.poste_id,
-        annee_iso: week.annee_iso,
-        semaine_iso: week.semaine_iso,
-        creneaux,
-      });
-      toast(
-        `Brouillon enregistré · semaine ${week.semaine_iso}/${week.annee_iso} · ${creneaux.length} créneau${creneaux.length > 1 ? "x" : ""}.`,
-      );
-    } catch (err) {
-      const message = getApiErrorMessage(err, "Échec de l’enregistrement.");
-      setFormError(message);
-      toast(message, "danger");
-      throw err;
-    } finally {
-      setProgress(false);
-    }
   };
 
   const publierSemaine = async (values: AgentPlanningFormValues) => {
@@ -1425,14 +1401,7 @@ export function PlanifierAgentForm() {
     }
   };
 
-  const onSubmit = handleSubmit(async (values) => {
-    try {
-      await saveBrouillon(values);
-    } catch {
-      // formError déjà renseigné
-    }
-  });
-
+  // Plus de brouillon : enregistrer = publier (vacations créées aussitôt).
   const onPublier = handleSubmit(async (values) => {
     try {
       await publierSemaine(values);
@@ -1465,11 +1434,59 @@ export function PlanifierAgentForm() {
     }
   };
 
-  const submitLabel = progress
-    ? `Enregistrement · ${totalPlannedShifts} créneau${totalPlannedShifts > 1 ? "x" : ""}…`
-    : totalPlannedShifts > 0
-      ? `Enregistrer brouillon · ${totalPlannedShifts} créneau${totalPlannedShifts > 1 ? "x" : ""}`
-      : "Enregistrer brouillon";
+  /** L’annulation ne touche que les jours à venir (aujourd’hui compris). */
+  const annulerDu = week.lundi > todayIso() ? week.lundi : todayIso();
+  const semainePassee = week.dimanche < todayIso();
+  /** Vacations prévues à venir (hors remplacements / HS) que l’annulation retirerait. */
+  const vacationsPrevues = vacationsDuPoste.filter(
+    (v) =>
+      v.date_debut.slice(0, 10) >= annulerDu &&
+      !v.est_remplacement &&
+      !v.heures_supplementaires &&
+      (v.statut === "planifiee" ||
+        v.statut === "annulee" ||
+        v.statut === "a_recouvrir"),
+  ).length;
+  const creneauxAVenir = (planningExistant?.creneaux ?? []).filter(
+    (c) => addDaysIso(week.lundi, c.jour - 1) >= annulerDu,
+  ).length;
+  const peutAnnuler =
+    canAnnuler &&
+    !!posteId &&
+    !semainePassee &&
+    (creneauxAVenir > 0 || vacationsPrevues > 0);
+
+  const onAnnulerSemaine = async () => {
+    if (!posteId) return;
+    setFormError(null);
+    try {
+      const res = await annulerPlanning.mutateAsync({
+        poste_id: posteId,
+        annee_iso: week.annee_iso,
+        semaine_iso: week.semaine_iso,
+      });
+      const n = res.data.vacations_supprimees;
+      setValue("slots", [], { shouldDirty: true });
+      prefilledPosteRef.current = "";
+      setAnnulerOpen(false);
+      toast(
+        `Planning S${week.semaine_iso} annulé à partir du ${formatDate(res.data.a_partir_du)} · ${n} vacation${n > 1 ? "s" : ""} supprimée${n > 1 ? "s" : ""}. Vous pouvez le refaire.`,
+      );
+    } catch (err) {
+      const message = getApiErrorMessage(
+        err,
+        "Impossible d’annuler le planning de la semaine.",
+      );
+      setFormError(message);
+      setAnnulerOpen(false);
+      toast(message, "danger");
+    }
+  };
+
+  const submitLabel =
+    totalPlannedShifts > 0
+      ? `Publier la semaine · ${totalPlannedShifts} créneau${totalPlannedShifts > 1 ? "x" : ""}`
+      : "Publier la semaine";
 
   const slotsError =
     errors.slots?.message ||
@@ -1489,7 +1506,7 @@ export function PlanifierAgentForm() {
         <Alert tone="danger">Droits insuffisants pour planifier.</Alert>
       ) : (
         <form
-          onSubmit={onSubmit}
+          onSubmit={onPublier}
           className={planningTwoColClassName}
           noValidate
         >
@@ -1821,7 +1838,7 @@ export function PlanifierAgentForm() {
                           {planningStatut === "publiee"
                             ? "Publiée"
                             : planningStatut === "brouillon"
-                              ? "Brouillon non publié"
+                              ? "Non publiée"
                               : "Pas encore créée"}
                         </Badge>
                         <Button
@@ -1833,19 +1850,34 @@ export function PlanifierAgentForm() {
                         >
                           Dupliquer semaine précédente
                         </Button>
+                        {peutAnnuler ? (
+                          <Button
+                            type="button"
+                            variant="danger"
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => setAnnulerOpen(true)}
+                          >
+                            <Trash2 className="size-4" />
+                            {annulerDu > week.lundi
+                              ? "Annuler les jours à venir"
+                              : "Annuler le planning de la semaine"}
+                          </Button>
+                        ) : null}
                       </div>
                     </div>
                     {planningStatut === "absent" ? (
                       <Alert tone="warning" className="mt-3">
                         {slots.some((s) => s.agent_id)
-                          ? `Des vacations existent déjà pour S${week.semaine_iso} : le formulaire a été prérempli. Vérifiez les titulaires puis Enregistrer / Publier pour créer le modèle semaine (sinon la grille reste « non planifiée »).`
+                          ? `Des vacations existent déjà pour S${week.semaine_iso} : le formulaire a été prérempli. Vérifiez les titulaires puis « Publier la semaine » (sinon la grille reste « non planifiée »).`
                           : `Aucun modèle ni vacation pour S${week.semaine_iso}. Saisissez les titulaires ou utilisez « Dupliquer semaine précédente ».`}
                       </Alert>
                     ) : planningStatut === "brouillon" ? (
                       <Alert tone="info" className="mt-3">
-                        Brouillon = modèle de la semaine (pas un patch d’une
-                        case). Publiez pour générer les vacations prévues ; les
-                        remplacements déjà saisis sont conservés.
+                        Cette semaine n’est pas publiée : les jours modifiés
+                        n’ont pas encore de vacations pour les agents. Vérifiez
+                        la grille puis « Publier la semaine » ; les jours déjà
+                        passés et les remplacements sont conservés.
                       </Alert>
                     ) : (
                       <Alert tone="success" className="mt-3">
@@ -1862,7 +1894,7 @@ export function PlanifierAgentForm() {
                       <SectionTitle
                         step="4"
                         title="Grille de la semaine"
-                        hint="Programme réel : cliquez une case pour jour / nuit / repos. Enregistrer ou Publier envoie cette grille."
+                        hint="Programme réel : cliquez une case pour jour / nuit / repos. « Publier la semaine » envoie cette grille."
                       />
                       <PlanningPeriodeGrille
                         dates={datesPeriode}
@@ -1900,16 +1932,8 @@ export function PlanifierAgentForm() {
                     Annuler
                   </Button>
                   <Button type="submit" loading={busy} disabled={!canCreate}>
-                    {submitLabel}
-                  </Button>
-                  <Button
-                    type="button"
-                    loading={busy}
-                    disabled={!canCreate}
-                    onClick={() => void onPublier()}
-                  >
                     <CalendarDays className="size-4" />
-                    Publier la semaine
+                    {submitLabel}
                   </Button>
                 </div>
               </>
@@ -1934,11 +1958,11 @@ export function PlanifierAgentForm() {
               <CardBody className="space-y-2 p-4 pt-0 text-sm text-ink-muted">
                 <p>
                   {totalPlannedShifts > 0
-                    ? `${totalPlannedShifts} créneau${totalPlannedShifts > 1 ? "x" : ""} prêt${totalPlannedShifts > 1 ? "s" : ""} à enregistrer.`
+                    ? `${totalPlannedShifts} créneau${totalPlannedShifts > 1 ? "x" : ""} prêt${totalPlannedShifts > 1 ? "s" : ""} à publier.`
                     : "Sélectionnez les agents et leurs jours pour remplir la grille."}
                 </p>
                 <p className="text-xs text-ink-faint">
-                  Enregistrer / Publier = emploi du temps de la semaine entière,
+                  Publier = emploi du temps de la semaine entière,
                   pas une case isolée. Les ajouts ponctuels se font depuis la
                   grille site (remplacement 1 jour).
                 </p>
@@ -1955,22 +1979,25 @@ export function PlanifierAgentForm() {
                   loading={busy}
                   disabled={!canCreate}
                 >
-                  Brouillon
-                </Button>
-                <Button
-                  type="button"
-                  className="flex-1"
-                  loading={busy}
-                  disabled={!canCreate}
-                  onClick={() => void onPublier()}
-                >
-                  Publier
+                  {submitLabel}
                 </Button>
               </div>
             </div>
           ) : null}
         </form>
       )}
+      <ConfirmDialog
+        open={annulerOpen}
+        onClose={() => {
+          if (annulerPlanning.isPending) return;
+          setAnnulerOpen(false);
+        }}
+        loading={annulerPlanning.isPending}
+        title={`Annuler le planning S${week.semaine_iso}`}
+        description={`Le planning de ce poste sera supprimé du ${formatDate(annulerDu)} au ${formatDate(week.dimanche)}${vacationsPrevues > 0 ? `, avec ${vacationsPrevues} vacation${vacationsPrevues > 1 ? "s" : ""} prévue${vacationsPrevues > 1 ? "s" : ""}` : ""}. ${annulerDu > week.lundi ? "Les jours déjà passés restent inchangés (pointage conservé). " : ""}Les remplacements et heures supplémentaires sont conservés. Vous pourrez ensuite refaire le planning.`}
+        confirmLabel="Annuler le planning"
+        onConfirm={() => void onAnnulerSemaine()}
+      />
     </PlanningWorkspaceShell>
   );
 }

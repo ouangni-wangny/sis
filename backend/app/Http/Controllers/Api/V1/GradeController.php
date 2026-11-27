@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Domain\Shared\Enums\TypeAgent;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Grade\StoreGradeRequest;
 use App\Http\Requests\Grade\UpdateGradeRequest;
@@ -39,7 +40,7 @@ class GradeController extends Controller
     {
         abort_unless($request->user()?->can('grades.manage'), 403);
 
-        return new GradeResource(Grade::query()->create($request->validated()));
+        return new GradeResource(Grade::query()->create(self::normaliser($request->validated())));
     }
 
     public function show(Request $request, Grade $grade): GradeResource
@@ -56,7 +57,7 @@ class GradeController extends Controller
     {
         abort_unless($request->user()?->can('grades.manage'), 403);
 
-        $grade->update($request->validated());
+        $grade->update(self::normaliser($request->validated(), $grade));
 
         return new GradeResource($grade);
     }
@@ -68,5 +69,23 @@ class GradeController extends Controller
         $grade->delete();
 
         return response()->noContent();
+    }
+
+    /**
+     * Seul un grade de type « agent » peut être un grade de rondier (agent de
+     * relève qui tient des postes).
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private static function normaliser(array $data, ?Grade $grade = null): array
+    {
+        $type = $data['type_agent'] ?? $grade?->type_agent;
+        $type = $type instanceof TypeAgent ? $type : TypeAgent::tryFrom((string) $type);
+        if ($type !== TypeAgent::Agent) {
+            $data['est_rondier'] = false;
+        }
+
+        return $data;
     }
 }

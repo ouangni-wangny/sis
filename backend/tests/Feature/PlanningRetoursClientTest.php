@@ -169,12 +169,12 @@ it('ne bloque plus la vacation normale qui suit un remplacement', function () {
         ->assertCreated();
 });
 
-it('garde le repos minimum hors remplacement', function () {
+it('n’impose plus de repos minimum entre deux vacations', function () {
     ($this->poser)($this->jour, '2026-11-09', '18:00', '06:00');
 
     $this->actingAs($this->admin)
         ->postJson('/api/v1/vacations', ($this->ligne)($this->jour, '2026-11-10'))
-        ->assertUnprocessable();
+        ->assertCreated();
 });
 
 it('laisse un seul agent tenir le jour et la nuit d’un poste à un agent', function () {

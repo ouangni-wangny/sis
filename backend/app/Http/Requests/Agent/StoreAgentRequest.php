@@ -53,6 +53,8 @@ class StoreAgentRequest extends FormRequest
             'jour_repos' => ['nullable', 'string', Rule::enum(JourSemaine::class)],
             'pin' => ['nullable', 'string', 'min:4', 'max:8'],
             'email' => ['nullable', 'email'],
+            'qualification_ids' => ['nullable', 'array'],
+            'qualification_ids.*' => ['uuid', Rule::exists('qualifications', 'id')->whereNull('deleted_at')],
         ];
     }
 

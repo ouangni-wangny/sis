@@ -1,6 +1,7 @@
 <?php
 
 use App\Domain\Shared\Enums\TypeAgent;
+use App\Models\Absence;
 use App\Models\Agent;
 use App\Models\Anomalie;
 use App\Models\Client;
@@ -112,7 +113,7 @@ it('stores the resultat as a real field and does not create an anomalie when pre
 
     $response->assertCreated()->assertJsonPath('data.resultat', 'present');
     expect(Anomalie::query()->count())->toBe(0);
-    expect(\App\Models\Absence::query()->count())->toBe(0);
+    expect(Absence::query()->count())->toBe(0);
     expect($vacation->fresh()->statut->value)->toBe('planifiee');
 });
 
@@ -166,7 +167,7 @@ it('creates an anomalie, RH absence and marks the vacation a_recouvrir when abse
         ->and($anomalie->statut->value)->toBe('ouverte')
         ->and($anomalie->site_id)->toBe($this->site->id);
 
-    $absence = \App\Models\Absence::query()->first();
+    $absence = Absence::query()->first();
     expect($absence)->not->toBeNull()
         ->and($absence->agent_id)->toBe($this->agentPoste->id)
         ->and($absence->statut->value)->toBe('approuvee')
@@ -208,7 +209,7 @@ it('reuses an existing same-day absence on a later absent recheck', function () 
         controlePayload($this, ['resultat' => 'absent', 'client_uuid' => (string) Str::uuid()])
     )->assertCreated();
 
-    expect(\App\Models\Absence::query()->count())->toBe(1);
+    expect(Absence::query()->count())->toBe(1);
     expect(Anomalie::query()->count())->toBe(2);
 });
 
@@ -316,4 +317,46 @@ it('ignores a client-supplied effectue_at and always stores the server time', fu
     $response->assertCreated();
     $controle = Controle::query()->first();
     expect($controle->effectue_at->toDateString())->toBe('2026-07-20');
+});
+
+it('allows controlling the agent on another site right after (day on site A, night on site B)', function () {
+    $siteB = Site::query()->create([
+        'client_id' => $this->site->client_id,
+        'zone_id' => $this->zone->id,
+        'nom' => 'Site Controle B',
+        'latitude' => 5.3,
+        'longitude' => -4.0,
+        'rayon_metres' => 200,
+    ]);
+    // Jour sur A jusqu’à 18:30, puis nuit sur B dès 18:30 (relève / remplacement).
+    foreach ([[$this->site, '06:30:00', '18:30:00', '2026-07-20'], [$siteB, '18:30:00', '06:30:00', '2026-07-21']] as [$site, $hd, $hf, $fin]) {
+        Vacation::query()->create([
+            'agent_id' => $this->agentPoste->id,
+            'site_id' => $site->id,
+            'date_debut' => '2026-07-20',
+            'date_fin' => $fin,
+            'heure_debut' => $hd,
+            'heure_fin' => $hf,
+            'statut' => 'planifiee',
+            'est_remplacement' => $site->is($siteB),
+        ]);
+    }
+
+    Carbon::setTestNow(Carbon::parse('2026-07-20 18:15:00'));
+    $this->actingAs($this->admin)->postJson(
+        '/api/v1/controles',
+        controlePayload($this, ['client_uuid' => (string) Str::uuid()])
+    )->assertCreated();
+
+    Carbon::setTestNow(Carbon::parse('2026-07-20 18:35:00'));
+    $this->actingAs($this->admin)->postJson(
+        '/api/v1/controles',
+        controlePayload($this, ['site_id' => $siteB->id, 'client_uuid' => (string) Str::uuid()])
+    )->assertCreated();
+
+    // Sur le même site, le délai reste appliqué.
+    $this->actingAs($this->admin)->postJson(
+        '/api/v1/controles',
+        controlePayload($this, ['site_id' => $siteB->id, 'client_uuid' => (string) Str::uuid()])
+    )->assertStatus(422)->assertJsonValidationErrors(['controle_agent_id']);
 });

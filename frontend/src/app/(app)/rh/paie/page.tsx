@@ -29,6 +29,7 @@ import {
   useGenererBulletinPdf,
   useGenererBulletinsPaie,
   useGrades,
+  useQualifications,
   useMarquerBulletinPaye,
   useRenseignerSalairePercu,
   useRenseignerSalairePercuBulk,
@@ -60,7 +61,7 @@ import { useToast } from "@/presentation/providers/ToastProvider";
 import { apiClient } from "@/infrastructure/http/apiClient";
 import { bulletinsPaieApi, periodesPaieApi } from "@/infrastructure/http/resources";
 import { getApiErrorMessage, getApiErrorMessageAsync } from "@/shared/lib/api-error";
-import { canManagePaie, canPayerPaie, canSeeSalaire } from "@/shared/lib/can";
+import { can, canManagePaie, canPayerPaie, canSeeSalaire } from "@/shared/lib/can";
 import {
   formatDate,
   formatFcfa,
@@ -70,6 +71,8 @@ import {
   MOIS_LABELS,
 } from "@/shared/lib/format";
 import { cn } from "@/shared/lib/cn";
+import { FeuillePointagePanel } from "../../vacations/pointage/FeuillePointagePanel";
+import { usePointageFeuille } from "@/application/hooks/useResources";
 
 const periodeSchema = z.object({
   mois: z.string().min(1, "Mois requis"),
@@ -131,6 +134,89 @@ function motifBulletin(details: Record<string, unknown> | null): string | null {
   return null;
 }
 
+type LignePrime = {
+  abreviation: string;
+  libelle: string;
+  unite: string;
+  montant_unitaire: number;
+  quantite: number;
+  montant: number;
+};
+
+/** Primes de qualification enregistrées dans le bulletin au moment de sa génération. */
+function primesBulletin(details: Record<string, unknown> | null): LignePrime[] {
+  const rubriques = details?.rubriques as { primes?: unknown } | undefined;
+  return Array.isArray(rubriques?.primes) ? (rubriques.primes as LignePrime[]) : [];
+}
+
+function PrimesBulletin({
+  details,
+  user,
+}: {
+  details: Record<string, unknown> | null;
+  user: Parameters<typeof formatSalaire>[1];
+}) {
+  const lignes = primesBulletin(details);
+  if (lignes.length === 0) return <span className="text-ink-faint">—</span>;
+  const total = lignes.reduce((s, l) => s + Number(l.montant || 0), 0);
+  return (
+    <span className="inline-flex flex-col gap-0.5">
+      <span className="font-medium">{formatSalaire(total, user)}</span>
+      {lignes.map((l, i) => (
+        <span
+          key={`${l.abreviation}-${l.unite}-${i}`}
+          className="text-[10px] text-ink-muted"
+          title={l.libelle}
+        >
+          {l.abreviation} :{" "}
+          {l.unite === "jour"
+            ? `${formatSalaire(l.montant_unitaire, user)} × ${l.quantite} j`
+            : "par mois"}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** Jours pointés d’un agent sur le mois de pointage (aide à la saisie du salaire). */
+function JoursPointes({
+  chargement,
+  info,
+}: {
+  chargement: boolean;
+  info: { total: number; absences: number; nc: number } | undefined;
+}) {
+  if (chargement) {
+    return <p className="text-xs text-ink-faint">Pointage…</p>;
+  }
+  if (!info) {
+    return (
+      <p className="text-xs text-ink-faint">Aucune vacation sur le mois</p>
+    );
+  }
+  return (
+    <p className="flex flex-wrap gap-x-2 text-xs">
+      <span className="font-semibold text-teal-dark">
+        {info.total} jour{info.total > 1 ? "s" : ""} pointé
+        {info.total > 1 ? "s" : ""}
+      </span>
+      {info.absences > 0 ? (
+        <span className="font-semibold text-danger">{info.absences} A</span>
+      ) : null}
+      {info.nc > 0 ? (
+        <span className="text-warning">{info.nc} NC</span>
+      ) : null}
+    </p>
+  );
+}
+
+/** Mois de pointage d’une période de paie : du 26 du mois précédent au 25 du mois. */
+function periodePointage(mois: number, annee: number): [string, string] {
+  const iso = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return [iso(new Date(annee, mois - 2, 26)), iso(new Date(annee, mois - 1, 25))];
+}
+
 export default function PaiePage() {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -152,6 +238,8 @@ export default function PaiePage() {
   const [bulletinsPerPage, setBulletinsPerPage] = useState(50);
   const [bulletinsQ, setBulletinsQ] = useState("");
   const [filterBulletinGradeId, setFilterBulletinGradeId] = useState("");
+  const [filterBulletinQualificationId, setFilterBulletinQualificationId] =
+    useState("");
   const [filterBulletinVilleId, setFilterBulletinVilleId] = useState("");
   const [filterBulletinStatut, setFilterBulletinStatut] = useState("");
   const [filterBulletinMode, setFilterBulletinMode] = useState("");
@@ -233,6 +321,7 @@ export default function PaiePage() {
     per_page: bulletinsPerPage,
     q: bulletinsSearch || undefined,
     grade_id: filterBulletinGradeId || undefined,
+    qualification_id: filterBulletinQualificationId || undefined,
     ville_id: filterBulletinVilleId || undefined,
     statut: filterBulletinStatut || undefined,
     mode: filterBulletinMode || undefined,
@@ -249,6 +338,7 @@ export default function PaiePage() {
   const marquerPaye = useMarquerBulletinPaye();
   const marquerPayeBulk = useMarquerBulletinPayeBulk();
   const { data: gradesData } = useGrades({ all: true });
+  const { data: qualificationsData } = useQualifications({ all: true });
   const { data: villesData } = useVilles({ all: true });
   const { data: comptesRes } = useComptesTresorerieOptions({
     enabled: canPayer,
@@ -268,6 +358,16 @@ export default function PaiePage() {
       })),
     ],
     [gradesData],
+  );
+  const qualificationFilterOptions = useMemo(
+    () => [
+      { value: "", label: "Toutes les qualifications" },
+      ...(qualificationsData?.data ?? []).map((q) => ({
+        value: q.id,
+        label: `${q.libelle} (${q.abreviation})`,
+      })),
+    ],
+    [qualificationsData],
   );
   const villeFilterOptions = useMemo(
     () => [
@@ -290,6 +390,30 @@ export default function PaiePage() {
       null,
     [periodes.data?.data, selectedPeriodeId],
   );
+  const canPointage = can(user, "vacations.view");
+  const [pointageDebut, pointageFin] = selectedPeriode
+    ? periodePointage(selectedPeriode.mois, selectedPeriode.annee)
+    : ["", ""];
+  const [pointageOpen, setPointageOpen] = useState(false);
+  /** Jours pointés par agent, pour aider la saisie des salaires perçus. */
+  const pointageSaisie = usePointageFeuille(
+    canPointage && bulkSalaireOpen && selectedPeriode
+      ? { date_debut: pointageDebut, date_fin: pointageFin }
+      : undefined,
+  );
+  const joursPointes = useMemo(() => {
+    const map = new Map<string, { total: number; absences: number; nc: number }>();
+    for (const c of pointageSaisie.data?.data.categories ?? []) {
+      for (const a of c.agents) {
+        map.set(a.agent_id, {
+          total: a.total,
+          absences: a.absences,
+          nc: Object.values(a.jours).filter((v) => v === "NC").length,
+        });
+      }
+    }
+    return map;
+  }, [pointageSaisie.data]);
 
   // Par défaut : mois calendaire en cours s’il existe, sinon première période
   // de la liste. Choisie une seule fois (ajustement pendant le rendu).
@@ -332,6 +456,7 @@ export default function PaiePage() {
         periodeId: selectedPeriodeId,
         q: bulletinsSearch || undefined,
         grade_id: filterBulletinGradeId || undefined,
+        qualification_id: filterBulletinQualificationId || undefined,
         ville_id: filterBulletinVilleId || undefined,
         statut: filterBulletinStatut || undefined,
         mode: filterBulletinMode || undefined,
@@ -756,6 +881,13 @@ export default function PaiePage() {
               header: "Brut",
               cell: ({ getValue }) =>
                 formatSalaire(getValue() as string | number | null, user),
+            },
+            {
+              id: "primes",
+              header: "Primes",
+              cell: ({ row }) => (
+                <PrimesBulletin details={row.original.details} user={user} />
+              ),
             },
             {
               accessorKey: "salaire_net",
@@ -1233,6 +1365,36 @@ export default function PaiePage() {
               </CardBody>
             </Card>
 
+            {canPointage && selectedPeriode ? (
+              <Card>
+                <CardBody className="space-y-2">
+                  <p className="text-sm font-semibold text-ink">
+                    Feuille de pointage
+                  </p>
+                  <p className="text-xs text-ink-muted">
+                    Présences du {formatDate(pointageDebut)} au{" "}
+                    {formatDate(pointageFin)}, à imprimer ou à consulter avant
+                    la saisie des salaires.
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="w-full"
+                    onClick={() => {
+                      setPointageOpen(true);
+                      requestAnimationFrame(() =>
+                        document
+                          .getElementById("feuille-pointage")
+                          ?.scrollIntoView({ behavior: "smooth" }),
+                      );
+                    }}
+                  >
+                    Ouvrir la feuille de pointage
+                  </Button>
+                </CardBody>
+              </Card>
+            ) : null}
+
             <Card>
               <CardHeader
                 title="Circuit paie"
@@ -1328,6 +1490,17 @@ export default function PaiePage() {
                         value={filterBulletinGradeId}
                         onChange={(e) => {
                           setFilterBulletinGradeId(e.target.value);
+                          setBulletinsPage(1);
+                        }}
+                      />
+                    </div>
+                    <div className="w-44 sm:w-52">
+                      <Select
+                        aria-label="Filtrer par qualification"
+                        options={qualificationFilterOptions}
+                        value={filterBulletinQualificationId}
+                        onChange={(e) => {
+                          setFilterBulletinQualificationId(e.target.value);
                           setBulletinsPage(1);
                         }}
                       />
@@ -1436,6 +1609,32 @@ export default function PaiePage() {
             )}
           </CardBody>
         </Card>
+
+        {canPointage && selectedPeriode ? (
+          <Card id="feuille-pointage" className="min-w-0 overflow-hidden">
+            <CardHeader
+              title={`Feuille de pointage — ${labelMoisAnnee(selectedPeriode.mois, selectedPeriode.annee)}`}
+              description={`Du ${formatDate(pointageDebut)} au ${formatDate(pointageFin)} (26 → 25) — base des jours travaillés.`}
+              action={
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setPointageOpen((o) => !o)}
+                >
+                  {pointageOpen ? "Masquer" : "Afficher la feuille"}
+                </Button>
+              }
+            />
+            {pointageOpen ? (
+              <CardBody>
+                <FeuillePointagePanel
+                  dateDebut={pointageDebut}
+                  dateFin={pointageFin}
+                />
+              </CardBody>
+            ) : null}
+          </Card>
+        ) : null}
 
         <Modal
           open={periodeOpen}
@@ -1711,7 +1910,7 @@ export default function PaiePage() {
           onClose={closeBulkSalaire}
           preventClose={bulkSalaireBusy}
           title="Saisir les salaires perçus"
-          description={`${bulkSalaireBulletins.length} agent(s) — montants ajustables par ligne.`}
+          description={`${bulkSalaireBulletins.length} agent(s) — montants ajustables par ligne.${canPointage ? " Jours pointés : feuille de pointage du 26 au 25." : ""}`}
           footer={
             <>
               <Button
@@ -1811,6 +2010,12 @@ export default function PaiePage() {
                         {label}
                       </p>
                       <p className="text-xs text-ink-faint">{matricule}</p>
+                      {canPointage ? (
+                        <JoursPointes
+                          chargement={pointageSaisie.isLoading}
+                          info={joursPointes.get(b.agent_id)}
+                        />
+                      ) : null}
                     </div>
                     <Input
                       label="Salaire perçu"
